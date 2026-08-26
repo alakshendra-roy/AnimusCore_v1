@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="AnimusCore_v1/AnimusCore_v1.vcxproj" Id="c1f695aa-f7e4-40eb-a17e-85fa1e02e1e8" />
+</Solution>
