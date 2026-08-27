@@ -1,0 +1,71 @@
+import ctypes
+import os
+import time
+
+dll_path = r"C:\Users\Alaks\source\repos\AnimusCore_v1\x64\Release\AnimusCore_v1.dll"
+animus = ctypes.CDLL(dll_path)
+
+animus.animus_init.argtypes = [ctypes.c_size_t]
+animus.animus_init.restype = ctypes.c_bool
+
+animus.animus_record_event.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint64]
+animus.animus_record_event.restype = ctypes.c_bool
+
+animus.animus_start_logging.argtypes = [ctypes.c_char_p]
+animus.animus_start_logging.restype = None
+
+animus.animus_stop_logging.restype = None
+
+if __name__ == "__main__":
+    print("[Python] Initializing Animus Engine C++ Core...")
+    if animus.animus_init(65536):
+        print("[Python] C++ Core initialized with 64k ring buffer.")
+        
+        log_file = b"telemetry_stream.bin"
+        animus.animus_start_logging(log_file)
+        
+        start_time = time.perf_counter_ns()
+        for i in range(100000):
+            animus.animus_record_event(101, i, 9999)
+        end_time = time.perf_counter_ns()
+        
+        total_ms = (end_time - start_time) / 1e6
+        avg_ns = (end_time - start_time) / 100000
+        
+        print(f"[Python] Ingested 100,000 events in {total_ms:.2f} ms")
+        print(f"[Python] Average C-ABI interop latency: {avg_ns:.2f} ns/op")
+        
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+       animus.animus_stop_logging()
+        print("[Python] Phase 4 C-ABI Interop Test Complete.")

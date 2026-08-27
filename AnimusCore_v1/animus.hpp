@@ -24,4 +24,20 @@ namespace animus {
         static std::unique_ptr<Engine> Create(size_t buffer_capacity = 65536);
     };
 
-} // namespace animus
+} // namespace animus 
+// Append macro definition at top if not already defined:
+#ifndef ANIMUS_API
+#ifdef ANIMUS_EXPORTS
+#define ANIMUS_API __declspec(dllexport)
+#else
+#define ANIMUS_API __declspec(dllimport)
+#endif
+#endif
+
+// Add C-ABI Exports at the bottom of animus.hpp (below namespace animus)
+extern "C" {
+    ANIMUS_API bool animus_init(size_t buffer_capacity);
+    ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value);
+    ANIMUS_API void animus_start_logging(const char* filepath);
+    ANIMUS_API void animus_stop_logging();
+}

@@ -17,8 +17,12 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
-    <None Include="..\..\..\..\Downloads\ingest_engine.py" />
     <None Include="threat_agent.py" />
     <None Include="soar_orchestrator.py" />
+    <None Include="ingest_engine.py" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="AnimusCore_v1.cpp" />
+    <ClCompile Include="animus_engine.cpp" />
   </ItemGroup>
 </Project>

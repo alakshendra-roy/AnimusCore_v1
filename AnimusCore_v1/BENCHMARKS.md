@@ -18,3 +18,18 @@
 - **Average Hot-Path Latency:** 19.963 ns / op
 - **p99 Tail Latency:** 100 ns
 - **Persistence Target:** `telemetry_data.bin` (Direct binary stream)
+- ## Phase 4: C-ABI Python Interop Benchmarks
+
+* **Target Architecture:** C++ DLL (`AnimusCore_v1.dll`) via Python `ctypes`
+* **Batch Size:** 600,000 events
+* **Ring Buffer Allocation:** 64 KiB
+* **Total Execution Time:** 545.95 ms
+* **Average Latency per Op:** 909.92 ns (~0.91 µs)
+* **Status:** Phase 4 Interop Verified
+## Phase 5: SOAR Real-Time Orchestration Benchmarks
+
+* **Target System:** Real-Time Threat Evaluation & Automated Response Pipeline
+* **Evaluated Stream:** 100,000 telemetry events
+* **Threat Vectors Identified & Mitigated:** 200 high-priority vectors
+* **Pipeline Execution Time:** 13.71 ms
+* **Status:** Phase 5 Real-Time Orchestration Verified

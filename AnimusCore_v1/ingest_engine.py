@@ -1,40 +1,33 @@
-import json
+import ctypes
 import time
-import os
 
-TELEMETRY_PATH = r"C:\Users\Alaks\source\repos\AnimusCore_v1\AnimusCore_v1\animus_telemetry.json"
-CPU_ALERT_THRESHOLD = 80.0  # Alert if CPU exceeds 80%
+dll_path = r"C:\Users\Alaks\source\repos\AnimusCore_v1\x64\Release\AnimusCore_v1.dll"
+animus = ctypes.CDLL(dll_path)
 
-def stream_telemetry():
-    print("[+] Animus Ingestion Engine Active. Monitoring live telemetry...\n")
-    
-    if not os.path.exists(TELEMETRY_PATH):
-        print(f"[-] Waiting for log file at: {TELEMETRY_PATH}")
-        return
+animus.animus_init.argtypes = [ctypes.c_size_t]
+animus.animus_init.restype = ctypes.c_bool
 
-    with open(TELEMETRY_PATH, "r") as f:
-        f.seek(0, os.SEEK_END)
-        
-        while True:
-            line = f.readline()
-            if not line:
-                time.sleep(0.5)
-                continue
-            
-            try:
-                data = json.loads(line.strip())
-                cpu = data.get("cpu_usage", 0.0)
-                ram_used = data.get("total_ram_mb", 0) - data.get("avail_ram_mb", 0)
-                
-                # Check for anomaly
-                status = "[ALERT - HIGH CPU]" if cpu > CPU_ALERT_THRESHOLD else "[OK]"
-                print(f"{status} Time: {data['timestamp']} | CPU: {cpu:.1f}% | RAM Used: {ram_used} MB")
-                
-            except json.JSONDecodeError:
-                continue
+animus.animus_record_event.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint64]
+animus.animus_record_event.restype = ctypes.c_bool
+
+animus.animus_start_logging.argtypes = [ctypes.c_char_p]
+animus.animus_start_logging.restype = None
+
+animus.animus_stop_logging.restype = None
 
 if __name__ == "__main__":
-    try:
-        stream_telemetry()
-    except KeyboardInterrupt:
-        print("\n[+] Ingestion Engine safely shut down.")
+    print("[Python] Initializing Animus Engine C++ Core...")
+    if animus.animus_init(65536):
+        print("[Python] C++ Core initialized with 64k ring buffer.")
+        animus.animus_start_logging(b"telemetry_stream.bin")
+        start_time = time.perf_counter_ns()
+        for i in range(600000):
+            animus.animus_record_event(101, i, 9999)
+        end_time = time.perf_counter_ns()
+        total_ms = (end_time - start_time) / 1e6
+        avg_ns = (end_time - start_time) / 600000
+        print("[Python] Ingested 600,000 events successfully")
+        print("[Python] Execution Time ms:", round(total_ms, 2))
+        print("[Python] Latency per op ns:", round(avg_ns, 2))
+        animus.animus_stop_logging()
+        print("[Python] Phase 4 C-ABI Interop Test Complete.")
