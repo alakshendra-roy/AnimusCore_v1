@@ -18,7 +18,7 @@
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
     <None Include="..\..\..\..\Downloads\ingest_engine.py" />
-    <None Include="..\..\..\..\Downloads\soar_orchestrator.py" />
-    <None Include="..\..\..\..\Downloads\threat_agent.py" />
+    <None Include="threat_agent.py" />
+    <None Include="soar_orchestrator.py" />
   </ItemGroup>
 </Project>
