@@ -106,3 +106,35 @@ namespace animus {
     }
 
 } // namespace animus
+#define ANIMUS_EXPORTS  // Ensures functions are marked as dllexport in this translation unit
+#include "animus.hpp"
+#include <memory>
+#include <string>
+
+static std::unique_ptr<animus::Engine> g_engine = nullptr;
+
+extern "C" {
+    ANIMUS_API bool animus_init(size_t buffer_capacity) {
+        if (!g_engine) {
+            g_engine = animus::Engine::Create(buffer_capacity);
+        }
+        return g_engine != nullptr;
+    }
+
+    ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) {
+        if (!g_engine) return false;
+        return g_engine->record(event_id, trace_id, metric_value);
+    }
+
+    ANIMUS_API void animus_start_logging(const char* filepath) {
+        if (g_engine && filepath) {
+            g_engine->start_persistence(std::string(filepath));
+        }
+    }
+
+    ANIMUS_API void animus_stop_logging() {
+        if (g_engine) {
+            g_engine->stop_persistence();
+        }
+    }
+}

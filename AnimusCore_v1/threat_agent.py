@@ -1,23 +1,20 @@
-import logging
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - [ANIMUS-AGENT] - %(levelname)s - %(message)s")
+import random
+import time
 
 class ThreatAgent:
-    def __init__(self, model_name="animus-dfir-v1"):
-        self.model_name = model_name
-
-    def evaluate_telemetry(self, telemetry_data: dict) -> dict:
-        """Evaluates structured telemetry for zero-day threat patterns."""
-        logging.info(f"Running ML evaluation using {self.model_name}...")
-        # Threat evaluation logic placeholder
-        return {
-            "threat_detected": False,
-            "confidence_score": 0.0,
-            "action": "MONITOR"
-        }
+    """Simulates high-frequency adversary behavior and telemetry anomalies."""
+    @staticmethod
+    def generate_telemetry_batch(count=50000):
+        events = []
+        for i in range(count):
+            # 2% chance of generating a high-severity threat event
+            if random.random() < 0.02:
+                events.append((999, i, random.randint(8500, 10000)))  # Critical Threat
+            else:
+                events.append((101, i, random.randint(100, 2000)))   # Normal Telemetry
+        return events
 
 if __name__ == "__main__":
-    agent = ThreatAgent()
-    sample_data = {"timestamp": "2026-08-20T13:00:00Z", "raw_payload": "test log"}
-    result = agent.evaluate_telemetry(sample_data)
-    logging.info(f"Evaluation result: {result}")
+    print("[Threat Agent] Generating synthetic anomaly stream...")
+    stream = ThreatAgent.generate_telemetry_batch(10000)
+    print(f"[Threat Agent] Generated {len(stream)} events with injected threat vectors.")
