@@ -145,6 +145,9 @@
     <ClInclude Include="animus.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\..\..\Downloads\ingest_engine.py" />
+    <None Include="..\..\..\..\Downloads\soar_orchestrator.py" />
+    <None Include="..\..\..\..\Downloads\threat_agent.py" />
     <None Include="BENCHMARKS.md" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
