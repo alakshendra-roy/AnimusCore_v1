@@ -1,0 +1,63 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  windows-vcxproj:
+    name: Windows (MSVC / AnimusCore_v1.vcxproj)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      # AnimusCore_v1.vcxproj pins PlatformToolset=v145, which tracks the
+      # newest Visual Studio installed on the maintainer's machine and is
+      # typically ahead of what GitHub-hosted windows-latest runners ship
+      # (currently VS2022, toolset v143). Override it to v143 for this CI
+      # build only -- the vcxproj file itself is untouched, so a local
+      # build keeps using whatever toolset is actually installed there.
+      - name: Build AnimusCore_v1.dll (Release|x64)
+        run: >
+          msbuild AnimusCore_v1/AnimusCore_v1.vcxproj
+          /p:Configuration=Release /p:Platform=x64
+          /p:PlatformToolset=v143
+          /m
+
+      - name: Verify AnimusCore_v1.dll was produced
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "AnimusCore_v1/x64/Release/AnimusCore_v1.dll")) {
+            throw "AnimusCore_v1.dll not found after build"
+          }
+
+  linux-cmake:
+    name: Linux (CMake / g++)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMakeLists.txt)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build AnimusNative (libanimus_native.so)
+        run: cmake --build build --config Release
+
+      - name: Verify libanimus_native.so was produced
+        run: test -f build/libanimus_native.so
+
+      - name: Smoke-test the SDK against the freshly built binary
+        run: |
+          python3 -c "
+          import animus
+          b = animus.AnimusBindings()
+          assert b.using_native_engine, 'expected the freshly built libanimus_native.so to load'
+          assert b.init(1024)
+          assert b.record_event(event_id=1, trace_id=1, metric_value=42)
+          print('OK: libanimus_native.so loaded and functional')
+          "
