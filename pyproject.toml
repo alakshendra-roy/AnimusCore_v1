@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "animus-core"
+version = "1.0.0"
+description = "High-Performance Low-Latency C++/Python Event Ingestion & SOAR Engine"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Alakshendra Roy" }]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: C++",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+]
+# Zero-dependency SDK (CLAUDE.md): everything animus/ imports -- ctypes,
+# multiprocessing.shared_memory, threading -- is Python 3.8+ stdlib.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/alakshendra-roy/AnimusCore_v1"
+
+[tool.setuptools]
+packages = ["animus"]
+
+[tool.setuptools.package-data]
+# Bundles the compiled native engine inside the wheel itself (staged into
+# animus/ by setup.py's build_py override) so an installed wheel is
+# self-contained and doesn't depend on a sibling source checkout --
+# animus.bindings.load_native_library checks the package directory first
+# for exactly this reason.
+animus = ["*.dll", "*.so", "*.dylib"]
