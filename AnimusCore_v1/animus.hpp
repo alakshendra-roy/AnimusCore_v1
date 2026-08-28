@@ -514,12 +514,25 @@ namespace animus {
     };
 
 } // namespace animus
-// Append macro definition at top if not already defined:
+// Portable C-ABI export/import macro: MSVC (and MinGW) use __declspec, while
+// GCC/Clang on Linux/macOS use the "default" visibility attribute -- plain
+// __declspec is not recognized by non-Windows GCC/Clang, so this must branch
+// on _WIN32 rather than the compiler alone to support both the MSVC vcxproj
+// build (AnimusCore_v1.dll) and the portable CMake build (AnimusNative.dll /
+// libanimus_native.so) from the same header.
 #ifndef ANIMUS_API
+#if defined(_WIN32)
 #ifdef ANIMUS_EXPORTS
 #define ANIMUS_API __declspec(dllexport)
 #else
 #define ANIMUS_API __declspec(dllimport)
+#endif
+#else
+#ifdef ANIMUS_EXPORTS
+#define ANIMUS_API __attribute__((visibility("default")))
+#else
+#define ANIMUS_API
+#endif
 #endif
 #endif
 
