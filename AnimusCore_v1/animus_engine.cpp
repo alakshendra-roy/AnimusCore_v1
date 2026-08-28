@@ -17,20 +17,53 @@ namespace animus {
         std::thread worker_thread_;
         std::string log_file_path_;
 
+        // Spool loop: pop() and push() are both lock-free/non-blocking, so this
+        // thread never contends with producer threads for a lock. If the sink
+        // file can't be opened (bad path, permissions), events are left in the
+        // ring buffer rather than silently discarded -- the buffer will simply
+        // fill and record() will start returning false until the sink recovers
+        // or shutdown is requested.
         void process_persistence_queue() {
-            std::ofstream log_file(log_file_path_, std::ios::out | std::ios::app | std::ios::binary);
             constexpr size_t BATCH_SIZE = 1024;
+            constexpr auto OPEN_RETRY_INTERVAL = std::chrono::milliseconds(200);
             std::vector<TelemetryPayload> batch;
             batch.reserve(BATCH_SIZE);
             TelemetryPayload item;
 
+            std::ofstream log_file;
+            auto try_open = [&]() {
+                log_file.open(log_file_path_, std::ios::out | std::ios::app | std::ios::binary);
+                return log_file.is_open();
+            };
+
+            bool sink_ready = try_open();
+            auto last_open_attempt = std::chrono::steady_clock::now();
+
             for (;;) {
+                if (!sink_ready) {
+                    if (!running_.load(std::memory_order_acquire)) {
+                        break; // stop requested before a sink was ever available
+                    }
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - last_open_attempt >= OPEN_RETRY_INTERVAL) {
+                        sink_ready = try_open();
+                        last_open_attempt = now;
+                    }
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    continue;
+                }
+
                 while (batch.size() < BATCH_SIZE && ring_.pop(item)) {
                     batch.push_back(item);
                 }
 
                 if (!batch.empty()) {
                     log_file.write(reinterpret_cast<const char*>(batch.data()), batch.size() * sizeof(TelemetryPayload));
+                    log_file.flush(); // bound data loss to the in-flight batch on a hard crash
+                    if (!log_file.good()) {
+                        sink_ready = false; // sink failed mid-run (e.g. disk full); fall back to retrying
+                        log_file.close();
+                    }
                     batch.clear();
                     continue;
                 }
@@ -134,3 +167,4 @@ extern "C" {
         }
     }
 }
+
