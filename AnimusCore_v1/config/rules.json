@@ -5,12 +5,16 @@
   },
   "threat_signatures": {
     "unauthorized_access": {
-      "flag": 1,
+      "event_id": 999,
+      "comparator": "GREATER_THAN",
+      "threshold": 8000,
       "severity": "CRITICAL",
       "action": "ISOLATE_HOST"
     },
     "buffer_overflow_attempt": {
-      "flag": 2,
+      "event_id": 999,
+      "comparator": "GREATER_THAN",
+      "threshold": 9500,
       "severity": "HIGH",
       "action": "TERMINATE_PROCESS"
     }
