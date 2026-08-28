@@ -36,13 +36,27 @@
 * **Average Latency per Op:** 0.990 µs (990 ns)
 * **Measurement Method:** Python-side wall clock (`time.perf_counter_ns`) spanning the full call loop; includes `ctypes` call-marshalling overhead, not just native ring-buffer push time
 * **Status:** Phase 4 Interop Verified (re-run against current build)
-## Phase 5: SOAR Real-Time Orchestration Benchmarks
+## Phase 5: Event-Driven SOAR Orchestration Benchmarks
 
-* **Target System:** Real-Time Threat Evaluation & Automated Response Pipeline
-* **Evaluated Stream:** 100,000 telemetry events
-* **Threat Vectors Identified & Mitigated:** 200 high-priority vectors
-* **Pipeline Execution Time:** 13.71 ms
-* **Status:** Phase 5 Real-Time Orchestration Verified
+* **Target System:** `soar_orchestrator.py` -- config-driven threat signatures registered as native rules (`SOAROrchestrator.register_signatures` -> `animus_add_rule`), matched signals drained by a continuous background poller thread and dispatched to automated trigger-action handlers (`SOAROrchestrator._poll_loop` / `dispatch`), superseding the earlier Phase 5 entry which predated the Phase 4 native rule engine and matched signatures in Python against a synthetic flag value
+* **Event Source:** `ThreatAgent.generate_telemetry_batch` -- synthetic stream with a ~2% injected critical-threat rate (`event_id=999`, `metric_value` in [8500, 10000]) against a normal-telemetry baseline (`event_id=101`, `metric_value` in [100, 2000])
+* **Registered Signatures:** 2 (`unauthorized_access`: `metric_value > 8000` -> `ISOLATE_HOST`; `buffer_overflow_attempt`: `metric_value > 9500` -> `TERMINATE_PROCESS`), loaded from `config/rules.json`
+* **Batch Size:** 600,000 events
+* **Ring Allocation:** 2 MiB telemetry ring + 2 MiB signal ring
+
+| Metric | Result |
+|---|---|
+| Events streamed / accepted | 600,000 / 600,000 (100%) |
+| Pipeline execution time (ingest loop) | 412.31 ms |
+| Throughput | 1,455,398 events/sec |
+| Average latency per op | 687.18 ns |
+| Threat signals evaluated | 15,834 |
+| Automated actions dispatched | 15,834 (matches signals evaluated -- every signal reaches a trigger-action handler) |
+| Persisted bytes | 38,400,000 (600,000 x 64 bytes/record) |
+
+* **Detection Correctness:** every dispatched action's `rule_id` resolved to its originating signature (`unauthorized_access` / `buffer_overflow_attempt`) via the orchestrator's rule-id index, with severity and action name read back from `config/rules.json` -- no unresolved (`rule_UNKNOWN`) signals
+* **Signal Ring Headroom:** 15,834 signals produced against a 2,097,152-capacity signal ring -- no saturation, consistent with the Known Limit documented under Phase 4 above
+* **Status:** Phase 5 Event-Driven Orchestration Verified
 
 ## Phase 4: In-Memory Signal & Threat Evaluation Engine
 
