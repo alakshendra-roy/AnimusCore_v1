@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "animus-core"
+name = "animus-engine-sdk"
 version = "1.0.0"
 description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine"
 readme = "README.md"
