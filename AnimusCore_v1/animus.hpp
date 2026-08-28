@@ -21,6 +21,41 @@ namespace animus {
         uint64_t metric_value;
     };
 
+    // Emitted when a registered rule matches an ingested telemetry event.
+    // Deliberately NOT cache-line padded like TelemetryPayload: this struct
+    // is copied directly across the C-ABI via poll_signals(ThreatSignal*, ...),
+    // so its layout must be exactly what a caller's own struct definition
+    // (e.g. a ctypes Structure) naturally produces -- 32 bytes, 8-byte
+    // aligned. Padding it to 64 bytes here without the caller mirroring that
+    // padding would silently corrupt the caller's buffer.
+    struct ThreatSignal {
+        uint64_t timestamp_cycles;
+        uint32_t event_id;
+        uint32_t trace_id;
+        uint64_t metric_value;
+        uint32_t rule_id;
+        uint32_t severity;
+    };
+
+    // Comparator applied between an event's metric_value and a rule's threshold.
+    enum class RuleComparator : uint8_t {
+        GreaterThan = 0,
+        LessThan = 1,
+        Equal = 2,
+    };
+
+    // Declarative threshold rule: matches telemetry events carrying a given
+    // event_id whose metric_value satisfies `comparator` against `threshold`.
+    // Covers both threat-detection thresholds (e.g. anomalous rate spikes)
+    // and trading-signal thresholds (e.g. price/volume breakouts) uniformly.
+    struct RuleThreshold {
+        uint32_t rule_id;
+        uint32_t event_id;
+        uint64_t threshold;
+        RuleComparator comparator;
+        uint32_t severity;
+    };
+
     // Low-overhead cycle counter for hot-path timestamping. Falls back to a
     // monotonic clock on platforms without an invariant TSC intrinsic.
     inline uint64_t read_cycle_counter() noexcept {
@@ -130,6 +165,16 @@ namespace animus {
         virtual void start_persistence(const std::string& log_filepath) = 0;
         virtual void stop_persistence() = 0;
 
+        // Registers a threshold rule evaluated in-memory against every
+        // ingested event (see EngineImpl::evaluate_rules). Returns false for
+        // an invalid comparator value or if rule storage could not be grown.
+        virtual bool add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) noexcept = 0;
+
+        // Drains up to max_count pending signals into the caller-owned `out`
+        // buffer (zero-copy for the caller: no allocation, direct struct
+        // copy). Returns the number of signals actually written.
+        virtual size_t poll_signals(ThreatSignal* out, size_t max_count) noexcept = 0;
+
         static std::unique_ptr<Engine> Create(size_t buffer_capacity = 65536);
     };
 
@@ -149,4 +194,6 @@ extern "C" {
     ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value);
     ANIMUS_API void animus_start_logging(const char* filepath);
     ANIMUS_API void animus_stop_logging();
+    ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity);
+    ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count);
 }
