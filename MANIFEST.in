@@ -1,3 +1,6 @@
 include animus/*.dll
 include animus/*.so
 include animus/*.dylib
+include LICENSE
+include AnimusCore_v1/QUICKSTART.md
+include AnimusCore_v1/animus_release.hpp

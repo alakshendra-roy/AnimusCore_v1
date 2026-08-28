@@ -146,13 +146,16 @@
     <ClInclude Include="animus_security.hpp" />
     <ClInclude Include="animus_transport.hpp" />
     <ClInclude Include="animus_cluster.hpp" />
+    <ClInclude Include="animus_release.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
+    <None Include="QUICKSTART.md" />
     <None Include="ingest_engine.py" />
     <None Include="soar_orchestrator.py" />
     <None Include="threat_agent.py" />
     <None Include="generate_demo_certs.ps1" />
+    <None Include="amalgamate.py" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AnimusCore_v1.cpp" />
@@ -188,6 +191,26 @@
       <!-- Standalone Phase 9 demo (Raft-lite cluster over mTLS) with its
            own main(); same exclusion rationale as execution_interop_demo.cpp.
            Windows/MSVC only: animus_cluster.hpp is built on animus_transport.hpp. -->
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="cluster_latency_bench.cpp">
+      <!-- Standalone Phase 10 benchmark (multi-node write-latency/throughput
+           measurement over the Phase 9 cluster) with its own main(); same
+           exclusion rationale as execution_interop_demo.cpp. Windows/MSVC
+           only: animus_cluster.hpp is built on animus_transport.hpp. -->
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="release_header_smoke_test.cpp">
+      <!-- Standalone Phase 10 verification (proves animus_release.hpp, the
+           generated single-header amalgamation, is a working drop-in for
+           the four source headers) with its own main(); same exclusion
+           rationale as execution_interop_demo.cpp. -->
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>

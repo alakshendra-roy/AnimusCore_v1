@@ -26,13 +26,18 @@
     <ClInclude Include="animus_cluster.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="animus_release.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
+    <None Include="QUICKSTART.md" />
     <None Include="threat_agent.py" />
     <None Include="soar_orchestrator.py" />
     <None Include="ingest_engine.py" />
     <None Include="generate_demo_certs.ps1" />
+    <None Include="amalgamate.py" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AnimusCore_v1.cpp" />
@@ -41,5 +46,7 @@
     <ClCompile Include="secure_multitenancy_demo.cpp" />
     <ClCompile Include="secure_transport_demo.cpp" />
     <ClCompile Include="cluster_demo.cpp" />
+    <ClCompile Include="cluster_latency_bench.cpp" />
+    <ClCompile Include="release_header_smoke_test.cpp" />
   </ItemGroup>
 </Project>

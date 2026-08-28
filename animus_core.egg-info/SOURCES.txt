@@ -1,8 +1,15 @@
+LICENSE
+MANIFEST.in
 README.md
+pyproject.toml
 setup.py
+AnimusCore_v1/animus_release.hpp
+animus/AnimusCore_v1.dll
 animus/__init__.py
 animus/bindings.py
 animus/core.py
+animus/decorators.py
+animus/shm.py
 animus_core.egg-info/PKG-INFO
 animus_core.egg-info/SOURCES.txt
 animus_core.egg-info/dependency_links.txt

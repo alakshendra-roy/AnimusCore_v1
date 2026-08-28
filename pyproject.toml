@@ -5,17 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "animus-core"
 version = "1.0.0"
-description = "High-Performance Low-Latency C++/Python Event Ingestion & SOAR Engine"
+description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT" }
-authors = [{ name = "Alakshendra Roy" }]
+authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+keywords = [
+    "telemetry",
+    "event-processing",
+    "soar",
+    "low-latency",
+    "security",
+    "distributed-systems",
+    "raft",
+    "mtls",
+]
 classifiers = [
+    "Development Status :: 4 - Beta",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
     "Programming Language :: C++",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
     "Topic :: Security",
     "Topic :: Software Development :: Libraries",
+    "Topic :: System :: Distributed Computing",
 ]
 # Zero-dependency SDK (CLAUDE.md): everything animus/ imports -- ctypes,
 # multiprocessing.shared_memory, threading -- is Python 3.8+ stdlib.
@@ -23,6 +39,8 @@ dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/alakshendra-roy/AnimusCore_v1"
+Documentation = "https://github.com/alakshendra-roy/AnimusCore_v1/blob/master/AnimusCore_v1/QUICKSTART.md"
+Issues = "https://github.com/alakshendra-roy/AnimusCore_v1/issues"
 
 [tool.setuptools]
 packages = ["animus"]
