@@ -1,6 +1,4 @@
 #include "animus.hpp"
-#include <atomic>
-#include <vector>
 #include <thread>
 #include <fstream>
 #include <chrono>
@@ -9,13 +7,10 @@ namespace animus {
 
     class EngineImpl final : public Engine {
     private:
-        // Align atomic pointers to separate cache lines (64 bytes) to prevent false sharing
-        alignas(64) mutable std::atomic<size_t> head_{ 0 };
-        alignas(64) std::atomic<size_t> tail_{ 0 };
-
-        size_t capacity_;
-        size_t mask_;
-        mutable std::vector<TelemetryPayload> buffer_;
+        // Lock-free MPMC ring buffer: safe for concurrent producer threads
+        // (e.g. multiple Python threads calling into the C-ABI concurrently)
+        // paired with the single background persistence consumer below.
+        mutable LockFreeRingBuffer<TelemetryPayload> ring_;
 
         // Asynchronous Disk Worker Controls
         std::atomic<bool> running_{ false };
@@ -27,24 +22,24 @@ namespace animus {
             constexpr size_t BATCH_SIZE = 1024;
             std::vector<TelemetryPayload> batch;
             batch.reserve(BATCH_SIZE);
+            TelemetryPayload item;
 
-            while (running_.load(std::memory_order_relaxed) || tail_.load(std::memory_order_relaxed) < head_.load(std::memory_order_relaxed)) {
-                size_t current_tail = tail_.load(std::memory_order_relaxed);
-                size_t current_head = head_.load(std::memory_order_acquire);
-
-                while (current_tail < current_head && batch.size() < BATCH_SIZE) {
-                    batch.push_back(buffer_[current_tail & mask_]);
-                    current_tail++;
+            for (;;) {
+                while (batch.size() < BATCH_SIZE && ring_.pop(item)) {
+                    batch.push_back(item);
                 }
 
                 if (!batch.empty()) {
                     log_file.write(reinterpret_cast<const char*>(batch.data()), batch.size() * sizeof(TelemetryPayload));
-                    tail_.store(current_tail, std::memory_order_release);
                     batch.clear();
+                    continue;
                 }
-                else {
-                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+
+                if (!running_.load(std::memory_order_acquire)) {
+                    break; // stop requested and ring buffer fully drained
                 }
+
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
             }
             if (log_file.is_open()) {
                 log_file.flush();
@@ -54,7 +49,7 @@ namespace animus {
 
     public:
         explicit EngineImpl(size_t capacity)
-            : capacity_(capacity), mask_(capacity - 1), buffer_(capacity) {
+            : ring_(capacity) {
         }
 
         ~EngineImpl() override {
@@ -62,23 +57,13 @@ namespace animus {
         }
 
         bool record(uint32_t event_id, uint32_t trace_id, uint64_t value) const noexcept override {
-            size_t current_head = head_.load(std::memory_order_relaxed);
-            size_t current_tail = tail_.load(std::memory_order_acquire);
-
-            if (current_head - current_tail >= capacity_) {
-                return false; // Buffer full
-            }
-
-            size_t index = current_head & mask_;
-            buffer_[index] = TelemetryPayload{
-                0, // Timestamps captured via CPU cycles
+            TelemetryPayload payload{
+                read_cycle_counter(),
                 event_id,
                 trace_id,
                 value
             };
-
-            head_.store(current_head + 1, std::memory_order_release);
-            return true;
+            return ring_.push(payload);
         }
 
         bool is_guard_active() const noexcept override {
@@ -106,15 +91,23 @@ namespace animus {
     }
 
 } // namespace animus
+
+#ifndef ANIMUS_EXPORTS
 #define ANIMUS_EXPORTS  // Ensures functions are marked as dllexport in this translation unit
+#endif
 #include "animus.hpp"
 #include <memory>
+#include <mutex>
 #include <string>
 
 static std::unique_ptr<animus::Engine> g_engine = nullptr;
+static std::mutex g_init_mutex;
 
 extern "C" {
+    // Cold path: guarded by a mutex since it runs once at startup. The hot
+    // record/logging paths below never take a lock.
     ANIMUS_API bool animus_init(size_t buffer_capacity) {
+        std::lock_guard<std::mutex> lock(g_init_mutex);
         if (!g_engine) {
             g_engine = animus::Engine::Create(buffer_capacity);
         }
@@ -122,19 +115,22 @@ extern "C" {
     }
 
     ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) {
-        if (!g_engine) return false;
-        return g_engine->record(event_id, trace_id, metric_value);
+        animus::Engine* engine = g_engine.get();
+        if (!engine) return false;
+        return engine->record(event_id, trace_id, metric_value);
     }
 
     ANIMUS_API void animus_start_logging(const char* filepath) {
-        if (g_engine && filepath) {
-            g_engine->start_persistence(std::string(filepath));
+        animus::Engine* engine = g_engine.get();
+        if (engine && filepath) {
+            engine->start_persistence(std::string(filepath));
         }
     }
 
     ANIMUS_API void animus_stop_logging() {
-        if (g_engine) {
-            g_engine->stop_persistence();
+        animus::Engine* engine = g_engine.get();
+        if (engine) {
+            engine->stop_persistence();
         }
     }
 }

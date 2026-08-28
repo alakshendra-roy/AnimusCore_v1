@@ -26,6 +26,16 @@
 * **Total Execution Time:** 545.95 ms
 * **Average Latency per Op:** 909.92 ns (~0.91 µs)
 * **Status:** Phase 4 Interop Verified
+
+## Phase 4 (Validated Re-run): C-ABI Python Interop Benchmarks
+
+* **Target Architecture:** C++ DLL (`AnimusCore_v1.dll`) via Python `ctypes`, single producer thread
+* **Batch Size:** 600,000 sequential `animus_record_event` calls
+* **Ring Buffer Allocation:** 64 KiB
+* **Sustained Throughput:** 1,009,680 events/sec
+* **Average Latency per Op:** 0.990 µs (990 ns)
+* **Measurement Method:** Python-side wall clock (`time.perf_counter_ns`) spanning the full call loop; includes `ctypes` call-marshalling overhead, not just native ring-buffer push time
+* **Status:** Phase 4 Interop Verified (re-run against current build)
 ## Phase 5: SOAR Real-Time Orchestration Benchmarks
 
 * **Target System:** Real-Time Threat Evaluation & Automated Response Pipeline
