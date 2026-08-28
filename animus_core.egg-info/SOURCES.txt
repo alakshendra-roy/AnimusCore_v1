@@ -1,0 +1,9 @@
+README.md
+setup.py
+animus/__init__.py
+animus/bindings.py
+animus/core.py
+animus_core.egg-info/PKG-INFO
+animus_core.egg-info/SOURCES.txt
+animus_core.egg-info/dependency_links.txt
+animus_core.egg-info/top_level.txt
