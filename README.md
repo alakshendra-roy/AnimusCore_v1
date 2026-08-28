@@ -44,3 +44,21 @@ python AnimusCore_v1/soar_orchestrator.py --events 600000
 
 Verified end-to-end at 600,000 events: 1,455,398 events/sec sustained ingestion, 15,834 threat signals correctly matched and dispatched to automated actions with zero drops. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 5 benchmark breakdown.
 
+## Phase 6: SDK Packaging, Shared-Memory IPC & @trace
+
+The SDK is now a proper installable wheel with cross-process shared-memory transport and one-line function instrumentation:
+
+* **Wheel packaging:** `pyproject.toml` carries PEP 621 metadata; `setup.py`'s `build_py` override stages the compiled native library (`AnimusCore_v1.dll` / `libAnimusCore.so` / `.dylib`) into `animus/` before packaging, so `pip wheel .` produces a self-contained wheel -- no sibling source checkout required at install time.
+* **Shared-memory IPC:** `animus.shm.SharedTelemetryRing` is a zero-copy single-producer/single-consumer ring living in an OS-level shared memory segment (`multiprocessing.shared_memory`, stdlib-only), letting two separate processes exchange telemetry records with no serialization step -- complementary to the native engine's in-process ring, which only one process can see.
+* **`@animus.trace` decorator:** wraps any function so each call is recorded as one native telemetry event (duration in nanoseconds as `metric_value`), usable bare or parameterized (`@animus.trace(event_id=42)`), and degrades gracefully rather than breaking the wrapped function if the native engine can't load.
+
+```bash
+# Build and verify a self-contained wheel
+pip wheel . --no-deps
+
+# Run the cross-process shared-memory IPC demo (spawns a real consumer process)
+python AnimusCore_v1/shm_ipc_demo.py
+```
+
+Verified: a built wheel installed into an isolated venv and imported/exercised from a directory with no sibling repo files; the shared-memory IPC demo moved 200,000 events across two OS processes at 1,177,592 events/sec with zero drops; `@animus.trace` adds ~908.5 ns/call on top of an already-warm native engine. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 6 benchmark breakdown.
+
