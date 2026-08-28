@@ -2,6 +2,8 @@
 #include <thread>
 #include <fstream>
 #include <chrono>
+#include <mutex>
+#include <vector>
 
 namespace animus {
 
@@ -12,10 +14,54 @@ namespace animus {
         // paired with the single background persistence consumer below.
         mutable LockFreeRingBuffer<TelemetryPayload> ring_;
 
+        // Lock-free output queue for rule matches. Written only by the
+        // persistence worker thread (single producer), drained by whatever
+        // thread calls poll_signals() (e.g. a Python polling loop); push()
+        // never blocks, so a slow/absent signal consumer cannot stall
+        // ingestion or persistence.
+        mutable LockFreeRingBuffer<ThreatSignal> signal_ring_;
+
         // Asynchronous Disk Worker Controls
         std::atomic<bool> running_{ false };
         std::thread worker_thread_;
         std::string log_file_path_;
+
+        // Rule set is read once per batch (not per event) by the persistence
+        // worker, so a plain mutex guarding an immutable-snapshot swap is
+        // simpler than a lock-free structure and adds negligible overhead --
+        // add_rule() is a cold path relative to the ~1024-event batch cadence.
+        mutable std::mutex rules_mutex_;
+        std::shared_ptr<const std::vector<RuleThreshold>> rules_;
+
+        // Zero-copy rule evaluation: takes the telemetry payload and the
+        // current rule snapshot by reference (no copy of the event stream or
+        // rule set), and pushes a compact ThreatSignal for every match. Runs
+        // inline on the persistence worker's already-materialized batch, so
+        // no additional buffering or thread hand-off is needed.
+        void evaluate_rules(const TelemetryPayload& payload, const std::vector<RuleThreshold>& rules) noexcept {
+            for (const RuleThreshold& rule : rules) {
+                if (rule.event_id != payload.event_id) continue;
+
+                bool matched = false;
+                switch (rule.comparator) {
+                case RuleComparator::GreaterThan: matched = payload.metric_value > rule.threshold; break;
+                case RuleComparator::LessThan:    matched = payload.metric_value < rule.threshold; break;
+                case RuleComparator::Equal:       matched = payload.metric_value == rule.threshold; break;
+                }
+
+                if (matched) {
+                    ThreatSignal signal{
+                        payload.timestamp_cycles,
+                        payload.event_id,
+                        payload.trace_id,
+                        payload.metric_value,
+                        rule.rule_id,
+                        rule.severity
+                    };
+                    signal_ring_.push(signal); // never blocks; drops if the signal ring is saturated
+                }
+            }
+        }
 
         // Spool loop: pop() and push() are both lock-free/non-blocking, so this
         // thread never contends with producer threads for a lock. If the sink
@@ -58,6 +104,15 @@ namespace animus {
                 }
 
                 if (!batch.empty()) {
+                    std::shared_ptr<const std::vector<RuleThreshold>> rules_snapshot;
+                    {
+                        std::lock_guard<std::mutex> lock(rules_mutex_);
+                        rules_snapshot = rules_; // one snapshot per batch, not per event
+                    }
+                    for (const TelemetryPayload& payload : batch) {
+                        evaluate_rules(payload, *rules_snapshot);
+                    }
+
                     log_file.write(reinterpret_cast<const char*>(batch.data()), batch.size() * sizeof(TelemetryPayload));
                     log_file.flush(); // bound data loss to the in-flight batch on a hard crash
                     if (!log_file.good()) {
@@ -82,7 +137,9 @@ namespace animus {
 
     public:
         explicit EngineImpl(size_t capacity)
-            : ring_(capacity) {
+            : ring_(capacity),
+            signal_ring_(capacity),
+            rules_(std::make_shared<const std::vector<RuleThreshold>>()) {
         }
 
         ~EngineImpl() override {
@@ -116,6 +173,34 @@ namespace animus {
             if (worker_thread_.joinable()) {
                 worker_thread_.join();
             }
+        }
+
+        bool add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) noexcept override {
+            if (comparator > static_cast<uint8_t>(RuleComparator::Equal)) {
+                return false; // unrecognized comparator value
+            }
+            try {
+                auto updated = std::make_shared<std::vector<RuleThreshold>>();
+                {
+                    std::lock_guard<std::mutex> lock(rules_mutex_);
+                    *updated = *rules_; // copy current snapshot, append, swap -- readers keep using the old snapshot until this store
+                    updated->push_back(RuleThreshold{ rule_id, event_id, threshold, static_cast<RuleComparator>(comparator), severity });
+                    rules_ = std::move(updated);
+                }
+                return true;
+            }
+            catch (...) {
+                return false; // e.g. allocation failure -- existing rules remain valid and in effect
+            }
+        }
+
+        size_t poll_signals(ThreatSignal* out, size_t max_count) noexcept override {
+            if (!out) return 0;
+            size_t count = 0;
+            while (count < max_count && signal_ring_.pop(out[count])) {
+                ++count;
+            }
+            return count;
         }
     };
 
@@ -165,6 +250,18 @@ extern "C" {
         if (engine) {
             engine->stop_persistence();
         }
+    }
+
+    ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) {
+        animus::Engine* engine = g_engine.get();
+        if (!engine) return false;
+        return engine->add_rule(rule_id, event_id, threshold, comparator, severity);
+    }
+
+    ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count) {
+        animus::Engine* engine = g_engine.get();
+        if (!engine || !out) return 0;
+        return engine->poll_signals(out, max_count);
     }
 }
 
