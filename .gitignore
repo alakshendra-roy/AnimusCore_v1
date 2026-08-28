@@ -1,7 +1,28 @@
-﻿# Python artifacts
-__pycache__/*.py[cod]*#py.class*.egg-info/dist/build/
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
 # C++ / Visual Studio build outputs
-x64/Debug/Release/*.obj*.exe*.pdb*.ilk
-# Runtime generated benchmark output
+x64/
+Debug/
+Release/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+*.lib
+*.exp
+*.tlog
+*.recipe
+*.lastbuildstate
+.vs/
+
+# Runtime generated benchmark / telemetry output
 BENCHMARK_REPORT.json
-/.vs
+telemetry_data.bin
+telemetry_stream.bin
