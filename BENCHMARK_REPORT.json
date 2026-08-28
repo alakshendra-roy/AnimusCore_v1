@@ -1,0 +1,6 @@
+{
+    "engine_version": "1.0.0",
+    "mean_latency_us": 7.05,
+    "p90_latency_us": 14.1,
+    "peak_throughput_ops": 600000000
+}
