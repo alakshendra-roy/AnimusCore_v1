@@ -3,6 +3,7 @@ MANIFEST.in
 README.md
 pyproject.toml
 setup.py
+AnimusCore_v1/QUICKSTART.md
 AnimusCore_v1/animus_release.hpp
 animus/AnimusCore_v1.dll
 animus/__init__.py

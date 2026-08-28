@@ -28,7 +28,7 @@ Dynamic: license-file
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
-![C++: 17}hhttps://img.shields.io/badge/C+%-17-blue.svg)
+![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 
 ## Overview
 Animus Core is an enterprise-grade, low-latency telemetry ingestion and automated response engine engineered in C++ with native Python SDK bindings. It bridges C-ABI execution memory boundaries with high-level orchestrators to process high-throughput telemetry streams without zero-copy buffer degradation.
@@ -50,6 +50,10 @@ python test_sdk.py
 3 Run production benchmark suite
 python benchmark_suite.py
  ```
+
+See `AnimusCore_v1/QUICKSTART.md` for four client proof-of-concept guides
+(Python SDK, C++ single-header embedding, secure multi-tenant + mTLS, and
+distributed Raft-lite cluster) covering every way to consume Animus Core.
 
 ## Benchmark Performance
 * **Peak Throughput:** >238 Million ops/sec
@@ -141,4 +145,27 @@ cluster_demo.exe
 ```
 
 Verified across 25 consecutive runs (100% pass): a 3-node cluster elects exactly one leader (~500 ms average), a proposed rule replicates to a majority and is confirmed *functionally* on all three independently-running engines (not just as a log entry), a follower correctly redirects a write attempt to the real leader, and killing the leader triggers a real re-election (~716 ms average) after which the survivors keep replicating correctly. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 9 benchmark breakdown, including four real defects found and fixed during verification -- among them a genuine Raft correctness gap (a new leader unable to commit an inherited pre-term entry without a no-op anchor) that was live-reproduced in roughly 1 in 5 failover runs before being fixed.
+
+## Phase 10: Final Commercial Packaging & Single-Header Release
+
+Animus Core ships as a single distributable artifact per platform: one header for C++ integrators, one wheel for Python integrators, both regenerated from source rather than hand-maintained.
+
+* **Single-header release (`AnimusCore_v1/animus_release.hpp`):** `AnimusCore_v1/amalgamate.py` concatenates all four source headers (`animus.hpp`, `animus_security.hpp`, `animus_transport.hpp`, `animus_cluster.hpp`) into one self-contained file -- a client vendors one `#include`, not four with an inter-file include order to get right. The Windows-only transport/cluster sections are gated on `defined(_WIN32) && defined(_MSC_VER)`, not just `_WIN32`, so the same single header still compiles the portable core engine + RBAC layer under MinGW `g++` (verified with a real build and run) while correctly reserving the Schannel-based sections for MSVC, where their certificate loading actually works.
+* **Python SDK, PyPI-ready:** an MIT `LICENSE`, PyPI classifiers, and `Documentation`/`Issues` project URLs were added to `pyproject.toml`; a real `pip wheel . --no-deps` build was installed into a fresh isolated venv (no sibling source checkout) and imported successfully, with the native `AnimusCore_v1.dll` bundled inside the wheel.
+* **Multi-node write-latency benchmark (`AnimusCore_v1/cluster_latency_bench.cpp`):** a new benchmark against the Phase 9 cluster, distinct from Phase 9's election/failover timing -- it measures the latency a client actually experiences on every write (`RaftNode::propose()`'s majority-commit latency) separately from full-cluster (not just majority) convergence latency, since conflating them would misrepresent both.
+* **Client quickstart guides (`AnimusCore_v1/QUICKSTART.md`):** four proof-of-concept guides -- Python SDK, C++ single header, secure multi-tenant + mTLS, and distributed cluster -- each layering on the previous, with every code sample either compiled and run for real or checked against the current method signatures in the source headers.
+
+```bash
+# Regenerate the single header after touching any of the 4 source headers,
+# then verify it (from an "x64 Native Tools Command Prompt for VS"):
+python AnimusCore_v1/amalgamate.py
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/release_header_smoke_test.cpp
+release_header_smoke_test.exe
+
+# Build and run the multi-node latency benchmark:
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/cluster_latency_bench.cpp
+cluster_latency_bench.exe
+```
+
+Verified: the amalgamated header was real-compiled and run with both MSVC (all four layers) and MinGW `g++` (portable core + RBAC layer, correctly excluding the Windows-only sections); the wheel build/install/import cycle succeeded end-to-end in a fresh venv; five consecutive cluster-latency-benchmark runs completed with zero failed proposals, showing sub-millisecond p50 majority-commit write latency (0.120-0.377 ms across runs) and full-cluster convergence latency clustering tightly around the 30 ms heartbeat interval. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 10 benchmark breakdown, including two real defects found and fixed while building the header generator (an under-broad include-stripping regex that caused a genuine type-redefinition compile error, and a guard that checked only `_WIN32` when the code it protected actually required MSVC specifically).
 
