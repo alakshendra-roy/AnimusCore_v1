@@ -5,6 +5,9 @@
 #include <atomic>
 #include <vector>
 #include <chrono>
+#include <thread>
+#include <fstream>
+#include <mutex>
 
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #include <intrin.h>
@@ -178,7 +181,339 @@ namespace animus {
         static std::unique_ptr<Engine> Create(size_t buffer_capacity = 65536);
     };
 
-} // namespace animus 
+    // -----------------------------------------------------------------------
+    // Header-only engine implementation
+    // -----------------------------------------------------------------------
+    // Defined directly in this header, with every method `inline`, so that
+    // animus.hpp is a genuine zero-dependency, single-header C++ library:
+    // any C++17 translation unit can #include "animus.hpp" and call
+    // animus::Engine::Create() to get a fully working in-process engine,
+    // with no separate .cpp to compile and no AnimusCore_v1.dll to build or
+    // link against. `inline` on a class's member functions defined outside
+    // the class (and on Engine::Create's out-of-line definition below) is
+    // what makes this safe to include from multiple translation units in
+    // the same program without violating the One Definition Rule -- the
+    // linker collapses the duplicate definitions rather than erroring.
+    //
+    // The DLL build used by the Python SDK (animus_engine.cpp, compiled
+    // with ANIMUS_EXPORTS) does nothing more than #include this same header
+    // and re-expose Engine::Create()'s functionality across the C-ABI below
+    // -- it is a thin shim over this implementation, not a separate one.
+    // A C++ caller that needs to avoid the ctypes/C-ABI marshalling cost
+    // entirely (e.g. an execution path with a hard latency budget) can
+    // skip the DLL altogether and drive animus::Engine directly.
+    class EngineImpl final : public Engine {
+    private:
+        // Lock-free MPMC ring buffer: safe for concurrent producer threads
+        // paired with the single background persistence consumer below.
+        mutable LockFreeRingBuffer<TelemetryPayload> ring_;
+
+        // Lock-free output queue for rule matches. Written only by the
+        // persistence worker thread (single producer), drained by whatever
+        // thread calls poll_signals(); push() never blocks, so a slow/absent
+        // signal consumer cannot stall ingestion or persistence.
+        mutable LockFreeRingBuffer<ThreatSignal> signal_ring_;
+
+        // Asynchronous Disk Worker Controls
+        std::atomic<bool> running_{ false };
+        std::thread worker_thread_;
+        std::string log_file_path_;
+
+        // Rule set is read once per batch (not per event) by the persistence
+        // worker, so a plain mutex guarding an immutable-snapshot swap is
+        // simpler than a lock-free structure and adds negligible overhead --
+        // add_rule() is a cold path relative to the ~1024-event batch cadence.
+        mutable std::mutex rules_mutex_;
+        std::shared_ptr<const std::vector<RuleThreshold>> rules_;
+
+        // Zero-copy rule evaluation: takes the telemetry payload and the
+        // current rule snapshot by reference (no copy of the event stream or
+        // rule set), and pushes a compact ThreatSignal for every match. Runs
+        // inline on the persistence worker's already-materialized batch, so
+        // no additional buffering or thread hand-off is needed.
+        void evaluate_rules(const TelemetryPayload& payload, const std::vector<RuleThreshold>& rules) noexcept {
+            for (const RuleThreshold& rule : rules) {
+                if (rule.event_id != payload.event_id) continue;
+
+                bool matched = false;
+                switch (rule.comparator) {
+                case RuleComparator::GreaterThan: matched = payload.metric_value > rule.threshold; break;
+                case RuleComparator::LessThan:    matched = payload.metric_value < rule.threshold; break;
+                case RuleComparator::Equal:       matched = payload.metric_value == rule.threshold; break;
+                }
+
+                if (matched) {
+                    ThreatSignal signal{
+                        payload.timestamp_cycles,
+                        payload.event_id,
+                        payload.trace_id,
+                        payload.metric_value,
+                        rule.rule_id,
+                        rule.severity
+                    };
+                    signal_ring_.push(signal); // never blocks; drops if the signal ring is saturated
+                }
+            }
+        }
+
+        // Spool loop: pop() and push() are both lock-free/non-blocking, so this
+        // thread never contends with producer threads for a lock. If the sink
+        // file can't be opened (bad path, permissions), events are left in the
+        // ring buffer rather than silently discarded -- the buffer will simply
+        // fill and record() will start returning false until the sink recovers
+        // or shutdown is requested.
+        void process_persistence_queue() {
+            constexpr size_t BATCH_SIZE = 1024;
+            constexpr auto OPEN_RETRY_INTERVAL = std::chrono::milliseconds(200);
+            std::vector<TelemetryPayload> batch;
+            batch.reserve(BATCH_SIZE);
+            TelemetryPayload item;
+
+            std::ofstream log_file;
+            auto try_open = [&]() {
+                log_file.open(log_file_path_, std::ios::out | std::ios::app | std::ios::binary);
+                return log_file.is_open();
+            };
+
+            bool sink_ready = try_open();
+            auto last_open_attempt = std::chrono::steady_clock::now();
+
+            for (;;) {
+                if (!sink_ready) {
+                    if (!running_.load(std::memory_order_acquire)) {
+                        break; // stop requested before a sink was ever available
+                    }
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - last_open_attempt >= OPEN_RETRY_INTERVAL) {
+                        sink_ready = try_open();
+                        last_open_attempt = now;
+                    }
+                    std::this_thread::sleep_for(std::chrono::microseconds(50));
+                    continue;
+                }
+
+                while (batch.size() < BATCH_SIZE && ring_.pop(item)) {
+                    batch.push_back(item);
+                }
+
+                if (!batch.empty()) {
+                    std::shared_ptr<const std::vector<RuleThreshold>> rules_snapshot;
+                    {
+                        std::lock_guard<std::mutex> lock(rules_mutex_);
+                        rules_snapshot = rules_; // one snapshot per batch, not per event
+                    }
+                    for (const TelemetryPayload& payload : batch) {
+                        evaluate_rules(payload, *rules_snapshot);
+                    }
+
+                    log_file.write(reinterpret_cast<const char*>(batch.data()), batch.size() * sizeof(TelemetryPayload));
+                    log_file.flush(); // bound data loss to the in-flight batch on a hard crash
+                    if (!log_file.good()) {
+                        sink_ready = false; // sink failed mid-run (e.g. disk full); fall back to retrying
+                        log_file.close();
+                    }
+                    batch.clear();
+                    continue;
+                }
+
+                if (!running_.load(std::memory_order_acquire)) {
+                    break; // stop requested and ring buffer fully drained
+                }
+
+                std::this_thread::sleep_for(std::chrono::microseconds(50));
+            }
+            if (log_file.is_open()) {
+                log_file.flush();
+                log_file.close();
+            }
+        }
+
+    public:
+        explicit EngineImpl(size_t capacity)
+            : ring_(capacity),
+            signal_ring_(capacity),
+            rules_(std::make_shared<const std::vector<RuleThreshold>>()) {
+        }
+
+        ~EngineImpl() override {
+            stop_persistence();
+        }
+
+        bool record(uint32_t event_id, uint32_t trace_id, uint64_t value) const noexcept override {
+            TelemetryPayload payload{
+                read_cycle_counter(),
+                event_id,
+                trace_id,
+                value
+            };
+            return ring_.push(payload);
+        }
+
+        bool is_guard_active() const noexcept override {
+            return true;
+        }
+
+        void start_persistence(const std::string& log_filepath) override {
+            if (running_.load()) return;
+            log_file_path_ = log_filepath;
+            running_.store(true);
+            worker_thread_ = std::thread(&EngineImpl::process_persistence_queue, this);
+        }
+
+        void stop_persistence() override {
+            if (!running_.load()) return;
+            running_.store(false);
+            if (worker_thread_.joinable()) {
+                worker_thread_.join();
+            }
+        }
+
+        bool add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) noexcept override {
+            if (comparator > static_cast<uint8_t>(RuleComparator::Equal)) {
+                return false; // unrecognized comparator value
+            }
+            try {
+                auto updated = std::make_shared<std::vector<RuleThreshold>>();
+                {
+                    std::lock_guard<std::mutex> lock(rules_mutex_);
+                    *updated = *rules_; // copy current snapshot, append, swap -- readers keep using the old snapshot until this store
+                    updated->push_back(RuleThreshold{ rule_id, event_id, threshold, static_cast<RuleComparator>(comparator), severity });
+                    rules_ = std::move(updated);
+                }
+                return true;
+            }
+            catch (...) {
+                return false; // e.g. allocation failure -- existing rules remain valid and in effect
+            }
+        }
+
+        size_t poll_signals(ThreatSignal* out, size_t max_count) noexcept override {
+            if (!out) return 0;
+            size_t count = 0;
+            while (count < max_count && signal_ring_.pop(out[count])) {
+                ++count;
+            }
+            return count;
+        }
+    };
+
+    inline std::unique_ptr<Engine> Engine::Create(size_t buffer_capacity) {
+        return std::make_unique<EngineImpl>(buffer_capacity);
+    }
+
+    // -----------------------------------------------------------------------
+    // Broker / Execution API Interop
+    // -----------------------------------------------------------------------
+    // Direct, in-process wrappers for routing orders to a broker/exchange
+    // execution API and instrumenting the round trip through the same
+    // header-only Engine used for telemetry ingestion. Registering a
+    // RuleThreshold on kExecutionLatencyEventId (via Engine::add_rule) turns
+    // "flag any fill slower than N nanoseconds" into a normal SOAR signal
+    // drained by the existing poll_signals() loop -- no separate risk
+    // pipeline needed. Everything here is pure C++17 with no allocation on
+    // the submit() hot path beyond whatever the concrete IBrokerGateway
+    // implementation itself performs.
+
+    enum class OrderSide : uint8_t { Buy = 0, Sell = 1 };
+    enum class OrderType : uint8_t { Market = 0, Limit = 1 };
+    enum class ExecStatus : uint8_t { Accepted = 0, Rejected = 1, Filled = 2, PartiallyFilled = 3 };
+
+    // Fixed-point price/quantity (integer ticks, not float): keeps order
+    // representation deterministic and bit-exact across languages/brokers,
+    // matching TelemetryPayload/ThreatSignal's existing preference for
+    // integer fields over floating point.
+    struct OrderRequest {
+        uint64_t client_order_id;
+        uint32_t instrument_id;
+        OrderSide side;
+        OrderType type;
+        uint64_t price_ticks;
+        uint64_t quantity;
+    };
+
+    struct ExecutionReport {
+        uint64_t client_order_id;
+        uint32_t instrument_id;
+        uint64_t filled_quantity;
+        uint64_t avg_price_ticks;
+        ExecStatus status;
+    };
+
+    // Telemetry event_id under which ExecutionClient records one round-trip
+    // latency sample (nanoseconds, as metric_value) per submit() call.
+    inline constexpr uint32_t kExecutionLatencyEventId = 0xE0000001u;
+
+    // Implemented by a concrete broker/exchange adapter (a FIX session, a
+    // REST-to-exchange bridge, a matching-engine simulator, ...). submit_order
+    // must be noexcept and should avoid blocking where possible on the hot
+    // path -- ExecutionClient times the call wall-to-wall and folds the
+    // result directly into the shared telemetry ring, so a blocking adapter
+    // directly inflates the recorded latency.
+    class IBrokerGateway {
+    public:
+        virtual ~IBrokerGateway() = default;
+        virtual bool submit_order(const OrderRequest& request, ExecutionReport& out) noexcept = 0;
+        virtual const char* name() const noexcept = 0;
+    };
+
+    // Deterministic in-process fill simulator: every order is instantly and
+    // fully filled at its requested price. Has no network/IO dependency, so
+    // it doubles as a live demo of ExecutionClient without a real broker
+    // connection and as a fixed baseline for measuring ExecutionClient's own
+    // overhead in isolation from any real gateway's latency.
+    class LoopbackBrokerGateway final : public IBrokerGateway {
+    public:
+        bool submit_order(const OrderRequest& request, ExecutionReport& out) noexcept override {
+            out.client_order_id = request.client_order_id;
+            out.instrument_id = request.instrument_id;
+            out.filled_quantity = request.quantity;
+            out.avg_price_ticks = request.price_ticks;
+            out.status = ExecStatus::Filled;
+            return true;
+        }
+        const char* name() const noexcept override { return "LoopbackBrokerGateway"; }
+    };
+
+    // Wraps a broker gateway with automatic per-order latency instrumentation
+    // against a header-only Engine. Construction takes non-owning references:
+    // both the engine and the gateway are expected to outlive the client,
+    // consistent with this being a thin, allocation-free hot-path wrapper
+    // rather than an owning facade.
+    class ExecutionClient {
+    public:
+        ExecutionClient(Engine& engine, IBrokerGateway& gateway) noexcept
+            : engine_(engine), gateway_(gateway) {
+        }
+
+        // Routes one order to the wrapped gateway and records the round-trip
+        // wall-clock latency (nanoseconds) as one telemetry event under
+        // kExecutionLatencyEventId, trace_id = the low 32 bits of the order's
+        // client_order_id. Returns the gateway's own success/failure result;
+        // a full telemetry ring only drops the latency sample, never the
+        // order itself -- the gateway call always happens.
+        bool submit(const OrderRequest& request, ExecutionReport& out) noexcept {
+            auto start = std::chrono::steady_clock::now();
+            bool accepted = gateway_.submit_order(request, out);
+            auto end = std::chrono::steady_clock::now();
+
+            uint64_t latency_ns = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count());
+            engine_.record(
+                kExecutionLatencyEventId,
+                static_cast<uint32_t>(request.client_order_id & 0xFFFFFFFFu),
+                latency_ns);
+
+            return accepted;
+        }
+
+        const char* gateway_name() const noexcept { return gateway_.name(); }
+
+    private:
+        Engine& engine_;
+        IBrokerGateway& gateway_;
+    };
+
+} // namespace animus
 // Append macro definition at top if not already defined:
 #ifndef ANIMUS_API
 #ifdef ANIMUS_EXPORTS

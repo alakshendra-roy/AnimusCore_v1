@@ -117,3 +117,32 @@
 
 * **Decorator Overhead:** ~908.5 ns/call (two `time.perf_counter_ns()` reads plus one `animus_record_event` ctypes call), consistent with the ~910 ns/op ctypes call-marshalling cost already measured for raw `record_event` in the Phase 4 benchmarks above -- the decorator adds negligible cost beyond the native call it wraps
 * **Status:** Phase 6 Trace Decorator Verified
+
+## Phase 7: Header-Only Engine & Execution Interop Benchmarks
+
+### Header-Only Refactor Verification
+
+* **Target System:** `animus.hpp` -- `EngineImpl` and `Engine::Create()` moved out of `animus_engine.cpp` into `inline` definitions in the header itself, so any C++17 translation unit can `#include "animus.hpp"` and drive `animus::Engine` in-process with zero DLL build, zero linking step, and zero ctypes/C-ABI boundary
+* **ODR Safety Check:** two independent translation units, each `#include "animus.hpp"` and each instantiating `animus::Engine::Create(...)`, compiled to separate object files and linked into one binary with `g++ -std=c++17` -- linked cleanly with no duplicate-symbol errors, confirming the `inline` design is safe to include from multiple `.cpp` files in the same program
+* **Real Build Verification:** full `MSBuild` rebuild of both `Release|x64` (`AnimusCore_v1.dll`, the Python SDK's native target) and `Debug|Win32` (`AnimusCore_v1.exe`) succeeded against the refactored header; the Phase 3 persistence demo was re-run against the now-inlined engine and reproduced consistent results (1.2498 Million ops/sec, 397.059 ns avg / 500 ns p99 latency), confirming no behavioral regression from the refactor
+* **Side Effect:** the refactor also fixed a latent pre-existing bug in `animus_engine.cpp` where `ANIMUS_API` resolved to `dllimport` (not `dllexport`) in any build configuration that didn't predefine `ANIMUS_EXPORTS` on the compiler command line, because the file's own `#define ANIMUS_EXPORTS` guard ran after `animus.hpp` had already been included once (a `#pragma once` no-op on the second include) -- the new shim defines `ANIMUS_EXPORTS` before the header is ever included
+* **Status:** Phase 7 Header-Only Refactor Verified
+
+### Broker/Execution Interop (`animus::ExecutionClient`)
+
+* **Target System:** `animus::ExecutionClient` wrapping `animus::LoopbackBrokerGateway` (a deterministic in-process fill simulator), exercised via `AnimusCore_v1/execution_interop_demo.cpp` -- a standalone C++17 program with no DLL, no Python, and no ctypes: `#include "animus.hpp"` is its entire dependency footprint
+* **Method:** 500,000 `OrderRequest`s submitted sequentially through `ExecutionClient::submit()`, each round-tripped through the gateway and instrumented as one telemetry event (`kExecutionLatencyEventId`, `metric_value` = wall-clock latency in nanoseconds) against the same header-only `Engine` used elsewhere in this document
+* **Risk Rule:** one `RuleThreshold` registered via the existing `Engine::add_rule` (`metric_value > 2,000 ns` -> `ThreatSignal`), demonstrating that a latency-risk check on the execution path is a normal SOAR rule evaluated by the same engine as telemetry ingestion, not a separate pipeline
+
+| Metric | Result |
+|---|---|
+| Orders submitted | 500,000 |
+| Total duration | 59.07 ms |
+| Sustained throughput | 8,464,120 orders/sec |
+| Average `submit()` latency | 90.16 ns/order |
+| p99 `submit()` latency | 100 ns |
+| Slow-fill threshold | 2,000 ns |
+| Slow-fill signals raised | 0 (no simulated fill exceeded the threshold, as expected from a loopback gateway with no I/O) |
+
+* **Correctness:** every one of the 500,000 orders returned `ExecStatus::Filled` from the gateway; the demo asserts this and aborts on any unexpected non-fill
+* **Status:** Phase 7 Broker/Execution Interop Verified
