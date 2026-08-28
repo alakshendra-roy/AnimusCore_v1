@@ -146,3 +146,45 @@
 
 * **Correctness:** every one of the 500,000 orders returned `ExecStatus::Filled` from the gateway; the demo asserts this and aborts on any unexpected non-fill
 * **Status:** Phase 7 Broker/Execution Interop Verified
+
+## Phase 8: Enterprise Security & Multi-Tenancy Benchmarks
+
+### RBAC + Multi-Tenant Telemetry Isolation (`animus::security`)
+
+* **Target System:** `AnimusCore_v1/animus_security.hpp` -- `TenantRegistry` (one isolated `Engine` ring buffer/rule set/persistence file per tenant) fronted by `SecureTelemetryGateway` (the only entry point; every call is RBAC-checked via `RbacPolicy` against a `Role`/`Permission` lattice, then routed to that token's own tenant `Engine`, with every decision -- allowed or denied -- appended to an independent audit trail), exercised via `AnimusCore_v1/secure_multitenancy_demo.cpp`
+* **Method:** two isolated tenants created by an `Admin` token; an `Operator` token records 10 events into tenant 10 and a threshold rule flags the last 5; a `Viewer` token scoped to tenant 20 (a different tenant, never written to) polls for signals; a `Viewer` attempts `record()` (not entitled); an `Operator` token is pointed at a tenant id that was never created
+* **Build/Run:** real MSVC (`cl /std:c++17 /O2`) compile and run -- not merely a compile check
+
+| Check | Result |
+|---|---|
+| `Admin` creates tenants 10 and 20 | Both succeed |
+| `Viewer` attempts `create_tenant` (not entitled) | Denied |
+| Tenant 10 `Viewer` polls signals after the rule fires | 7 signals returned |
+| Tenant 20 `Viewer` polls signals | 0 returned (isolated from tenant 10's ring buffer -- structural, not a filter) |
+| Tenant 10 `Viewer` attempts `record()` (not entitled) | Denied |
+| `Operator` token for a never-created tenant id (999) attempts `record()` | Denied -- fails closed, no ring buffer auto-created |
+| Audit events captured | 20 (3 denied, matching the three denied actions above) |
+
+* **Status:** Phase 8 RBAC + Multi-Tenant Isolation Verified
+
+### mTLS / TLS 1.3 Transport (`animus::transport`)
+
+* **Target System:** `AnimusCore_v1/animus_transport.hpp` -- a Windows-native Schannel (SSPI) transport built on `SCH_CREDENTIALS`/`TLS_PARAMETERS` (the legacy `SCHANNEL_CRED` struct cannot negotiate TLS 1.3's cipher-suite model on this SDK; using it fails `AcquireCredentialsHandleW` outright), with mandatory mutual authentication in both directions and manual chain verification against a private, in-memory-only exclusive-root CA engine (`TrustedRoot`) -- kept independent of `SCH_CRED_MANUAL_CRED_VALIDATION` so Schannel's own (bypassed) trust check is never the only thing standing between an unverified peer and the connection
+* **Certificates:** `AnimusCore_v1/generate_demo_certs.ps1` generates a self-signed demo CA plus server/client leaf certs (native `New-SelfSignedCertificate`, no OpenSSL dependency); a verified client certificate's subject CN is mapped to an `animus::security::AccessToken` via `CertificateIdentityMap` *after* chain verification succeeds, so RBAC/tenant routing downstream is keyed to a cryptographically proven identity, never a client-asserted value
+* **Method:** `AnimusCore_v1/secure_transport_demo.cpp` runs a real client and server thread against each other over loopback TCP -- the server requires and verifies the client's certificate, resolves it to an `AccessToken` for tenant 42, and dispatches each of 20,000 received `WireFrame`s through `SecureTelemetryGateway::record()`
+* **Build/Run:** real MSVC (`cl /std:c++17 /O2`) compile and run
+
+| Metric | Result |
+|---|---|
+| Negotiated protocol (both sides) | TLS 1.3 |
+| Client-verified server certificate CN | `animus-server` |
+| Server-verified client certificate CN | `animus-client-tenant-42` |
+| Frames sent by client | 20,000 |
+| Frames accepted server-side (RBAC-authorized, tenant 42) | 20,000 / 20,000 |
+| Total encrypted send duration | 138.171 ms |
+| Throughput | 144,748 frames/sec |
+| Cross-tenant isolation check | A second tenant (id 99, never granted a token or wired into the identity map) polling signals sees 0 -- pass |
+
+* **Negative-Path Verification:** a rogue certificate presenting the identical subject CN (`animus-client-tenant-42`) but signed by a *different*, untrusted CA was rejected by the server's chain verification (`CERT_TRUST_IS_UNTRUSTED_ROOT`) before any frame was processed -- confirming the chain check is load-bearing and not a no-op, since Schannel's own automatic validation is deliberately bypassed (`SCH_CRED_MANUAL_CRED_VALIDATION`) in favor of this explicit check
+* **Debugging Note:** two real defects surfaced during verification and were fixed before these numbers were captured -- (1) importing the PFX identity with `PKCS12_NO_PERSIST_KEY` (an ephemeral, never-persisted key) made `AcquireCredentialsHandleW` reject the certificate with `SEC_E_UNKNOWN_CREDENTIALS`, isolated via a minimal repro outside this header and fixed by switching to `CRYPT_USER_KEYSET` with explicit cleanup afterward (`delete_persisted_key`); (2) `recv_frame()` unconditionally blocked on a fresh socket read even when a complete record was already sitting in its own buffered leftover (`SECBUFFER_EXTRA`) from a prior call, causing a false "connection closed" near the end of a send burst once the peer had already finished and closed -- fixed to decrypt already-buffered data before touching the socket again
+* **Status:** Phase 8 mTLS/TLS 1.3 Transport Verified

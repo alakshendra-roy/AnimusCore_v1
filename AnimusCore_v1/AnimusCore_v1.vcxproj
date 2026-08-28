@@ -143,12 +143,15 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="animus.hpp" />
+    <ClInclude Include="animus_security.hpp" />
+    <ClInclude Include="animus_transport.hpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
     <None Include="ingest_engine.py" />
     <None Include="soar_orchestrator.py" />
     <None Include="threat_agent.py" />
+    <None Include="generate_demo_certs.ps1" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AnimusCore_v1.cpp" />
@@ -158,6 +161,23 @@
            already owns main() for the Application configurations, so this
            is excluded from the default build and compiled/run manually
            (see the header comment in execution_interop_demo.cpp). -->
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="secure_multitenancy_demo.cpp">
+      <!-- Standalone Phase 8 demo (RBAC + multi-tenant isolation) with its
+           own main(); same exclusion rationale as execution_interop_demo.cpp. -->
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="secure_transport_demo.cpp">
+      <!-- Standalone Phase 8 demo (mTLS/TLS 1.3 transport) with its own
+           main(); same exclusion rationale as execution_interop_demo.cpp.
+           Windows/MSVC only: animus_transport.hpp is Schannel-based. -->
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
