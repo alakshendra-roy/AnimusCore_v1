@@ -98,3 +98,21 @@ secure_transport_demo.exe
 
 Verified: the RBAC/tenancy demo confirmed tenant isolation (a second tenant's viewer sees 0 of another tenant's signals), fail-closed behavior against an unknown tenant id, and correct denial of unentitled actions, all captured in an independent audit trail. The mTLS demo negotiated real TLS 1.3 with mutual certificate authentication over loopback TCP and delivered 20,000/20,000 frames at 144,748 frames/sec through the RBAC/tenancy layer above; a negative-path test confirmed a same-CN certificate signed by an untrusted CA is rejected before any frame is processed. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 8 benchmark breakdown, including two real defects found and fixed during verification.
 
+## Phase 9: Distributed Cloud Orchestration & Clustering
+
+A Raft-lite consensus layer clusters multiple engine nodes over the same mTLS transport Phase 8 established, without pulling in gRPC/Protobuf:
+
+* **Inter-node sync over mTLS, not gRPC (`AnimusCore_v1/animus_cluster.hpp`):** given the choice between real gRPC+Protobuf (this project's first external build dependency) and a custom binary RPC reusing Phase 8's Schannel transport, the latter was chosen explicitly to keep the "zero external dependency" property intact. `SecureChannel` gained generic length-prefixed message framing (`send_message`/`recv_message`) alongside its existing fixed-size telemetry `WireFrame` to carry Raft's variable-length `AppendEntries` calls.
+* **Raft-lite leader election & replication:** `RaftNode` implements randomized-timeout election, log-consistency-checked replication with conflict truncation, and the "commit only current-term entries" safety rule -- real Raft, not a stub, just without durable log storage or snapshotting (see the header's documented limitations). Each node keeps its telemetry ingestion fully local and zero-copy; only control-plane `AddRule` commands go through consensus, so every node's rule set converges without touching the hot path.
+* **High-availability failover:** cluster membership is static and every node dials every other node over its own mTLS connection. Killing the current leader is detected via election timeout by the survivors, who elect a new leader and keep replicating -- proven with a real node shutdown mid-run, not a simulated clock.
+
+```bash
+# Generate demo certs (now includes 3 cluster-node identities), then build and run
+# (PowerShell, then an "x64 Native Tools Command Prompt for VS"):
+powershell -File AnimusCore_v1/generate_demo_certs.ps1
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/cluster_demo.cpp
+cluster_demo.exe
+```
+
+Verified across 25 consecutive runs (100% pass): a 3-node cluster elects exactly one leader (~500 ms average), a proposed rule replicates to a majority and is confirmed *functionally* on all three independently-running engines (not just as a log entry), a follower correctly redirects a write attempt to the real leader, and killing the leader triggers a real re-election (~716 ms average) after which the survivors keep replicating correctly. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 9 benchmark breakdown, including four real defects found and fixed during verification -- among them a genuine Raft correctness gap (a new leader unable to commit an inherited pre-term entry without a no-op anchor) that was live-reproduced in roughly 1 in 5 failover runs before being fixed.
+

@@ -27,6 +27,7 @@ BENCHMARK_REPORT.json
 telemetry_data.bin
 telemetry_stream.bin
 AnimusCore_v1/secure_demo_tenant10.log
+AnimusCore_v1/cluster_demo_node*.log
 
 # Native library staged into animus/ by setup.py's build_py override
 # (see Phase 6) -- built per-platform, never tracked in source control.

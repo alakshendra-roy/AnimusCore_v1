@@ -132,7 +132,20 @@ namespace transport {
 
         bool valid() const noexcept { return sock_ != INVALID_SOCKET; }
 
-        static TcpSocket connect_to(const std::string& host, uint16_t port) {
+        // timeout_ms bounds how long a connection ATTEMPT can take -- not
+        // just the degenerate "port refused" case (which is normally near-
+        // instant on loopback and doesn't need this), but the case a
+        // cluster actually cares about: a peer whose listening socket was
+        // JUST closed (see animus_cluster.hpp's RaftNode::stop()) can, in
+        // practice on Windows, leave a brief window where a fresh connect()
+        // to that port is neither accepted nor immediately RST'd, and the
+        // OS's default connect timeout for that case is many seconds --
+        // long enough to stall an entire Raft election round waiting on a
+        // single dead peer. Implemented as non-blocking connect + select()
+        // rather than a plain blocking connect(), specifically so a dead
+        // peer fails fast and predictably instead of at the mercy of the
+        // OS's default TCP retransmission/timeout schedule.
+        static TcpSocket connect_to(const std::string& host, uint16_t port, int timeout_ms = 5000) {
             SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
             if (s == INVALID_SOCKET) throw std::runtime_error("socket() failed: " + std::to_string(WSAGetLastError()));
             sockaddr_in addr{};
@@ -142,11 +155,42 @@ namespace transport {
                 closesocket(s);
                 throw std::runtime_error("invalid IPv4 address: " + host);
             }
-            if (::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0) {
+
+            u_long non_blocking = 1;
+            ioctlsocket(s, FIONBIO, &non_blocking);
+
+            int rc = ::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+            if (rc != 0) {
                 int err = WSAGetLastError();
-                closesocket(s);
-                throw std::runtime_error("connect() failed: " + std::to_string(err));
+                if (err != WSAEWOULDBLOCK) {
+                    closesocket(s);
+                    throw std::runtime_error("connect() failed: " + std::to_string(err));
+                }
+                fd_set write_set, err_set;
+                FD_ZERO(&write_set); FD_SET(s, &write_set);
+                FD_ZERO(&err_set); FD_SET(s, &err_set);
+                timeval tv{};
+                tv.tv_sec = timeout_ms / 1000;
+                tv.tv_usec = (timeout_ms % 1000) * 1000;
+                int ready = select(0, nullptr, &write_set, &err_set, &tv);
+                if (ready == 0) {
+                    closesocket(s);
+                    throw std::runtime_error("connect() timed out after " + std::to_string(timeout_ms) + " ms");
+                }
+                if (ready == SOCKET_ERROR || FD_ISSET(s, &err_set)) {
+                    closesocket(s);
+                    throw std::runtime_error("connect() failed: " + std::to_string(WSAGetLastError()));
+                }
+                int so_error = 0;
+                int so_error_len = sizeof(so_error);
+                if (getsockopt(s, SOL_SOCKET, SO_ERROR, reinterpret_cast<char*>(&so_error), &so_error_len) != 0 || so_error != 0) {
+                    closesocket(s);
+                    throw std::runtime_error("connect() failed: " + std::to_string(so_error));
+                }
             }
+
+            u_long blocking = 0;
+            ioctlsocket(s, FIONBIO, &blocking); // every other TcpSocket method assumes blocking semantics
             return TcpSocket(s);
         }
 
@@ -470,7 +514,13 @@ namespace transport {
             cred.dwCredFormat = SCH_CRED_FORMAT_CERT_CONTEXT;
             cred.cCreds = 1;
             cred.paCred = certs;
-            cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS;
+            // SCH_CRED_DISABLE_RECONNECTS: also stops the PEER (a server
+            // we connect to) from issuing TLS 1.3 post-handshake
+            // NewSessionTicket messages it otherwise would -- see the
+            // matching comment on the server side below for why that
+            // matters to every reader of this connection, not just this
+            // client.
+            cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_DISABLE_RECONNECTS;
             cred.cTlsParameters = 1;
             cred.pTlsParameters = &tls_params;
 
@@ -546,7 +596,27 @@ namespace transport {
             cred.dwCredFormat = SCH_CRED_FORMAT_CERT_CONTEXT;
             cred.cCreds = 1;
             cred.paCred = certs;
-            cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION;
+            // SCH_CRED_DISABLE_RECONNECTS suppresses TLS 1.3 session
+            // resumption on this server credential -- in particular, the
+            // automatic post-handshake NewSessionTicket message(s) a
+            // Schannel TLS 1.3 server would otherwise send right after the
+            // handshake completes. Those tickets are encrypted with the
+            // application traffic key and arrive indistinguishable from a
+            // real data record until DecryptMessage is called on them, at
+            // which point it returns SEC_I_RENEGOTIATE instead of handing
+            // back application data -- correctly reprocessing that status
+            // (rather than just discarding the record) requires re-driving
+            // {Initialize,Accept}SecurityContext with exactly the right
+            // leftover bytes, which is finicky enough that a real attempt
+            // at it here produced a genuine deadlock (SecureChannel is
+            // symmetric for Phase 9 -- every connection's dialer both
+            // sends a request AND blocks reading the response, so the two
+            // ends can end up mutually waiting). Not issuing tickets in
+            // the first place avoids the whole class of bug; recv_frame()/
+            // decrypt_one_record() below still fail fast with a clear
+            // error if SEC_I_RENEGOTIATE ever shows up anyway, rather than
+            // silently hanging.
+            cred.dwFlags = SCH_CRED_MANUAL_CRED_VALIDATION | SCH_CRED_DISABLE_RECONNECTS;
             cred.cTlsParameters = 1;
             cred.pTlsParameters = &tls_params;
 
@@ -623,6 +693,37 @@ namespace transport {
             return socket_.send_all(io_buf.data(), total);
         }
 
+        // -------------------------------------------------------------
+        // Generic variable-length message framing, layered on the same
+        // EncryptMessage/DecryptMessage record plumbing as send_frame/
+        // recv_frame above but not tied to the fixed-size WireFrame --
+        // Phase 9's cluster RPCs (RequestVote/AppendEntries) carry a
+        // variable number of log entries, so a fixed struct doesn't fit.
+        // Wire shape: a 4-byte little-endian length prefix, itself sent
+        // as its own TLS record, followed by that many payload bytes
+        // (chunked into further records if larger than one TLS record's
+        // max message size). recv_message() reassembles across however
+        // many DecryptMessage calls that takes, buffering leftover
+        // plaintext in plaintext_buf_ for the next call.
+        // -------------------------------------------------------------
+        bool send_message(const std::vector<uint8_t>& payload) noexcept {
+            uint32_t len = static_cast<uint32_t>(payload.size());
+            uint8_t hdr[4];
+            std::memcpy(hdr, &len, 4);
+            if (!send_raw(hdr, 4)) return false;
+            if (payload.empty()) return true;
+            return send_raw(payload.data(), payload.size());
+        }
+
+        bool recv_message(std::vector<uint8_t>& payload) noexcept {
+            std::vector<uint8_t> hdr;
+            if (!recv_exact(4, hdr)) return false;
+            uint32_t len;
+            std::memcpy(&len, hdr.data(), 4);
+            if (len > (64u * 1024 * 1024)) { last_error_ = "recv_message: implausible length prefix"; return false; }
+            return recv_exact(len, payload);
+        }
+
         bool recv_frame(WireFrame& out) noexcept {
             if (!handshake_done_) return false;
             for (;;) {
@@ -657,6 +758,20 @@ namespace transport {
                     continue;
                 }
                 if (ss == SEC_I_CONTEXT_EXPIRED) { last_error_ = "peer sent close_notify"; return false; }
+                if (ss == SEC_I_RENEGOTIATE) {
+                    // Both handshake_as_client() and handshake_as_server()
+                    // set SCH_CRED_DISABLE_RECONNECTS specifically so this
+                    // should never happen (see the comment there for the
+                    // full story: it stops the peer from ever sending the
+                    // TLS 1.3 post-handshake message that would otherwise
+                    // trigger this). Fail fast with a clear diagnostic
+                    // rather than attempt to reprocess it -- an earlier,
+                    // more "helpful" attempt at reprocessing it here
+                    // produced a genuine deadlock under Phase 9's
+                    // symmetric (both-sides-send-and-receive) connections.
+                    last_error_ = "unexpected SEC_I_RENEGOTIATE (a peer sent a post-handshake TLS message; SCH_CRED_DISABLE_RECONNECTS should have prevented this)";
+                    return false;
+                }
                 if (ss != SEC_E_OK) { last_error_ = "DecryptMessage: " + hresult_hex(ss); return false; }
 
                 uint8_t* data_ptr = nullptr; unsigned long data_len = 0;
@@ -686,7 +801,132 @@ namespace transport {
         }
         const std::string& last_error() const noexcept { return last_error_; }
 
+        // Forcibly aborts this channel's underlying socket from a thread
+        // OTHER than the one that owns/uses this channel -- unblocks
+        // whatever recv_some()/send_all() call the owning thread may
+        // currently be parked in (it observes a socket error and the
+        // in-flight send_message/recv_message call returns false), since
+        // that thread has no other way to learn the channel is being torn
+        // down while blocked on a peer that will never send it anything
+        // else. Used by animus_cluster.hpp's RaftNode::stop() to tear down
+        // still-open inbound connections' handler threads on shutdown --
+        // without this, stopping a node whose peers are still sending it
+        // requests would hang forever joining those threads.
+        void force_close() noexcept { socket_.close(); }
+
     private:
+        // Encrypts and sends an arbitrary-length buffer as one or more TLS
+        // records (each capped at stream_sizes_.cbMaximumMessage plaintext
+        // bytes) -- the record-boundary bookkeeping needed to reassemble
+        // these on the far side is decrypt_one_record()/recv_exact()'s job,
+        // not this function's.
+        bool send_raw(const uint8_t* data, size_t len) noexcept {
+            if (!handshake_done_) return false;
+            size_t max_msg = stream_sizes_.cbMaximumMessage ? stream_sizes_.cbMaximumMessage : len;
+            if (max_msg == 0) max_msg = len ? len : 1;
+            size_t offset = 0;
+            while (offset < len) {
+                size_t chunk = (len - offset < max_msg) ? (len - offset) : max_msg;
+                std::vector<uint8_t> io_buf(stream_sizes_.cbHeader + chunk + stream_sizes_.cbTrailer);
+                std::memcpy(io_buf.data() + stream_sizes_.cbHeader, data + offset, chunk);
+
+                SecBuffer bufs[4]{};
+                bufs[0] = { stream_sizes_.cbHeader, SECBUFFER_STREAM_HEADER, io_buf.data() };
+                bufs[1] = { static_cast<unsigned long>(chunk), SECBUFFER_DATA, io_buf.data() + stream_sizes_.cbHeader };
+                bufs[2] = { stream_sizes_.cbTrailer, SECBUFFER_STREAM_TRAILER, io_buf.data() + stream_sizes_.cbHeader + chunk };
+                bufs[3] = { 0, SECBUFFER_EMPTY, nullptr };
+                SecBufferDesc desc{ SECBUFFER_VERSION, 4, bufs };
+
+                SECURITY_STATUS ss = EncryptMessage(&ctxt_handle_, 0, &desc, 0);
+                if (ss != SEC_E_OK) { last_error_ = "EncryptMessage: " + hresult_hex(ss); return false; }
+
+                size_t total = bufs[0].cbBuffer + bufs[1].cbBuffer + bufs[2].cbBuffer;
+                if (!socket_.send_all(io_buf.data(), total)) return false;
+                offset += chunk;
+            }
+            return true;
+        }
+
+        // Decrypts exactly one TLS record (blocking on the socket for more
+        // bytes as needed) and appends its plaintext to plaintext_buf_.
+        bool decrypt_one_record() noexcept {
+            for (;;) {
+                if (recv_buf_.empty()) {
+                    std::vector<uint8_t> chunk;
+                    if (!socket_.recv_some(chunk)) { last_error_ = "peer closed connection"; return false; }
+                    recv_buf_.insert(recv_buf_.end(), chunk.begin(), chunk.end());
+                }
+
+                SecBuffer bufs[4]{};
+                bufs[0] = { static_cast<unsigned long>(recv_buf_.size()), SECBUFFER_DATA, recv_buf_.data() };
+                bufs[1] = { 0, SECBUFFER_EMPTY, nullptr };
+                bufs[2] = { 0, SECBUFFER_EMPTY, nullptr };
+                bufs[3] = { 0, SECBUFFER_EMPTY, nullptr };
+                SecBufferDesc desc{ SECBUFFER_VERSION, 4, bufs };
+
+                SECURITY_STATUS ss = DecryptMessage(&ctxt_handle_, &desc, 0, nullptr);
+                if (ss == SEC_E_INCOMPLETE_MESSAGE) {
+                    std::vector<uint8_t> chunk;
+                    if (!socket_.recv_some(chunk)) { last_error_ = "peer closed connection (incomplete message)"; return false; }
+                    recv_buf_.insert(recv_buf_.end(), chunk.begin(), chunk.end());
+                    continue;
+                }
+                if (ss == SEC_I_CONTEXT_EXPIRED) { last_error_ = "peer sent close_notify"; return false; }
+                if (ss == SEC_I_RENEGOTIATE) {
+                    // TLS 1.3 has no real in-band renegotiation; Schannel
+                    // reuses this status to mean "I decrypted a
+                    // non-application-data protocol record" -- in practice
+                    // almost always a server's post-handshake
+                    // NewSessionTicket message. Phase 8's fixed-direction
+                    // demo (server only ever recv_frame()s, client only
+                    // ever send_frame()s) never triggered this because the
+                    // client -- the side a ticket actually arrives at --
+                    // never calls a receive function; Phase 9's cluster
+                    // RPCs are bidirectional per connection (the dialing
+                    // side sends a request AND receives the response), so
+                    // it hit this on essentially every first RPC. An
+                    // earlier attempt at reprocessing the leftover bytes
+                    // via {Initialize,Accept}SecurityContext here -- rather
+                    // than treating this as a hard failure -- produced a
+                    // genuine deadlock (each side blocked waiting on the
+                    // other). Both handshake_as_client() and
+                    // handshake_as_server() now set
+                    // SCH_CRED_DISABLE_RECONNECTS, which stops the peer
+                    // from ever sending a session ticket, so this code path
+                    // should not be reachable in practice -- it fails fast
+                    // rather than silently hanging if it somehow is.
+                    last_error_ = "unexpected SEC_I_RENEGOTIATE (a peer sent a post-handshake TLS message; SCH_CRED_DISABLE_RECONNECTS should have prevented this)";
+                    return false;
+                }
+                if (ss != SEC_E_OK) { last_error_ = "DecryptMessage: " + hresult_hex(ss); return false; }
+
+                uint8_t* data_ptr = nullptr; unsigned long data_len = 0;
+                uint8_t* extra_ptr = nullptr; unsigned long extra_len = 0;
+                for (const SecBuffer& b : bufs) {
+                    if (b.BufferType == SECBUFFER_DATA && !data_ptr) { data_ptr = static_cast<uint8_t*>(b.pvBuffer); data_len = b.cbBuffer; }
+                    if (b.BufferType == SECBUFFER_EXTRA) { extra_ptr = static_cast<uint8_t*>(b.pvBuffer); extra_len = b.cbBuffer; }
+                }
+                if (data_ptr && data_len > 0) plaintext_buf_.insert(plaintext_buf_.end(), data_ptr, data_ptr + data_len);
+
+                recv_buf_ = (extra_ptr && extra_len > 0)
+                    ? std::vector<uint8_t>(extra_ptr, extra_ptr + extra_len)
+                    : std::vector<uint8_t>();
+                return true;
+            }
+        }
+
+        // Blocks until at least n bytes of decrypted plaintext are
+        // available (decrypting further records as needed), then hands
+        // back exactly n bytes and keeps any remainder buffered.
+        bool recv_exact(size_t n, std::vector<uint8_t>& out) noexcept {
+            while (plaintext_buf_.size() < n) {
+                if (!decrypt_one_record()) return false;
+            }
+            out.assign(plaintext_buf_.begin(), plaintext_buf_.begin() + n);
+            plaintext_buf_.erase(plaintext_buf_.begin(), plaintext_buf_.begin() + n);
+            return true;
+        }
+
         // After AcceptSecurityContext/InitializeSecurityContext, checks
         // whether the trailing input buffer was retagged SECBUFFER_EXTRA
         // (unconsumed bytes belonging to the *next* handshake message,
@@ -762,6 +1002,7 @@ namespace transport {
         DWORD negotiated_protocol_ = 0;
         CertContextPtr peer_cert_;
         std::vector<uint8_t> recv_buf_;
+        std::vector<uint8_t> plaintext_buf_;
         std::string last_error_;
     };
 
