@@ -215,3 +215,62 @@
   3. **A dead peer could stall an entire election round.** Windows does not always RST a connection attempt to a socket that *just* stopped listening -- occasionally the connect can take several seconds to time out via the OS default, and since every election round includes a worker thread trying the (dead) third node, this could drag every round out by seconds. Fixed with a real bounded connect timeout (non-blocking `connect()` + `select()`, `animus_transport.hpp`'s `TcpSocket::connect_to`), used with a 200 ms bound for cluster RPC.
   4. **A genuine Raft correctness gap, not a demo bug -- reproduced live in a real 3-node failover (~20% of runs before the fix):** a new leader cannot advance its commit index by counting replicas of an entry from a *previous* term (Raft §5.4.2) -- so if leadership changes a second time shortly after an entry was already majority-replicated but before anyone re-confirms it under the new leader's own term, that entry can be stuck uncommitted forever if nothing new is ever proposed afterward. Fixed with the standard mitigation: every new leader immediately appends and replicates a no-op entry in its own term (`LogEntry::is_noop`, skipped by the state machine), which carries any earlier pending entry forward the moment it commits.
 * **Status:** Phase 9 Raft-lite Cluster over mTLS Verified
+
+## Phase 10: Final Commercial Packaging & Single-Header Release Benchmarks
+
+### Single-Header Amalgamation (`AnimusCore_v1/animus_release.hpp`)
+
+* **Target System:** `AnimusCore_v1/amalgamate.py` -- a small generator script (not a hand-maintained artifact) that concatenates the four source headers (`animus.hpp`, `animus_security.hpp`, `animus_transport.hpp`, `animus_cluster.hpp`) into one file, in dependency order, stripping each source's own `#pragma once` and local `#include "animus...hpp"` lines so the result is genuinely self-contained -- a client vendors one file, not four with an inter-file include order to get right
+* **Method:** regenerate (`python amalgamate.py`) and real-compile the output with two different compilers/configurations, not just inspect it -- `AnimusCore_v1/release_header_smoke_test.cpp` exercises all four namespaces (`animus::`, `animus::security::`, `animus::transport::`, `animus::cluster::`) through one `#include "animus_release.hpp"`
+
+| Check | Result |
+|---|---|
+| Generated file size | 2,549 lines, single `#pragma once` |
+| MSVC (`cl /std:c++17 /EHsc /O2`) full build | compiles + links; smoke test runs all 4 layers OK |
+| MinGW `g++ -std=c++17 -O2 -pthread` build | compiles + runs the portable core + RBAC layers OK |
+
+* **Debugging Notes -- two real defects found and fixed while building the generator, not merely written and assumed correct:**
+  1. **Un-stripped `#include "animus.hpp"` caused a real redefinition, not a harmless no-op.** The initial include-stripping regex only matched `animus_*.hpp` (the pattern used by the three dependent headers), missing that `animus_security.hpp` itself contains a literal `#include "animus.hpp"`. Left in, the amalgamation re-opened the real `animus.hpp` from disk for a second, separate parse -- `#pragma once` doesn't help here, since the first occurrence of `animus.hpp`'s content was already inlined directly (not `#include`-d), so the second, un-stripped `#include` was the *only* `#include` of that path in the whole translation unit, and the compiler dutifully redefined every type in it (`error C2011: 'animus::TelemetryPayload': 'struct' type redefinition`, plus five more, verified by a real MSVC compile before the fix). Fixed by broadening the strip pattern to match `animus*.hpp` generally, not just the `animus_*` subset.
+  2. **A bare `#if defined(_WIN32)` guard was not actually sufficient for "Windows," only for "Windows + MSVC."** `animus_transport.hpp`'s certificate loading (`load_pfx_certificate`/`load_cer_certificate`) uses an MSVC-specific `std::ifstream(std::wstring, ...)` constructor overload that MinGW/libstdc++ does not provide -- a real `g++ -std=c++17` build of the amalgamation under MinGW on Windows (which does define `_WIN32`) failed to compile with six pages of cascading `deque`/iterator errors stemming from that one call. Fixed by tightening the generator's guard on the transport/cluster sections to `defined(_WIN32) && defined(_MSC_VER)`, verified by a clean `g++` build afterward that correctly excludes those two sections and still compiles + runs the portable core + RBAC layers.
+* **A related false lead, recorded for anyone hitting the same symptom:** an early `g++`-built smoke test that *did* compile (before the `_MSC_VER` fix was needed for a different reason) segfaulted inside `std::basic_ofstream`'s constructor on this machine. `gdb` traced it to the running process loading `libstdc++-6.dll` from a different, ABI-incompatible MinGW distribution (Git for Windows' bundled `mingw64\bin`) ahead of the matching MSYS2 UCRT64 runtime the binary was actually linked against -- confirmed by statically linking the C++ runtime (`-static -static-libgcc -static-libstdc++`), which ran cleanly. Not a defect in `animus.hpp`; a local PATH/toolchain-shadowing artifact, included here only because it looked identical to a real crash until isolated.
+* **Status:** Phase 10 Single-Header Amalgamation Verified
+
+### Python SDK PyPI Packaging
+
+* **Target System:** `pyproject.toml` / `setup.py` / `MANIFEST.in` -- added an MIT `LICENSE` file, PyPI classifiers (`License :: OSI Approved :: MIT License`, `Development Status :: 4 - Beta`, audience/topic tags), keywords, and `Documentation`/`Issues` project URLs; `MANIFEST.in` extended to bundle `LICENSE`, `QUICKSTART.md`, and `animus_release.hpp` into the sdist
+* **Method:** a real `pip wheel . --no-deps` build (not a metadata-only check), followed by installing the resulting wheel into a **fresh, isolated venv** (no sibling source checkout present) and importing it -- the same bar Phase 6's wheel verification used
+
+| Check | Result |
+|---|---|
+| `pip wheel . --no-deps` | `Successfully built animus-core`; `animus_core-1.0.0-py3-none-any.whl` |
+| `LICENSE` auto-included in wheel metadata | yes -- `animus_core-1.0.0.dist-info/licenses/LICENSE` (setuptools auto-detected it, no extra config needed) |
+| Native `AnimusCore_v1.dll` bundled in wheel | yes -- self-contained, no sibling checkout required at install time |
+| Install into a fresh isolated venv | succeeds |
+| `import animus` from that venv | succeeds; `animus.__version__ == '1.0.0'`, all public symbols present |
+
+* **Status:** Phase 10 PyPI Packaging Verified
+
+### Multi-Node Write Latency & Throughput (`AnimusCore_v1/cluster_latency_bench.cpp`)
+
+* **Target System:** a real 3-node Raft-lite cluster (same topology as the Phase 9 demo), timing `RaftNode::propose()` itself rather than election/failover -- the number a client of this system actually experiences on every write, not a one-time startup cost
+* **What's measured, and why two numbers, not one:** `propose()` blocks until an entry is committed to a **majority** (leader + 1 follower in a 3-node cluster) -- that's the real "is my write durable" latency a caller waits on. Separately, "extra time to full-cluster commit" measures the *additional* wall time (after `propose()` already returned) until the **slowest** follower -- not just the majority -- has also applied the entry; this is 0 whenever the lagging follower happened to be the one that already contributed to the majority, and driven by the next heartbeat cycle (`kTickMs` = 30 ms) otherwise. Conflating these into one number would misrepresent both.
+* **Method:** two separate timed passes so the benchmark's own measurement doesn't become the bottleneck it reports -- Pass 1 fires 300 `propose()` calls back-to-back with no extra wait, giving a real sustained-throughput number; Pass 2 (100 further proposals) waits for full-cluster convergence after each one, kept out of the throughput measurement so it isn't self-throttled by its own polling. (An earlier single-pass version conflated the two and reported ~27 proposals/sec as "throughput," which was actually measuring Pass 2's convergence wait, not the system's real capacity -- caught before these numbers were recorded, not after.) Real MSVC (`cl /std:c++17 /O2`) build and run, 5 consecutive full runs.
+
+| Metric | Representative run | Range across 5 runs |
+|---|---|---|
+| `propose()` call latency (majority commit) -- p50 | 0.131 ms | 0.120 ms - 0.377 ms |
+| `propose()` call latency (majority commit) -- p99 | 0.368 ms | 0.236 ms - 5.032 ms |
+| `propose()` call latency (majority commit) -- max | 1.181 ms | 0.299 ms - 13.904 ms |
+| Sustained proposal throughput (Pass 1, back-to-back) | 6,648.9 proposals/sec | 1,656.3 - 7,798.7 proposals/sec |
+| Extra time to full-cluster (not just majority) commit -- p50 | 30.9 ms | 30.9 ms - 31.5 ms |
+| Extra time to full-cluster commit -- p99 | 46.8 ms | 46.8 ms - 61.1 ms |
+| Proposals committed | 300/300 (Pass 1) + 100/100 (Pass 2) | 5/5 runs, zero failures |
+
+* **Interpretation:** the full-cluster convergence numbers cluster tightly around 30 ms -- almost exactly `RaftNode`'s `kTickMs` heartbeat interval -- which is the expected signature of a follower that didn't win the majority race catching up on the *next* heartbeat rather than the original `AppendEntries` call; this is a real, explainable characteristic of the current heartbeat-driven replication design, not measurement noise, and would be the first thing to tighten (e.g. an immediate follow-up AppendEntries to the lagging follower rather than waiting for the next tick) if full-cluster (not just majority) convergence latency mattered for a given deployment.
+* **Status:** Phase 10 Multi-Node Latency Verified
+
+### Client Quickstart Guides
+
+* **Target System:** `AnimusCore_v1/QUICKSTART.md` -- four PoC guides (Python SDK, C++ single header, secure multi-tenant + mTLS, distributed cluster), each layering on the previous
+* **Method:** every code sample was either compiled and run for real as part of this phase's verification (guides 1 and 2 -- see the Python wheel and single-header checks above) or checked against the actual current method signatures in the source headers (guides 3 and 4 -- `CertificateIdentityMap::add`/`resolve`, `RaftNode`'s constructor and `propose()` signature), not written from memory of an earlier phase and left unverified
+* **Status:** Phase 10 Client Quickstart Guides Verified
