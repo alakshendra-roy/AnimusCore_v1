@@ -1,0 +1,3 @@
+include animus/*.dll
+include animus/*.so
+include animus/*.dylib
