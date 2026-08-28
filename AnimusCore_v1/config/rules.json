@@ -1,0 +1,18 @@
+{
+  "engine_settings": {
+    "max_batch_size": 100000,
+    "log_level": "INFO"
+  },
+  "threat_signatures": {
+    "unauthorized_access": {
+      "flag": 1,
+      "severity": "CRITICAL",
+      "action": "ISOLATE_HOST"
+    },
+    "buffer_overflow_attempt": {
+      "flag": 2,
+      "severity": "HIGH",
+      "action": "TERMINATE_PROCESS"
+    }
+  }
+}
