@@ -1,0 +1,2 @@
+﻿MSVCRTD.lib(exe_wwinmain.obj) : error LNK2019: unresolved external symbol wWinMain referenced in function "int __cdecl invoke_main(void)" (?invoke_main@@YAHXZ)
+C:\Users\Alaks\source\repos\AnimusCore_v1\x64\Debug\AnimusCore_v1.exe : fatal error LNK1120: 1 unresolved externals
