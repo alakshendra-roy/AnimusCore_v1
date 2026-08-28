@@ -1,0 +1,8 @@
+.vs/
+x64/
+Debug/
+Release/
+*.exe
+*.dll
+*.pyc
+__pycache__/
