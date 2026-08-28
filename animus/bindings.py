@@ -1,7 +1,8 @@
 ﻿import os
 import sys
 import ctypes
-from typing import Optional
+from enum import IntEnum
+from typing import List, Optional
 
 def load_native_library():
     """Dynamically loads the compiled C++ dynamic library (.dll / .so)."""
@@ -28,6 +29,31 @@ def load_native_library():
             return ctypes.CDLL(os.path.abspath(path))
             
     raise FileNotFoundError(f"Could not locate native library {lib_name}. Ensure it is compiled in Release mode.")
+
+
+class RuleComparator(IntEnum):
+    """Mirrors animus::RuleComparator (animus.hpp) -- values must stay in sync."""
+    GREATER_THAN = 0
+    LESS_THAN = 1
+    EQUAL = 2
+
+
+class ThreatSignal(ctypes.Structure):
+    """Mirrors animus::ThreatSignal (animus.hpp) byte-for-byte.
+
+    Deliberately plain (no padding): ThreatSignal crosses the C-ABI via a
+    caller-supplied buffer (animus_poll_signals), so this layout must match
+    the native struct's natural 32-byte size exactly -- padding either side
+    without mirroring it on the other would silently corrupt the buffer.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("event_id", ctypes.c_uint32),
+        ("trace_id", ctypes.c_uint32),
+        ("metric_value", ctypes.c_uint64),
+        ("rule_id", ctypes.c_uint32),
+        ("severity", ctypes.c_uint32),
+    ]
 
 
 class AnimusBindings:
@@ -61,6 +87,21 @@ class AnimusBindings:
         self._lib.animus_stop_logging.argtypes = []
         self._lib.animus_stop_logging.restype = None
 
+        self._lib.animus_add_rule.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_uint64,
+            ctypes.c_uint8,
+            ctypes.c_uint32,
+        ]
+        self._lib.animus_add_rule.restype = ctypes.c_bool
+
+        self._lib.animus_poll_signals.argtypes = [
+            ctypes.POINTER(ThreatSignal),
+            ctypes.c_size_t,
+        ]
+        self._lib.animus_poll_signals.restype = ctypes.c_size_t
+
     def init(self, buffer_capacity: int = 65536) -> bool:
         """Initializes the native engine singleton. Idempotent."""
         if self._initialized:
@@ -90,3 +131,37 @@ class AnimusBindings:
     def stop_logging(self) -> None:
         """Stops the background worker after fully draining the ring buffer."""
         self._lib.animus_stop_logging()
+
+    def add_rule(
+        self,
+        rule_id: int,
+        event_id: int,
+        threshold: int,
+        comparator: "RuleComparator | int",
+        severity: int,
+    ) -> bool:
+        """Registers an in-memory threshold rule evaluated against every
+        ingested event carrying the given event_id (see
+        EngineImpl::evaluate_rules in animus_engine.cpp). Returns False for
+        an unrecognized comparator or if rule storage could not be grown.
+        """
+        if not self._initialized:
+            raise RuntimeError("AnimusBindings.init() must succeed before adding rules")
+        return bool(self._lib.animus_add_rule(
+            ctypes.c_uint32(rule_id),
+            ctypes.c_uint32(event_id),
+            ctypes.c_uint64(threshold),
+            ctypes.c_uint8(int(comparator)),
+            ctypes.c_uint32(severity),
+        ))
+
+    def poll_signals(self, max_count: int = 1024) -> List[ThreatSignal]:
+        """Drains up to max_count pending rule matches from the native
+        signal ring. Never blocks; returns fewer than max_count (including
+        zero) if fewer signals are currently pending.
+        """
+        if not self._initialized:
+            raise RuntimeError("AnimusBindings.init() must succeed before polling signals")
+        buf = (ThreatSignal * max_count)()
+        count = self._lib.animus_poll_signals(buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
