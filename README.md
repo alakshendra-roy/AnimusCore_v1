@@ -78,3 +78,23 @@ g++ -std=c++17 -O2 -pthread AnimusCore_v1/execution_interop_demo.cpp -o executio
 
 Verified: the header-only refactor was rebuilt with real MSBuild passes for both the DLL (`Release|x64`) and the exe (`Debug|Win32`) configurations with no regressions, and cross-checked for ODR safety by linking two separate translation units that each `#include "animus.hpp"`; the execution-interop demo routed 500,000 simulated orders at 8,464,120 orders/sec with a 90.16 ns average / 100 ns p99 `submit()` latency. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 7 benchmark breakdown.
 
+## Phase 8: Enterprise Security & Multi-Tenancy
+
+Two independent, composable layers add RBAC, tenant isolation, and encrypted transport on top of the header-only engine, without touching its hot path:
+
+* **RBAC + multi-tenant isolation (`AnimusCore_v1/animus_security.hpp`):** `TenantRegistry` gives every tenant its own isolated `Engine` -- separate ring buffer, rule set, and persistence file -- so isolation is structural, not a filter applied after the fact. `SecureTelemetryGateway` is the only entry point: every call carries an `AccessToken` (tenant + role), is checked against a `Role`/`Permission` lattice (`Viewer` / `Operator` / `Admin`), routed only to that token's own tenant, and logged -- allowed or denied -- to an independent audit trail. Portable C++17, no platform dependency.
+* **mTLS / TLS 1.3 transport (`AnimusCore_v1/animus_transport.hpp`):** a Windows-native Schannel (SSPI) transport with mandatory mutual authentication in both directions and manual certificate-chain verification against a private, in-memory-only CA trust anchor. A verified client certificate's subject CN is mapped to an `AccessToken` *only after* its chain is confirmed trusted -- so tenant/RBAC routing downstream is keyed to a cryptographically proven identity, never a value the client merely asserts. Built on the OS-native TLS provider rather than a third-party library, keeping the "zero external dependency" property intact on Windows.
+* **Demo certificates (`AnimusCore_v1/generate_demo_certs.ps1`):** generates a self-signed demo CA plus server/client leaf certificates using only native Windows PKI cmdlets -- no OpenSSL. Certificates and keys are written to `AnimusCore_v1/demo_certs/` (gitignored; never commit private key material).
+
+```bash
+# Generate demo certs, then build and run the RBAC/tenancy and mTLS demos
+# (PowerShell, then an "x64 Native Tools Command Prompt for VS"):
+powershell -File AnimusCore_v1/generate_demo_certs.ps1
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/secure_multitenancy_demo.cpp
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/secure_transport_demo.cpp
+secure_multitenancy_demo.exe
+secure_transport_demo.exe
+```
+
+Verified: the RBAC/tenancy demo confirmed tenant isolation (a second tenant's viewer sees 0 of another tenant's signals), fail-closed behavior against an unknown tenant id, and correct denial of unentitled actions, all captured in an independent audit trail. The mTLS demo negotiated real TLS 1.3 with mutual certificate authentication over loopback TCP and delivered 20,000/20,000 frames at 144,748 frames/sec through the RBAC/tenancy layer above; a negative-path test confirmed a same-CN certificate signed by an untrusted CA is rejected before any frame is processed. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 8 benchmark breakdown, including two real defects found and fixed during verification.
+

@@ -17,16 +17,25 @@
     <ClInclude Include="animus.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="animus_security.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="animus_transport.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
     <None Include="threat_agent.py" />
     <None Include="soar_orchestrator.py" />
     <None Include="ingest_engine.py" />
+    <None Include="generate_demo_certs.ps1" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="AnimusCore_v1.cpp" />
     <ClCompile Include="animus_engine.cpp" />
     <ClCompile Include="execution_interop_demo.cpp" />
+    <ClCompile Include="secure_multitenancy_demo.cpp" />
+    <ClCompile Include="secure_transport_demo.cpp" />
   </ItemGroup>
 </Project>
