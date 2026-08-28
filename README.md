@@ -62,3 +62,19 @@ python AnimusCore_v1/shm_ipc_demo.py
 
 Verified: a built wheel installed into an isolated venv and imported/exercised from a directory with no sibling repo files; the shared-memory IPC demo moved 200,000 events across two OS processes at 1,177,592 events/sec with zero drops; `@animus.trace` adds ~908.5 ns/call on top of an already-warm native engine. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 6 benchmark breakdown.
 
+## Phase 7: Header-Only Engine & Broker/Execution Interop
+
+`AnimusCore_v1/animus.hpp` is now a genuine zero-dependency, single-header C++17 library, with direct execution-path wrappers for ultra-low-latency deployment:
+
+* **Header-only engine:** `EngineImpl` and `Engine::Create()` are defined `inline` directly in `animus.hpp` -- any C++17 translation unit can `#include "animus.hpp"` and drive `animus::Engine` in-process, with no `AnimusCore_v1.dll` to build or link and no ctypes/C-ABI boundary to cross. The Python SDK's DLL build (`animus_engine.cpp`) is now just a thin C-ABI shim over this same header.
+* **Broker/execution interop wrappers:** `animus::IBrokerGateway` is an adapter interface for a real broker/exchange connection (a FIX session, a REST-to-exchange bridge, ...); `animus::ExecutionClient` wraps a gateway and automatically records every order's round-trip latency as a telemetry event against the shared `Engine` -- so a latency-risk check (e.g. "flag any fill slower than N nanoseconds") is just an ordinary `add_rule`/`poll_signals` SOAR rule, not a separate pipeline.
+* **`LoopbackBrokerGateway`:** a deterministic in-process fill simulator included for demos and testing `ExecutionClient` without a live broker connection.
+
+```bash
+# Build and run the standalone execution-interop demo (zero DLL, zero Python)
+g++ -std=c++17 -O2 -pthread AnimusCore_v1/execution_interop_demo.cpp -o execution_interop_demo.exe
+./execution_interop_demo.exe
+```
+
+Verified: the header-only refactor was rebuilt with real MSBuild passes for both the DLL (`Release|x64`) and the exe (`Debug|Win32`) configurations with no regressions, and cross-checked for ODR safety by linking two separate translation units that each `#include "animus.hpp"`; the execution-interop demo routed 500,000 simulated orders at 8,464,120 orders/sec with a 90.16 ns average / 100 ns p99 `submit()` latency. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 7 benchmark breakdown.
+

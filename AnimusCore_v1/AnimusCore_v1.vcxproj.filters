@@ -27,5 +27,6 @@
   <ItemGroup>
     <ClCompile Include="AnimusCore_v1.cpp" />
     <ClCompile Include="animus_engine.cpp" />
+    <ClCompile Include="execution_interop_demo.cpp" />
   </ItemGroup>
 </Project>
