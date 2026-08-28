@@ -23,6 +23,9 @@
     <ClInclude Include="animus_transport.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="animus_cluster.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="BENCHMARKS.md" />
@@ -37,5 +40,6 @@
     <ClCompile Include="execution_interop_demo.cpp" />
     <ClCompile Include="secure_multitenancy_demo.cpp" />
     <ClCompile Include="secure_transport_demo.cpp" />
+    <ClCompile Include="cluster_demo.cpp" />
   </ItemGroup>
 </Project>
