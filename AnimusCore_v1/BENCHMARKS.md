@@ -75,3 +75,45 @@
 * **Persistence Correctness:** 38,400,000 bytes persisted in both runs (600,000 × 64 bytes/record) — rule evaluation adds no overhead to the disk-persistence path itself
 * **Known Limit:** the signal output ring is sized equal to the telemetry ring by default; under high fan-out (multiple matching rules per event) with no concurrent `animus_poll_signals` consumer, it can saturate and silently drop signals past capacity, identical in behavior to the telemetry ring under producer/consumer imbalance
 * **Status:** Phase 4 In-Memory Rule Engine Verified
+
+## Phase 6: SDK Packaging, Shared-Memory IPC, and @trace Benchmarks
+
+### Wheel Packaging
+
+* **Target System:** `pyproject.toml` (PEP 621 metadata) + `setup.py`'s `build_py` override, which stages the platform's compiled native library into `animus/` before packaging
+* **Verification Method:** `pip wheel . --no-deps` to build a real wheel, then `pip install` that wheel into an isolated `venv` and import/exercise it from a working directory with no sibling repo files (so nothing could fall back to a dev-checkout relative path)
+* **Wheel Contents:** `animus/AnimusCore_v1.dll` + all five SDK modules (`__init__.py`, `bindings.py`, `core.py`, `decorators.py`, `shm.py`) confirmed present via `zipfile` inspection
+* **Wheel Size:** 27,791 bytes (`animus_core-1.0.0-py3-none-any.whl`)
+* **Isolated Install Result:** `import animus`, `@animus.trace`, and `animus.shm.SharedTelemetryRing` all functioned correctly against only the installed package -- no dev-checkout paths involved
+* **Status:** Phase 6 Wheel Packaging Verified
+
+### Shared-Memory IPC (`animus.shm.SharedTelemetryRing`)
+
+* **Target System:** SPSC zero-copy ring backed by `multiprocessing.shared_memory`, exercised across two genuinely separate OS processes via `AnimusCore_v1/shm_ipc_demo.py`
+* **Event Source:** `ThreatAgent.generate_telemetry_batch` -- same ~2% injected critical-threat rate (`event_id=999`) as the Phase 4/5 benchmarks
+* **Batch Size:** 200,000 events
+* **Ring Allocation:** 4,096-record shared memory ring (producer blocks on a full ring with a cooperative yield, not a drop, so capacity trades latency for headroom rather than correctness)
+
+| Metric | Result |
+|---|---|
+| Events pushed / received | 200,000 / 200,000 (100%, zero drops) |
+| Critical events (expected / received) | 4,028 / 4,028 |
+| Producer wall time | 169.84 ms |
+| Throughput | 1,177,592 events/sec |
+| Average latency per op | 849.2 ns |
+
+* **Correctness:** every field of every record (`event_id`, `trace_id`, `metric_value`) survives the cross-process hop intact, verified by the consumer process's independent critical-event count matching the producer's
+* **Status:** Phase 6 Shared-Memory IPC Verified
+
+### `@animus.trace` Decorator Overhead
+
+* **Target System:** `animus.decorators.trace`, measured as the marginal per-call cost added on top of an already-warm native engine (lazy-init excluded from the timed region)
+* **Method:** 200,000 calls to an identical trivial function (`x + 1`), timed once bare and once wrapped in `@trace`, in the same process
+
+| Call Path | Time (200,000 calls) | Avg Latency/call |
+|---|---|---|
+| Bare function | 10.94 ms | 54.7 ns |
+| `@trace`-wrapped | 192.64 ms | 963.2 ns |
+
+* **Decorator Overhead:** ~908.5 ns/call (two `time.perf_counter_ns()` reads plus one `animus_record_event` ctypes call), consistent with the ~910 ns/op ctypes call-marshalling cost already measured for raw `record_event` in the Phase 4 benchmarks above -- the decorator adds negligible cost beyond the native call it wraps
+* **Status:** Phase 6 Trace Decorator Verified
