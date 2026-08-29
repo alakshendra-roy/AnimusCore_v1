@@ -80,6 +80,28 @@ throughput and ~7x `record_event`'s per-event ingestion path -- see
 including why the naive fix (building the batch as one `ctypes.Structure`
 object per event) only closed a small fraction of that gap on its own.
 
+**Is it safe to lean on for sustained, high-volume ingestion?**
+`benchmarks/stress_test_engine.py` pushes 1,200,000+ events through the
+full pipeline (`record_events_batch` -> rule evaluation -> disk
+persistence) while sampling this process's memory, and separately feeds
+malformed input across the C-ABI boundary `record_events_batch` sits on
+top of:
+
+```bash
+python benchmarks/stress_test_engine.py
+```
+
+Across 5 consecutive runs: RSS growth stayed in a 1.82-2.49% band after
+warm-up (no leak), and every malformed-*data* case (an out-of-range field,
+a wrong-arity event tuple) was safely rejected by `struct.pack()` before
+it could reach native code -- because the public `record_events_batch()`
+you call always derives `count` from `len(events)` and sizes its buffer to
+match in the same call, the underlying C-ABI's real edge case (a `count`
+argument that lies about the buffer's actual size, which the native side
+cannot itself detect) is only reachable by bypassing this API entirely.
+See `AnimusCore_v1/BENCHMARKS.md`'s Phase 12 section for the full
+breakdown, including that boundary-fuzzing result.
+
 **Instrumenting existing code with `@animus.trace`:**
 
 ```python
