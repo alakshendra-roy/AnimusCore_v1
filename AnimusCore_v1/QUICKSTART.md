@@ -57,6 +57,45 @@ for signal in engine.poll_signals(max_count=32):
 engine.stop_logging()
 ```
 
+**Complex Event Processing (CEP): sliding-window rules, not just one-event
+thresholds.** `add_rule()` above evaluates each event on its own. Real
+detection logic is often about a *window* of recent events instead --
+"the sum of the last 100 orders exceeds X," "the average latency over the
+last 5 seconds is above Y." `add_cep_rule()` registers that directly,
+evaluated entirely in C++ on the native hot path (Python only registers
+the rule; every per-event window update and aggregate check happens
+in `animus.hpp`, never crossing back into Python):
+
+```python
+# Fire when the SUM of the last 3 event_id=42 values exceeds 50.
+engine.add_cep_rule(
+    rule_id=2,
+    event_id=42,
+    window_type=animus.WindowType.COUNT,   # or animus.WindowType.TIME (window_size = ms)
+    window_size=3,                          # last 3 matching events
+    aggregation=animus.AggregationFunction.SUM,  # or AVG / MIN / MAX
+    comparator=animus.RuleComparator.GREATER_THAN,
+    threshold=50,
+    severity=5,
+)
+for i, value in enumerate([10, 20, 30, 5, 1, 100]):
+    engine.record_event(event_id=42, trace_id=i, metric_value=value)
+# ... start_logging()/poll_signals() as above -- matches fire at trace_id
+# 2 (running sum=60), 3 (sum=55), and 5 (sum=106). signal.metric_value
+# carries the window's aggregated value, not the triggering event's raw
+# metric_value.
+```
+
+`WindowType.COUNT` windows hold the last N matching events; `WindowType.TIME`
+windows (`window_size` in milliseconds) hold events from the last N ms,
+evaluated fresh on every new matching event either way. `AggregationFunction.AVG`'s
+threshold check is exact integer arithmetic internally (cross-multiplied,
+not divided) so it never disagrees with what the true average would say at
+a boundary -- see `AnimusCore_v1/BENCHMARKS.md`'s Phase 15 section for the
+verification this held up to (1,608 trial sequences against a naive
+brute-force reference, plus a regression test for that exact boundary
+case) and measured evaluation overhead at higher rule counts.
+
 **High-volume ingestion with `record_events_batch`:**
 
 `record_event()` crosses the ctypes/C-ABI boundary once per call -- fine at
@@ -219,6 +258,43 @@ int main() {
     engine->stop_persistence();
 }
 ```
+
+**Complex Event Processing (CEP): sliding-window rules.**
+`Engine::add_cep_rule` is a normal virtual method, same as `add_rule` --
+fully header-only, no C-ABI, no ctypes involved (unlike the Python SDK's
+`add_cep_rule`, there's no marshalling boundary to think about here, only
+the rule definition itself). Evaluated on the persistence worker thread
+alongside plain `RuleThreshold` rules, delivered through the same
+`poll_signals()` queue:
+
+```cpp
+// Fire when the SUM of the last 3 event_id=42 values exceeds 50.
+engine->add_cep_rule(
+    /*rule_id=*/2, /*event_id=*/42,
+    /*window_type=*/0 /*Count*/, /*window_size=*/3,
+    /*aggregation=*/0 /*Sum*/, /*comparator=*/0 /*GreaterThan*/,
+    /*threshold=*/50, /*severity=*/5);
+
+for (uint64_t i = 0; i < 6; ++i) {
+    static const uint64_t values[] = {10, 20, 30, 5, 1, 100};
+    engine->record(/*event_id=*/42, /*trace_id=*/(uint32_t)i, values[i]);
+}
+// ... start_persistence()/poll_signals() as above -- matches fire at
+// trace_id 2 (running sum=60), 3 (sum=55), and 5 (sum=106). sig.metric_value
+// carries the window's aggregated value, not the triggering event's raw
+// metric_value.
+```
+
+`window_type`/`aggregation`/`comparator` use the same integer encodings as
+the Python SDK's `WindowType`/`AggregationFunction`/`RuleComparator`
+(0/1 for Count/Time, 0-3 for Sum/Avg/Min/Max, 0-2 for GreaterThan/LessThan/
+Equal) -- see `animus::WindowType`/`animus::AggregationFunction` in
+`animus.hpp` if you'd rather spell them out than remember the numbers.
+`AggregationFunction::Avg`'s threshold check is exact integer arithmetic
+(cross-multiplied, not divided), verified against a naive brute-force
+reference over 1,608 trial sequences before this went into the engine --
+see `AnimusCore_v1/BENCHMARKS.md`'s Phase 15 section for that verification
+and measured evaluation overhead at higher rule counts.
 
 **Batched ingestion (`Engine::record_batch`):** if you already have a run
 of events available at once -- read off a queue, replayed from a file,
