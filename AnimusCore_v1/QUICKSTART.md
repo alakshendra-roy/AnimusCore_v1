@@ -102,6 +102,27 @@ cannot itself detect) is only reachable by bypassing this API entirely.
 See `AnimusCore_v1/BENCHMARKS.md`'s Phase 12 section for the full
 breakdown, including that boundary-fuzzing result.
 
+**What does the tail actually look like, not just the average?**
+If you're calling `record_events_batch()` from a latency-sensitive path (an
+order-ingestion or risk-check hot path, not just a bulk import),
+`benchmarks/fintech_tail_latency.py` times the call itself -- not batch
+construction -- call-by-call across 1,000,000 events at batch sizes of
+100 / 1,000 / 10,000, reporting p50 through p99.99:
+
+```bash
+python benchmarks/fintech_tail_latency.py
+```
+
+Representative numbers (5-run ranges in `AnimusCore_v1/BENCHMARKS.md`'s
+Phase 13 section): at batch size 100, p50 is ~13.7 us but p99.99 is
+~385 us -- a ~28x tail. At batch size 10,000, p50 is ~1,373 us and
+p99.99 ~1,959 us -- only ~1.4x. Smaller batches are dominated by fixed
+per-call jitter (OS scheduling, Python-level GC, allocator stalls) that
+their small amount of real work barely amortizes; if you're choosing a
+batch size for a latency-sensitive path, larger batches trade higher
+absolute latency for a *tighter* tail relative to their own median, not
+just higher throughput.
+
 **Instrumenting existing code with `@animus.trace`:**
 
 ```python
