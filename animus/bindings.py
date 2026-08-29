@@ -30,6 +30,8 @@ import ctypes
 from enum import IntEnum
 from typing import Deque, List, NamedTuple, Optional
 
+from .shm import TelemetryRecordView
+
 _NATIVE_LIB_NAMES = {
     # (preferred: portable CMake build, legacy: MSVC-only vcxproj build)
     "win32": ("AnimusNative.dll", "AnimusCore_v1.dll"),
@@ -192,6 +194,25 @@ class SpscTelemetryRecord(ctypes.Structure):
 
 
 assert ctypes.sizeof(SpscTelemetryRecord) == 64
+
+
+class SharedRecord(ctypes.Structure):
+    """Mirrors animus::SharedTelemetryRecord (animus.hpp) byte-for-byte --
+    24 bytes, no padding (unlike SpscTelemetryRecord above: the shared-
+    memory wire format is deliberately NOT alignas(64), so it stays
+    byte-for-byte identical to animus.shm's own on-disk `_RECORD_FORMAT`
+    ("<QIIQ") and the two can interoperate on the same segment). Crosses
+    the real C-ABI via animus_shm_pop's caller-supplied buffer.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("event_id", ctypes.c_uint32),
+        ("trace_id", ctypes.c_uint32),
+        ("metric_value", ctypes.c_uint64),
+    ]
+
+
+assert ctypes.sizeof(SharedRecord) == 24
 
 
 class _TelemetryRecord(NamedTuple):
@@ -817,3 +838,139 @@ class AnimusBindings:
         """
         self._require_native("get_cpu_count")
         return int(self._lib.animus_get_cpu_count())
+
+
+def _configure_shm_signatures(lib: ctypes.CDLL) -> None:
+    lib.animus_shm_create.argtypes = [ctypes.c_char_p, ctypes.c_uint64]
+    lib.animus_shm_create.restype = ctypes.c_void_p
+    lib.animus_shm_attach.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_attach.restype = ctypes.c_void_p
+    lib.animus_shm_close.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_close.restype = None
+    lib.animus_shm_unlink.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_unlink.restype = ctypes.c_bool
+    lib.animus_shm_capacity.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_capacity.restype = ctypes.c_uint64
+    lib.animus_shm_push.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_uint64]
+    lib.animus_shm_push.restype = ctypes.c_bool
+    lib.animus_shm_pop.argtypes = [ctypes.c_void_p, ctypes.POINTER(SharedRecord)]
+    lib.animus_shm_pop.restype = ctypes.c_bool
+
+
+class SharedTelemetryChannel:
+    """ctypes-backed cross-process shared-memory telemetry channel --
+    animus::SharedTelemetryChannel (animus.hpp) exposed via ctypes, the
+    native counterpart to animus.shm.SharedTelemetryRing's pure-Python
+    implementation.
+
+    Wire-compatible with SharedTelemetryRing: both read/write the exact
+    same byte layout (verified with a real cross-process round trip in
+    each direction before this class was written -- a Python producer
+    via SharedTelemetryRing feeding a native consumer here, and a native
+    producer here feeding a Python consumer via SharedTelemetryRing, both
+    checked, not assumed), so a producer using one implementation and a
+    consumer using the other work together on the same named segment
+    without either side knowing which the other is. The difference is
+    where the per-call work happens: every push()/pop() here crosses into
+    compiled C++ via one ctypes call, rather than doing
+    struct.pack_into/unpack_from in Python.
+
+    Single-producer/single-consumer, same as SharedTelemetryRing: do not
+    share one channel across multiple producer or multiple consumer
+    processes/threads -- use AnimusBindings.record_events_batch (a real
+    MPMC ring) if you need that. Requires the native engine; there is no
+    pure-Python fallback for this class specifically (that's what
+    SharedTelemetryRing already is -- attach to the same segment with
+    whichever of the two fits the process that doesn't have a compiled
+    binary available).
+    """
+
+    def __init__(self, handle: int, lib: ctypes.CDLL) -> None:
+        self._handle = handle
+        self._lib = lib
+
+    @classmethod
+    def create(cls, name: str, capacity: int) -> "SharedTelemetryChannel":
+        """Allocates a new named shared-memory segment sized for `capacity`
+        records (any positive value -- not required to be a power of two;
+        see animus::SharedTelemetryChannel::create) and takes ownership of
+        it. Raises OSError if a segment with this name already exists.
+        """
+        if capacity < 1:
+            raise ValueError("capacity must be >= 1")
+        lib = load_native_library(required=True)
+        _configure_shm_signatures(lib)
+        handle = lib.animus_shm_create(name.encode("utf-8"), ctypes.c_uint64(capacity))
+        if not handle:
+            raise OSError(f"failed to create shared memory segment {name!r} (does one already exist?)")
+        return cls(handle, lib)
+
+    @classmethod
+    def attach(cls, name: str) -> "SharedTelemetryChannel":
+        """Maps an existing segment created by another process's create()
+        call -- the native one above, or animus.shm.SharedTelemetryRing's,
+        either one. Raises OSError if no such segment exists.
+        """
+        lib = load_native_library(required=True)
+        _configure_shm_signatures(lib)
+        handle = lib.animus_shm_attach(name.encode("utf-8"))
+        if not handle:
+            raise OSError(f"failed to attach to shared memory segment {name!r} (does it exist?)")
+        return cls(handle, lib)
+
+    @staticmethod
+    def unlink(name: str) -> bool:
+        """Destroys the underlying OS shared-memory object. POSIX: a real
+        unlink -- call once every attached process has closed its mapping,
+        same contract as SharedTelemetryRing.unlink(). Windows: a
+        documented no-op (see animus::SharedMemorySegment::unlink) -- the
+        object is destroyed automatically once every handle to it closes,
+        so this always returns True there with nothing left to do.
+        """
+        lib = load_native_library(required=True)
+        _configure_shm_signatures(lib)
+        return bool(lib.animus_shm_unlink(name.encode("utf-8")))
+
+    @property
+    def capacity(self) -> int:
+        return int(self._lib.animus_shm_capacity(self._handle))
+
+    def push(self, event_id: int, trace_id: int, metric_value: int) -> bool:
+        """Writes one record directly into shared memory. Producer-only.
+        Never blocks; returns False if the ring is full. timestamp_cycles
+        is stamped natively (read_cycle_counter()) -- unlike
+        SharedTelemetryRing.push(), there is no caller-supplied override.
+        """
+        return bool(self._lib.animus_shm_push(
+            self._handle, ctypes.c_uint32(event_id), ctypes.c_uint32(trace_id), ctypes.c_uint64(metric_value),
+        ))
+
+    def pop(self) -> Optional[TelemetryRecordView]:
+        """Reads and removes the oldest pending record. Consumer-only.
+        Never blocks; returns None if the ring is empty.
+        """
+        rec = SharedRecord()
+        if not self._lib.animus_shm_pop(self._handle, ctypes.byref(rec)):
+            return None
+        return TelemetryRecordView(rec.timestamp_cycles, rec.event_id, rec.trace_id, rec.metric_value)
+
+    def close(self) -> None:
+        """Releases this process's mapping. Safe to call from any side,
+        and safe to call more than once.
+        """
+        if self._handle:
+            self._lib.animus_shm_close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        # Narrow, deliberate except-Exception: this is a finalizer-safety
+        # net against a leaked native handle if the caller never calls
+        # close(), not a place to propagate errors -- module globals
+        # (ctypes function objects) can already be torn down by the time
+        # __del__ runs during interpreter shutdown, and raising from
+        # __del__ is silently ignored by Python anyway (with a warning),
+        # so catching here is strictly more informative than not.
+        try:
+            self.close()
+        except Exception:
+            pass
