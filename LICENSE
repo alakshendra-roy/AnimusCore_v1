@@ -1,21 +1,26 @@
-MIT License
+Proprietary License (Placeholder -- NOT Reviewed by Counsel)
 
-Copyright (c) 2026 Alakshendra Roy
+Copyright (c) 2026 Alakshendra Roy. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+*** THIS IS A PLACEHOLDER, NOT A FINISHED LICENSE. ***
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This branch ("proprietary-edition") diverges from the MIT-licensed
+`master` branch of this repository specifically to carry a commercial
+licensing/entitlement-enforcement layer (see AnimusCore_v1/animus_license.hpp
+and BENCHMARKS.md's Phase 17 section). Distributing that enforcement
+mechanism under the same MIT terms as `master` would be self-defeating --
+MIT already grants unrestricted use, copying, and redistribution, which
+would include the enforcement code itself.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+No rights are granted under this notice to use, copy, modify, merge,
+publish, distribute, sublicense, or sell this software or any portion of
+it. All rights are reserved to the copyright holder pending a real,
+counsel-reviewed commercial license agreement.
+
+This text was written by an AI coding assistant as a structural
+placeholder ONLY, at the copyright holder's explicit request, to keep
+this branch's licensing model distinct from `master`'s MIT license
+while real commercial license terms are drafted. It is NOT a substitute
+for legal advice and MUST NOT be relied upon, distributed to customers,
+or treated as binding before a qualified attorney has drafted and
+reviewed the actual commercial license terms for this software.
