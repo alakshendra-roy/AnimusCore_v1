@@ -534,3 +534,40 @@ Batch size = 10,000:
 
 * **Finding:** 1 and 10 rules are statistically indistinguishable from the 0-rule baseline -- their ranges overlap almost entirely, consistent with each rule's O(1)-amortized per-event cost (one `deque::push_back`, an eviction check, one integer comparison) being small enough that disk I/O and batch-marshalling overhead dominate at low rule counts. 50 rules is a real, consistently reproducible effect across all 5 runs: throughput drops by roughly 30-40% (never overlapping the baseline's range in any run). Computing the marginal per-rule, per-event cost directly from each run's own baseline (`(elapsed@50 - elapsed@0) / events / 50`) gives 2.43-3.96 ns/rule/event across the 5 runs (mean 3.02 ns) -- consistent with a small, roughly constant per-rule cost that only becomes visible once enough rules are summed to rise above the persistence pipeline's other costs, the same shape Phase 4 found for plain `RuleThreshold` evaluation (linear in rule count, `evaluate_rules`/`evaluate_cep_rules` both iterate every registered rule per matching event).
 * **Status:** Phase 15 Hot-Path Overhead Verified -- negligible at typical rule counts (0-10), small and linear at higher counts (measured at 50), consistent with the O(rules)-per-event iteration this design always implied
+
+## Phase 16: Cross-Platform Shared-Memory (MMF) IPC Transport
+
+### Correctness & Interop Verification
+
+* **Target System:** `animus::SharedMemorySegment` + `animus::SharedTelemetryChannel` (`animus.hpp`) -- named OS shared memory (Windows `CreateFileMappingA`/`MapViewOfFile`, POSIX `shm_open`/`mmap`), deliberately wire-compatible with the pre-existing pure-Python `animus.shm.SharedTelemetryRing` (same 24-byte header, same 24-byte record) so either implementation can produce or consume on the same segment.
+* **Method:** 46 tests (11 new for this phase) against the real compiled binary -- same-process round trip, ring-full/ring-empty boundary behavior, a deliberately non-power-of-two capacity (37) with real wraparound past capacity multiple times, both interop directions, error handling (attach to a nonexistent segment, create with a duplicate name, zero capacity), and a genuine cross-process test using a real `subprocess.Popen` child, not a second handle in the parent process.
+
+| Check | Result |
+|---|---|
+| Same-process create -> push -> attach -> pop round trip | Pass |
+| Non-power-of-two capacity (37), wrapped past capacity 3x over | Pass |
+| Ring-full push returns False; ring-empty pop returns None | Pass |
+| Native `SharedTelemetryChannel` creates, pure-Python `SharedTelemetryRing` reads | Pass |
+| Pure-Python `SharedTelemetryRing` creates, native `SharedTelemetryChannel` reads | Pass |
+| Real cross-process round trip (separate `subprocess.Popen` child process) | Pass |
+| `attach()` to a nonexistent segment / `create()` with a duplicate name / capacity=0 | Correctly raise `OSError`/`ValueError` |
+| Full suite | 46/46 passing |
+
+* **A real interop bug caught before it shipped:** the first draft indexed ring slots with a power-of-two bitmask (`& (capacity - 1)`), matching `SpscRingBuffer`'s in-process convention. `animus.shm.SharedTelemetryRing` uses plain modulo and never requires a power-of-two capacity -- a bitmask against a segment the Python side created with, say, capacity 37 would silently index the wrong slot, corrupting data with no error raised anywhere. Caught during design review (before any test was run), fixed to modulo on the native side to match, then verified with the non-power-of-two test above.
+* **Status:** Phase 16 Correctness & Interop Verified
+
+### IPC Latency: Measured Layer by Layer, Not Asserted
+
+* **Target System:** four distinct latency numbers, each isolating a different layer of the stack, because "IPC latency" is not one number -- the native transport operation, the ctypes call wrapping it, and genuine cross-process propagation are three different costs that a single benchmark would conflate.
+* **Method:** (1) native same-process `push()` call latency, 1,000,000 calls, `std::chrono::steady_clock`. (2) Python same-process `push()` call latency, 100,000 calls, `time.perf_counter_ns()` -- same methodology as Phase 11/13. (3) native cross-process latency: a real second OS process (not a thread, not a second handle) attached via `SharedTelemetryChannel::attach()`, spin-polling `pop()`; the producer packs its own `steady_clock` timestamp into each event's `metric_value` field, the consumer computes `observed_time - packed_time` on receipt -- both processes read the same system-wide monotonic clock source (`QueryPerformanceCounter`/`clock_gettime(CLOCK_MONOTONIC)`), so cross-process comparison is valid. (4) the same measurement from Python, with the producer paced (1 event/ms) specifically to prevent a backlog from forming -- see the finding below for why that pacing turned out to matter. 3 runs each.
+
+| Layer | Representative run (mean / p50) | Range across 3 runs (mean) |
+|---|---|---|
+| (1) Native same-process `push()` call | 39.6 ns / 0 ns | 35.3 - 39.6 ns |
+| (2) Python same-process `push()` call (ctypes) | 1,327.7 ns / 1,300 ns | 1,308.8 - 1,329.5 ns |
+| (3) Native cross-process, real 2-process handoff (burst, 20,000 events) | 3,472.6 ns / 2,400 ns | 3,472.6 - 22,148.3 ns (p50: 2,400 - 13,900 ns) |
+| (4) Python cross-process, paced to prevent backlog (5,000 events) | 10,044.7 ns / 6,900 ns | 9,846.7 - 10,215.7 ns (p50: 6,900 ns every run) |
+
+* **A real finding caught mid-measurement, not glossed over:** the first cross-process Python measurement (unpaced, producer pushing 20,000 events back-to-back as fast as possible) reported a wildly different number -- mean 4.4-5.2 ms across 4 runs, orders of magnitude higher than every other row here. Diagnosing it before reporting it: the *first* event observed had a latency of 14-26 us (consistent with row (4) above), but the *last* event's latency was 13.6 ms, growing roughly linearly across the batch. That is the signature of a producer-faster-than-consumer backlog accumulating in the ring (a throughput mismatch, not a transport-latency problem) -- not surprising in hindsight, since the Python consumer's per-`pop()` ctypes cost is comparable to the producer's per-`push()` cost, and a burst of 20,000 back-to-back pushes gives the queue no opportunity to drain between events. Row (3) above (native burst) mostly avoids this because native `pop()`/`push()` are ~35x cheaper per call than their Python-ctypes-wrapped equivalents, so the native consumer keeps pace even unpaced -- though even there, run-to-run variance (2.4-13.9 us p50) shows the same underlying sensitivity to consumer scheduling, just less severe. Row (4)'s pacing exists specifically to measure genuine per-event propagation latency instead of an artifact of this queueing effect.
+* **Interpretation:** "sub-microsecond" is true of the native transport operation in isolation (row 1) -- writing into shared memory really does cost tens of nanoseconds. It is not true of genuine cross-process propagation, native or Python, on this general-purpose, non-isolated development machine (rows 3-4 are single-digit-to-low-double-digit microseconds) -- real OS scheduling and cross-core cache-coherency delay dominate once two actual processes are involved, the same theme Phase 14 found for CPU pinning on this same hardware. A caller choosing this transport for a genuinely latency-sensitive path should pace bursty producers (row 4's finding) and consider the CPU-pinning primitives from Phase 14 for the producer/consumer threads specifically, rather than assume the native call's own sub-microsecond cost is what a remote reader will actually observe.
+* **Status:** Phase 16 IPC Latency Measured -- native local operation is genuinely sub-microsecond; cross-process propagation (native or Python) is not, and is reported here at every layer rather than only the most favorable one
