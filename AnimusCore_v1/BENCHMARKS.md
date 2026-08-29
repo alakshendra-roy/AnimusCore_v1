@@ -311,3 +311,56 @@
 * **Regression check:** the full `tests/test_bindings.py` suite (23 tests, including new coverage for `record_events_batch`'s native marshalling, empty-batch no-op, and bounded-capacity truncation behavior, plus the pure-Python fallback) passed against both binaries with no changes to existing test expectations.
 * **Interpretation:** the native engine's own ingestion work is not the bottleneck at any point in this investigation -- 100,000 events costs it ~2.5 ms either way. What determines whether calling it from Python is faster or slower than staying in pure Python is entirely how the caller crosses the language boundary: once per event (loses to pure Python), or once per batch with the argument buffer built as raw bytes rather than individual wrapper objects (wins by ~2x).
 * **Status:** Phase 11 Batched Event Ingestion Verified
+
+## Phase 12: Stress Test -- Sustained Load, Memory Leaks, and C-ABI Boundary Safety
+
+### Sustained-Load Memory Check (1,200,000 events)
+
+* **Target System:** `benchmarks/stress_test_engine.py` -- the full real pipeline (`init` -> `add_rule` -> `start_logging` -> `record_events_batch` in 50,000-event batches -> `stop_logging`), not a synthetic allocation-only loop, with this process's resident memory (RSS) sampled between every batch
+* **Method:** RSS read via a direct Windows API call (`psapi.GetProcessMemoryInfo` through ctypes, no `psutil` dependency -- consistent with this SDK's zero-dependency stdlib-only design), with a Linux (`/proc/self/status` VmRSS) and macOS/generic (`resource.getrusage`) fallback for portability. 5 consecutive full runs.
+* **Baseline methodology, and a false positive caught while building it:** the first version of this script flagged a leak (+24.85% RSS growth) by measuring growth from RSS immediately after `init()`, before any event had been pushed. That's the wrong reference point: the ring buffers are *reserved* at init but their pages are only *committed* (and so counted in RSS) as each cell is first written to, so RSS legitimately climbs through the first cycle or two of a ring this large even with zero leaks -- it isn't a leak signature, it's one-time OS lazy-page-commit. Fixed by using a "warm" baseline instead: the RSS sample taken after the ring has been fully cycled twice (600,000+ events into a 131,072-capacity ring), by which point every cell's backing page is provably resident.
+
+| Metric | Representative run | Range across 5 runs |
+|---|---|---|
+| Cold baseline RSS (before `init()`) | 25.23 MB | 24.87 - 25.23 MB |
+| Post-init RSS (before any event pushed) | 47.07 MB | 46.73 - 47.11 MB |
+| Warm baseline RSS (after 300,000 events -- the correct leak-detection reference point) | 57.84 MB | 57.84 - 58.03 MB |
+| Final RSS (after `stop_logging()` + `gc.collect()`, all 1,200,000 events processed) | 58.89 MB | 58.89 - 59.47 MB |
+| RSS growth, warm baseline -> final | +1.05 MB | +1.05 - +1.45 MB |
+| RSS growth, warm baseline -> final (%) | +1.82% | +1.82% - +2.49% |
+| Threat signals matched and drained | 108,000 / 108,000 expected | 108,000 / 108,000 in all 5 runs |
+
+* **Leak verdict:** no run exceeded the script's 10% growth-flag threshold; growth stayed in a narrow 1.82-2.49% band across all 5 runs, consistent with normal allocator/heap fragmentation noise rather than a leak. `EngineImpl`'s own allocation profile supports this reading directly from the source: the ring buffers are sized once at construction (`LockFreeRingBuffer`'s backing `std::vector<Cell>`), the persistence worker's batch buffer is `reserve()`-d once and `clear()`-ed (not reallocated) every drain cycle, and every event/signal is stored by value with no per-event heap allocation on the native side.
+* **Correctness under sustained load:** every run drained exactly 108,000 threat signals -- 1,200,000 events x 9% match rate (`metric_value = i % 100`, rule threshold `> 90` matching values 91-99) -- with zero drops or duplicates, across all 5 runs.
+* **A real, unrelated bug found and fixed while writing this check:** the first `get_rss_bytes()` implementation raised `OSError: [WinError 6] The handle is invalid`. Root cause: `ctypes.windll.kernel32.GetCurrentProcess()` was called with no explicit `argtypes`/`restype`, so ctypes' default (`c_int`, 32-bit) truncated the function's 64-bit pseudo-handle (`0xFFFFFFFFFFFFFFFF`) and then zero-extended it back out incorrectly when passed into `GetProcessMemoryInfo`, producing a handle value Windows rejected. Fixed by explicitly declaring both functions' `argtypes`/`restype` with `ctypes.wintypes.HANDLE`, verified with a standalone reproduction before folding the fix into the script.
+* **Status:** Phase 12 Sustained-Load Memory Check Verified
+
+### C-ABI Boundary Safety: Malformed Input Against `animus_record_events_batch`
+
+* **Target System:** two different threat models against the same function, deliberately handled two different ways -- malformed *event data* through the public `AnimusBindings.record_events_batch()` API, and malformed *pointer/count* arguments against the raw C-ABI export it wraps
+* **Method, malformed data (in-process):** 7 cases -- an out-of-range `metric_value` (2^64), an out-of-range `event_id` (2^32), negative `event_id`/`metric_value`, a short (2-field) and a long (4-field) event tuple, and a non-integer field -- fed through the public SDK call. `struct.pack()` validates every field's type and range before any ctypes/native call happens, so none of these can reach native code, let alone corrupt memory; safe to run in-process.
+* **Method, malformed pointer/count (subprocess-isolated):** 6 cases against the raw `_lib.animus_record_events_batch` handle (bypassing the public SDK method the way a caller never should, but a boundary fuzzer must) -- a NULL buffer with a nonzero count, a call before `animus_init` (no engine yet), a `count` claiming 100,000 events against a buffer that actually holds 1, `count = 2**64-1` against the same 1-event buffer, `count` passed as a negative Python int, and an empty batch through the SDK as a sanity control. `animus_record_events_batch` has no way to validate a caller-supplied `count` against the buffer's real size -- the same trust contract as `memcpy` -- so a lying `count` is a genuine out-of-bounds read that can crash the process reading it; each case therefore runs in its own subprocess (`python stress_test_engine.py --fuzz-case <name>`) so a real crash is *observed and reported*, not something that also kills the test suite running it. 5 consecutive full runs.
+
+| Malformed-data case (in-process) | Outcome (5/5 runs) |
+|---|---|
+| `metric_value = 2**64` | `struct.error`, rejected |
+| `event_id = 2**32` | `struct.error`, rejected |
+| `event_id = -1` | `struct.error`, rejected |
+| `metric_value = -1` | `struct.error`, rejected |
+| 2-field event tuple | `ValueError`, rejected |
+| 4-field event tuple | `ValueError`, rejected |
+| Non-integer field (`"bad"`) | `struct.error`, rejected |
+
+| Malformed pointer/count case (subprocess-isolated) | Outcome | Crash rate across 5 runs |
+|---|---|---|
+| NULL buffer, count=5 | Safely returns 0 (`if (!events) return 0;` guard) | 0/5 crashed |
+| Called before `animus_init` | Safely returns 0 (`if (!engine) return 0;` guard) | 0/5 crashed |
+| `count` claims 100,000; buffer holds 1 | Out-of-bounds read; crashes depending on heap layout | 2/5 crashed (`STATUS_ACCESS_VIOLATION`); 3/5 read ~1.6 MB of adjacent memory as garbage events without crashing -- not safe either way, just didn't hit an unmapped page those 3 runs |
+| `count = 2**64-1`; buffer holds 1 | Out-of-bounds read, unbounded | 5/5 crashed (`STATUS_ACCESS_VIOLATION`, `0xC0000005`) |
+| `count` passed as `-1` (Python int) | `ctypes.c_size_t` silently wraps -1 to `0xFFFFFFFFFFFFFFFF` -- **not** rejected with `OverflowError` as might be assumed | 0/5 crashed (small, 1,024-capacity ring bounds the OOB read to ~16 KB, which stayed inside mapped memory in every run observed -- happenstance, not a guarantee, same caveat as the moderate case above) |
+| Empty batch via the public SDK | Safely returns 0, no native call made | 0/5 crashed (control case) |
+
+* **Key finding -- non-determinism, not a guarantee:** whether a lying `count` crashes the process is a function of how far past the true buffer the read walks before hitting an unmapped page, which depends on heap layout at call time, not on anything about the input. The moderate case (100,000 claimed vs. 1 real) crashed in 2 of 5 runs and silently read garbage adjacent memory into the ring buffer in the other 3 -- neither outcome is "safe," and the script's reporting was corrected mid-development to say so explicitly (`NO CRASH*` is a distinct, footnoted outcome from `SAFE`, not treated as equivalent) rather than let a lucky non-crashing run read as "handled correctly."
+* **A genuinely surprising sub-finding:** `ctypes.c_size_t` does not raise `OverflowError` for a negative Python int the way the `struct.pack`-validated fields above do -- it silently reinterprets `-1` as the maximum unsigned 64-bit value and passes that straight through. This was verified empirically (not assumed) before being relied on in the script's fuzz case, after an earlier assumption in this investigation about ctypes' negative-value handling turned out to be wrong for this specific argument-conversion path.
+* **Why this is not a defect in the public SDK:** `AnimusBindings.record_events_batch()` (`animus/bindings.py`) always derives `count` from `len(events)` and sizes its `(NativeEvent * count)` buffer to exactly that count in the same call -- the two can never disagree through the public API. Reaching any of the crashing/unsafe cases above requires bypassing the SDK and calling the raw `_lib` handle directly, exactly as this fuzz harness does and exactly as no ordinary caller would. The raw C-ABI's behavior here is the same caller-must-not-lie-about-length contract every pointer+length C API has (`memcpy`, `read()`, ...), not something unique to this engine -- worth documenting precisely, not worth "fixing" by adding a length field to the wire struct at the cost of the zero-copy design this API exists for.
+* **Status:** Phase 12 C-ABI Boundary Safety Verified (public SDK path: safe by construction; raw C-ABI path: behaves exactly as its documented trust contract implies, confirmed empirically rather than assumed)
