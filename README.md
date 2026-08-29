@@ -1,9 +1,15 @@
 ﻿# Animus Core v1.0: High-Performance Event Processing Engine
 
 [![Build](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml)
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
+
+> **`proprietary-edition` branch.** This branch adds an offline RSA-signed
+> hardware licensing layer (Phase 17) and lock-free market data feed
+> adapters (Phase 18 below) on top of the MIT `master` branch and is
+> licensed differently -- see `LICENSE` in this branch, which is a
+> placeholder pending real legal review, not the MIT text on `master`.
 
 ## Overview
 Animus Core is an enterprise-grade, low-latency telemetry ingestion and automated response engine engineered in C++ with native Python SDK bindings. It bridges C-ABI execution memory boundaries with high-level orchestrators to process high-throughput telemetry streams without zero-copy buffer degradation.
@@ -33,11 +39,17 @@ python benchmarks/stress_test_engine.py
 
 # Tail latency (p50-p99.99) for batched ingestion, baseline vs. SPSC ring + CPU pinning
 python benchmarks/fintech_tail_latency.py
+
+# Tick-to-trade latency, 8-thread ring buffer throughput, and CPU cache
+# locality -- compiles and runs a native C++ benchmark binary, then
+# renders benchmarks/BENCHMARK_REPORT.md
+python benchmarks/generate_benchmark_report.py
  ```
 
-See `AnimusCore_v1/QUICKSTART.md` for four client proof-of-concept guides
-(Python SDK, C++ single-header embedding, secure multi-tenant + mTLS, and
-distributed Raft-lite cluster) covering every way to consume Animus Core.
+See `AnimusCore_v1/QUICKSTART.md` for six client proof-of-concept guides
+(Python SDK, C++ single-header embedding, secure multi-tenant + mTLS,
+distributed Raft-lite cluster, enterprise licensing, and market data feed
+adapters) covering every way to consume Animus Core.
 
 ## Benchmark Performance
 * **Peak Throughput:** >238 Million ops/sec
@@ -236,4 +248,180 @@ Phase 6 gave two processes a way to exchange telemetry via `animus.shm.SharedTel
 Verified, not assumed: both interop directions tested for real (native writes, Python `SharedTelemetryRing` reads, and the reverse); a genuine cross-process test using a real `subprocess.Popen` child, not a second handle in the same process; non-power-of-two capacity with real ring wraparound.
 
 The "sub-microsecond IPC" claim was measured layer by layer, not asserted as one number: the native `push()` call itself is genuinely sub-microsecond (~35-40ns). A single Python ctypes call to it costs ~1.3us instead -- the same marshalling tax documented in Phases 11 and 13 -- and genuine cross-process propagation (one process's write becoming visible to another's read) measured at single-digit-to-low-double-digit microseconds even in native code, not sub-microsecond, on a general-purpose machine with no CPU isolation configured. Along the way, an unpaced Python burst test initially reported 4.4-5.2ms mean latency -- traced (not glossed over) to a producer-faster-than-consumer backlog accumulating linearly across the batch (first event: 14-26us; last event: 13.6ms), a throughput mismatch rather than a transport problem. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 16 section for the full breakdown.
+
+## Phase 17: Enterprise Edition -- Offline RSA-Signed Hardware Licensing
+
+**This phase lives only on the `proprietary-edition` branch, not `master`.**
+AnimusCore is MIT-licensed on `master`; a hardware-locked license gate
+doesn't fit an open-source tree (anyone with the source can just delete
+the check). `proprietary-edition` branches off `master` specifically to
+carry this feature, with `LICENSE` replaced by a placeholder "All Rights
+Reserved" notice -- explicitly **not** reviewed by counsel, and not to be
+distributed to a customer before real legal review.
+
+* **Offline, no phone-home:** `animus_verify_license(path)` (`AnimusCore_v1/animus.hpp`
+  / `animus_engine.cpp`) validates a signed license file entirely locally --
+  RSA-2048 signature check via Windows CNG/BCrypt (`BCryptVerifySignature`,
+  PKCS1 padding + SHA-256), no network call, no license server.
+* **Hardware fingerprint, not a serial number:** the fingerprint is
+  SHA-256(`MachineGuid` + the machine's primary MAC address), not a literal
+  CPU serial -- modern CPUs don't expose one via CPUID for privacy reasons
+  since the Pentium III PSN was deprecated. `MachineGuid` comes from
+  `HKLM\SOFTWARE\Microsoft\Cryptography`; the MAC is selected via
+  `GetAdaptersAddresses`, filtered to the IEEE "locally administered
+  address" bit (`(mac[0] & 0x02) == 0`) to exclude Windows' own
+  virtual/randomized MACs (a real dev machine surfaced *three* distinct
+  Wi-Fi MACs from virtual roles alone before this filter was added), then
+  the smallest remaining candidate is chosen for determinism on multi-NIC
+  machines.
+* **Fail-closed core entitlement:** a license's `max_cores` field gates
+  `animus_spsc_init` and `animus_pin_current_thread_to_core` directly --
+  neither succeeds until `animus_verify_license` has succeeded in-process,
+  and pinning additionally rejects any `core_id >= max_cores`, independent
+  of the machine's real hardware core count. No unlicensed default, not
+  even core 0.
+* **Windows-only by design, not by omission:** `animus_verify_license`
+  returns `false` immediately on non-Windows builds (no BCrypt equivalent
+  wired up) rather than faking a pass -- an explicit, documented gap
+  instead of a silent one.
+
+```powershell
+# One-time: generate the RSA-2048 signing keypair (private key is written
+# to license_tools/private/, gitignored -- never commit it; the public key
+# is baked into AnimusCore_v1/animus_license_pubkey.hpp, safe to commit).
+powershell -File AnimusCore_v1/license_tools/generate_license_keypair.ps1
+
+# Issue a license: 8 cores, no expiry, for the machine this runs on.
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 -OutFile customer.lic -MaxCores 8
+
+# Issue a license for a specific customer machine + a 365-day expiry.
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 -OutFile customer.lic -MaxCores 4 -FingerprintHex <64 hex chars from the customer's machine> -ExpiresInDays 365
+```
+
+```python
+bindings = AnimusBindings()
+if not bindings.verify_license("customer.lic"):
+    raise SystemExit("license invalid, expired, or for a different machine")
+bindings.spsc_init(buffer_capacity=1_000_000)         # now unlocked
+bindings.pin_current_thread_to_core(bindings.licensed_max_cores() - 1)
+```
+
+Verified end-to-end against the real compiled DLL, not just the signing
+tools in isolation: a valid license for the current machine unlocks both
+`spsc_init` and pinning up to exactly its `max_cores` boundary (one core
+past it correctly fails); a validly-signed license for a *different*
+machine's fingerprint, a byte-tampered license, and a nonexistent file
+path are all correctly rejected; and a fresh process with no license
+verified yet fails closed on both gated calls (confirmed via a
+subprocess-isolated test, since license state is a process-wide singleton
+that can't be un-set once verified). See `tests/test_bindings.py`'s
+`RealNativeEngineIntegrationTests` license tests and `UnlicensedGatingTests`
+for the full suite.
+
+## Phase 18: Lock-Free Market Data Feed Adapters (L2/L3 Book + Trade Ticks)
+
+`animus::MarketDataFeed` (`AnimusCore_v1/animus.hpp`) adds a dedicated
+low-latency ingestion primitive for live market data, separate from the
+general telemetry `Engine` and from the SPSC ring both used for
+higher-throughput single-thread paths:
+
+* **Two independent lock-free rings, one per message type:** order-book
+  price-level updates (`L2Update`, 56 bytes) and executed-trade ticks
+  (`TradeTick`, 56 bytes), each backed by the existing `LockFreeRingBuffer`
+  (the Vyukov MPMC ring `EngineImpl`'s own telemetry ring already uses),
+  not a new ring algorithm.
+* **Genuinely thread-safe for concurrent producers *and* consumers** --
+  unlike `SpscRingBuffer`/`SharedTelemetryChannel` elsewhere in this
+  header, which are deliberately single-producer/single-consumer for
+  extra throughput, `MarketDataFeed` supports multiple feed-handler
+  threads (e.g. one per venue connection) pushing into the same instance
+  concurrently, and multiple consumer threads draining it concurrently,
+  with no external locking.
+* **Handle-based, not a singleton:** `animus_feed_create`/`animus_feed_close`
+  follow the same pattern as `animus_shm_create`/`animus_shm_close`, so a
+  caller can run any number of independent feeds (e.g. one per venue or
+  instrument shard) in one process.
+* **`L2Update` carries a venue-relative depth index (`level`), not a raw
+  price** -- consumers reconstruct book state by keyed
+  `(instrument_id, side, level)` replacement, matching how incremental L2
+  feeds (ITCH, ArcaBook, ...) actually publish updates, rather than by
+  summing deltas. Both structs carry the venue's own `sequence_number`
+  (for gap detection, left to the consumer) and both a locally-stamped
+  `timestamp_cycles` and a caller-supplied `exchange_timestamp_ns`, so
+  feed-to-ingestion latency can be measured directly.
+
+```python
+from animus import MarketDataFeed, BookSide, BookUpdateAction, TradeAggressor
+
+feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+# Producer thread(s) -- e.g. one per venue connection:
+feed.push_l2_update(instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW,
+                     level=0, price_ticks=101250, quantity=300,
+                     sequence_number=1, exchange_timestamp_ns=venue_ts_ns)
+feed.push_trade(instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+                 price_ticks=101250, quantity=50,
+                 sequence_number=2, exchange_timestamp_ns=venue_ts_ns)
+
+# Consumer thread(s) -- e.g. book builder + strategy, independently:
+for update in feed.poll_l2_updates(max_count=1024):
+    ...
+for trade in feed.poll_trades(max_count=1024):
+    ...
+```
+
+Verified, not assumed: struct layouts (56 bytes each) confirmed via a real
+`sizeof()`/`offsetof()` build before being mirrored in
+`animus/bindings.py`'s ctypes `Structure`s; a real multi-threaded stress
+test with 6-8 concurrent producer threads and 3-4 concurrent consumer
+threads pushing/draining tens of thousands of records across both rings
+at once, confirming zero loss, zero duplication, and zero field
+corruption under genuine OS-thread concurrency -- not merely asserted from
+the ring algorithm's known correctness. See `tests/test_bindings.py`'s
+`MarketDataFeedIntegrationTests` for the full suite.
+
+## Phase 19: Automated Institutional Benchmark Suite
+
+`AnimusCore_v1/animus_benchmark_suite.cpp` measures three things this
+repo hadn't measured together before, orchestrated and rendered to
+Markdown by `benchmarks/generate_benchmark_report.py`:
+
+* **Tick-to-trade end-to-end latency** -- a single-threaded, sequential
+  `MarketDataFeed` push -> poll -> `ExecutionClient::submit()` round trip,
+  500,000 ticks.
+* **Lock-free ring buffer throughput under real 8-thread concurrency** --
+  `animus::LockFreeRingBuffer<TelemetryPayload>` (the same ring
+  `EngineImpl`'s telemetry ring uses) driven by 8 concurrent producer
+  threads, with a post-hoc drain-count correctness check every run.
+* **CPU cache locality** -- a Sattolo-shuffled pointer-chase sweep across
+  16 working-set sizes (4 KB-128 MB), plus a false-sharing A/B test tied
+  directly to this codebase's own `alignas(64)` design choice in
+  `LockFreeRingBuffer`/`SpscRingBuffer`.
+
+Deliberately native C++, not Python/ctypes: the GIL would serialize
+Python "threads" onto one core (faking the 8-thread concurrency test),
+and the ~1,300 ns/call ctypes marshalling tax this repo already measured
+(Phase 16) is on its own wider than the sub-microsecond budget this suite
+reports on.
+
+```bash
+python benchmarks/generate_benchmark_report.py
+```
+
+Compiles the C++ binary (g++/clang++) if missing or stale, runs it, and
+writes `benchmarks/BENCHMARK_REPORT.md` -- a fully reproducible report,
+not a hand-typed one, with its own Methodology & Limitations section.
+
+Measured across 5 consecutive runs: tick-to-trade latency lands at
+p50/p99 = 100 ns and p99.9 = 100-200 ns -- genuinely sub-microsecond,
+not a rounding artifact. Ring buffer throughput sustained 6.9-9.6M
+pushes/sec under real 8-thread contention with zero lost or duplicated
+pushes every run. Cache-line padding (`alignas(64)`) measured a
+consistent >4x throughput improvement over false sharing (4.21x-4.99x
+across runs), directly validating an existing design choice with data.
+A real methodology bug was caught and fixed while building this suite --
+an early two-thread tick-to-trade design measured *milliseconds*, not
+nanoseconds, due to an unpaced-producer backlog effect this repo had
+already documented once before (Phase 16) -- see
+`AnimusCore_v1/BENCHMARKS.md`'s Phase 19 section for the full breakdown.
 

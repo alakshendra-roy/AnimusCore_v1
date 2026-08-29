@@ -129,6 +129,30 @@ class AggregationFunction(IntEnum):
     MAX = 3
 
 
+class BookSide(IntEnum):
+    """Mirrors animus::BookSide (animus.hpp) -- values must stay in sync."""
+    BID = 0
+    ASK = 1
+
+
+class BookUpdateAction(IntEnum):
+    """Mirrors animus::BookUpdateAction (animus.hpp) -- values must stay in sync.
+    NEW: a fresh price level entered the book at `level`. UPDATE: that
+    level's quantity changed. DELETE: the level was removed (quantity is
+    not meaningful and should be ignored).
+    """
+    NEW = 0
+    UPDATE = 1
+    DELETE = 2
+
+
+class TradeAggressor(IntEnum):
+    """Mirrors animus::TradeAggressor (animus.hpp) -- values must stay in sync."""
+    BUYER = 0
+    SELLER = 1
+    UNKNOWN = 2
+
+
 class ThreatSignal(ctypes.Structure):
     """Mirrors animus::ThreatSignal (animus.hpp) byte-for-byte.
 
@@ -213,6 +237,53 @@ class SharedRecord(ctypes.Structure):
 
 
 assert ctypes.sizeof(SharedRecord) == 24
+
+
+class L2Update(ctypes.Structure):
+    """Mirrors animus::L2Update (animus.hpp) byte-for-byte, INCLUDING its 6
+    bytes of trailing alignment padding -- crosses the real C-ABI via
+    animus_feed_poll_l2_updates's caller-supplied buffer, so this layout
+    must match the native array's actual per-element stride exactly (see
+    SpscTelemetryRecord's identical rationale above). side/action are
+    raw ctypes.c_uint8, not BookSide/BookUpdateAction directly -- wrap
+    with BookSide(rec.side) / BookUpdateAction(rec.action) if you want the
+    enum, same convention ThreatSignal.rule_id etc. already follow.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("exchange_timestamp_ns", ctypes.c_uint64),
+        ("sequence_number", ctypes.c_uint64),
+        ("price_ticks", ctypes.c_uint64),
+        ("quantity", ctypes.c_uint64),
+        ("instrument_id", ctypes.c_uint32),
+        ("level", ctypes.c_uint32),
+        ("side", ctypes.c_uint8),
+        ("action", ctypes.c_uint8),
+        ("_reserved", ctypes.c_uint8 * 6),
+    ]
+
+
+assert ctypes.sizeof(L2Update) == 56
+
+
+class TradeTick(ctypes.Structure):
+    """Mirrors animus::TradeTick (animus.hpp) byte-for-byte, INCLUDING its 3
+    bytes of trailing alignment padding -- same rationale as L2Update above.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("exchange_timestamp_ns", ctypes.c_uint64),
+        ("sequence_number", ctypes.c_uint64),
+        ("trade_id", ctypes.c_uint64),
+        ("price_ticks", ctypes.c_uint64),
+        ("quantity", ctypes.c_uint64),
+        ("instrument_id", ctypes.c_uint32),
+        ("aggressor_side", ctypes.c_uint8),
+        ("_reserved", ctypes.c_uint8 * 3),
+    ]
+
+
+assert ctypes.sizeof(TradeTick) == 56
 
 
 class _TelemetryRecord(NamedTuple):
@@ -590,8 +661,20 @@ class AnimusBindings:
         self._lib.animus_pin_current_thread_to_core.argtypes = [ctypes.c_int]
         self._lib.animus_pin_current_thread_to_core.restype = ctypes.c_bool
 
+        self._lib.animus_set_thread_high_priority.argtypes = []
+        self._lib.animus_set_thread_high_priority.restype = None
+
         self._lib.animus_get_cpu_count.argtypes = []
         self._lib.animus_get_cpu_count.restype = ctypes.c_uint
+
+        self._lib.animus_verify_license.argtypes = [ctypes.c_char_p]
+        self._lib.animus_verify_license.restype = ctypes.c_bool
+
+        self._lib.animus_is_licensed.argtypes = []
+        self._lib.animus_is_licensed.restype = ctypes.c_bool
+
+        self._lib.animus_licensed_max_cores.argtypes = []
+        self._lib.animus_licensed_max_cores.restype = ctypes.c_uint32
 
     def init(self, buffer_capacity: int = 65536) -> bool:
         """Initializes the engine (native singleton, or pure-Python fallback). Idempotent."""
@@ -832,12 +915,55 @@ class AnimusBindings:
         self._require_native("pin_current_thread_to_core")
         return bool(self._lib.animus_pin_current_thread_to_core(ctypes.c_int(core_id)))
 
+    def set_thread_high_priority(self) -> None:
+        """Raises the calling OS thread to the highest realtime/time-critical
+        scheduling tier this host will grant (see
+        animus::sys::set_thread_high_priority,
+        include/animus/thread_affinity.hpp), falling back a tier if the host
+        denies it. Same license gate as pin_current_thread_to_core: a no-op
+        with no verified license. Best-effort by design -- never raises,
+        call it right after pin_current_thread_to_core() on a thread about
+        to enter its hot loop. No pure-Python fallback: OS scheduling
+        priority is not something Python can provide portably on its own.
+        """
+        self._require_native("set_thread_high_priority")
+        self._lib.animus_set_thread_high_priority()
+
     def get_cpu_count(self) -> int:
         """Logical CPU count on this machine, for sanity-checking a core_id
         before calling pin_current_thread_to_core.
         """
         self._require_native("get_cpu_count")
         return int(self._lib.animus_get_cpu_count())
+
+    def verify_license(self, license_path: str) -> bool:
+        """Verifies an RSA-signed offline license file (see
+        animus::LicensePayload, animus.hpp) against the public key baked
+        into this build and this machine's hardware fingerprint. Entirely
+        offline -- no network call is made. On success, gates
+        pin_current_thread_to_core()/spsc_init() to the license's entitled
+        core count; both fail closed until this has succeeded once in this
+        process. Returns False for a missing/wrong-size file, a bad magic
+        number, a signature that doesn't verify (tampered file, or signed
+        by a different key), a fingerprint for a different machine, or an
+        expired license. Windows-only: returns False on other platforms
+        rather than faking success (see animus_verify_license's definition
+        in animus_engine.cpp for why). No pure-Python fallback -- this is
+        a native security boundary, not something a Python reimplementation
+        could meaningfully provide.
+        """
+        self._require_native("verify_license")
+        return bool(self._lib.animus_verify_license(license_path.encode("utf-8")))
+
+    def is_licensed(self) -> bool:
+        """True once verify_license() has succeeded in this process."""
+        self._require_native("is_licensed")
+        return bool(self._lib.animus_is_licensed())
+
+    def licensed_max_cores(self) -> int:
+        """The verified license's entitled core count, or 0 if unlicensed."""
+        self._require_native("licensed_max_cores")
+        return int(self._lib.animus_licensed_max_cores())
 
 
 def _configure_shm_signatures(lib: ctypes.CDLL) -> None:
@@ -970,6 +1096,161 @@ class SharedTelemetryChannel:
         # __del__ runs during interpreter shutdown, and raising from
         # __del__ is silently ignored by Python anyway (with a warning),
         # so catching here is strictly more informative than not.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _configure_feed_signatures(lib: ctypes.CDLL) -> None:
+    lib.animus_feed_create.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+    lib.animus_feed_create.restype = ctypes.c_void_p
+    lib.animus_feed_close.argtypes = [ctypes.c_void_p]
+    lib.animus_feed_close.restype = None
+    lib.animus_feed_l2_capacity.argtypes = [ctypes.c_void_p]
+    lib.animus_feed_l2_capacity.restype = ctypes.c_size_t
+    lib.animus_feed_trade_capacity.argtypes = [ctypes.c_void_p]
+    lib.animus_feed_trade_capacity.restype = ctypes.c_size_t
+    lib.animus_feed_push_l2_update.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint8, ctypes.c_uint8,
+        ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64,
+    ]
+    lib.animus_feed_push_l2_update.restype = ctypes.c_bool
+    lib.animus_feed_push_trade.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint8,
+        ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64,
+    ]
+    lib.animus_feed_push_trade.restype = ctypes.c_bool
+    lib.animus_feed_poll_l2_updates.argtypes = [ctypes.c_void_p, ctypes.POINTER(L2Update), ctypes.c_size_t]
+    lib.animus_feed_poll_l2_updates.restype = ctypes.c_size_t
+    lib.animus_feed_poll_trades.argtypes = [ctypes.c_void_p, ctypes.POINTER(TradeTick), ctypes.c_size_t]
+    lib.animus_feed_poll_trades.restype = ctypes.c_size_t
+
+
+class MarketDataFeed:
+    """ctypes-backed live market-data ingestion feed -- animus::MarketDataFeed
+    (animus.hpp) exposed via ctypes: one lock-free ring for L2 order-book
+    updates, one for trade execution ticks.
+
+    Thread-safe for concurrent producers AND concurrent consumers (Vyukov
+    MPMC ring underneath, the same design animus_record_events_batch's ring
+    uses) -- unlike SpscTelemetryRecord/spsc_drain elsewhere in this module,
+    which are deliberately single-producer/single-consumer for extra
+    throughput. Multiple feed-handler threads (e.g. one per venue
+    connection) may call push_l2_update()/push_trade() on the same
+    MarketDataFeed instance concurrently, and multiple consumer threads may
+    call poll_l2_updates()/poll_trades() concurrently, with no external
+    locking required.
+
+    Fully in-process, unlike SharedTelemetryChannel above: there is no OS
+    shared-memory segment here, so a second process cannot attach to a feed
+    created in this one. Requires the native engine; there is no
+    pure-Python fallback (a native performance/concurrency primitive, same
+    reasoning as SpscRingBuffer and SharedTelemetryChannel).
+    """
+
+    def __init__(self, handle: int, lib: ctypes.CDLL) -> None:
+        self._handle = handle
+        self._lib = lib
+
+    @classmethod
+    def create(cls, l2_capacity: int = 65536, trade_capacity: int = 65536) -> "MarketDataFeed":
+        """Allocates a new feed with independently-sized L2-update and
+        trade-tick rings. Each capacity is rounded up to the next power of
+        two internally (animus::LockFreeRingBuffer's requirement), same as
+        init()'s buffer_capacity. Raises OSError only on allocation failure
+        (out of memory) -- unlike SharedTelemetryChannel.create(), there is
+        no OS name to collide on, since this lives entirely in this
+        process's heap.
+        """
+        lib = load_native_library(required=True)
+        _configure_feed_signatures(lib)
+        handle = lib.animus_feed_create(ctypes.c_size_t(l2_capacity), ctypes.c_size_t(trade_capacity))
+        if not handle:
+            raise OSError("failed to allocate MarketDataFeed (out of memory?)")
+        return cls(handle, lib)
+
+    @property
+    def l2_capacity(self) -> int:
+        return int(self._lib.animus_feed_l2_capacity(self._handle))
+
+    @property
+    def trade_capacity(self) -> int:
+        return int(self._lib.animus_feed_trade_capacity(self._handle))
+
+    def push_l2_update(
+        self,
+        instrument_id: int,
+        side: int,
+        action: int,
+        level: int,
+        price_ticks: int,
+        quantity: int,
+        sequence_number: int = 0,
+        exchange_timestamp_ns: int = 0,
+    ) -> bool:
+        """Pushes one order-book price-level update. `side`/`action` accept
+        either a raw int or a BookSide/BookUpdateAction member (IntEnum, so
+        both work interchangeably). Never blocks; returns False if the L2
+        ring is full. timestamp_cycles is stamped natively at the moment of
+        this call -- exchange_timestamp_ns is whatever timestamp the feed
+        itself carried, entirely caller-supplied.
+        """
+        return bool(self._lib.animus_feed_push_l2_update(
+            self._handle,
+            ctypes.c_uint32(instrument_id), ctypes.c_uint8(side), ctypes.c_uint8(action),
+            ctypes.c_uint32(level), ctypes.c_uint64(price_ticks), ctypes.c_uint64(quantity),
+            ctypes.c_uint64(sequence_number), ctypes.c_uint64(exchange_timestamp_ns),
+        ))
+
+    def push_trade(
+        self,
+        instrument_id: int,
+        trade_id: int,
+        aggressor_side: int,
+        price_ticks: int,
+        quantity: int,
+        sequence_number: int = 0,
+        exchange_timestamp_ns: int = 0,
+    ) -> bool:
+        """Pushes one executed-trade tick. `aggressor_side` accepts either a
+        raw int or a TradeAggressor member. Never blocks; returns False if
+        the trade ring is full.
+        """
+        return bool(self._lib.animus_feed_push_trade(
+            self._handle,
+            ctypes.c_uint32(instrument_id), ctypes.c_uint64(trade_id), ctypes.c_uint8(aggressor_side),
+            ctypes.c_uint64(price_ticks), ctypes.c_uint64(quantity),
+            ctypes.c_uint64(sequence_number), ctypes.c_uint64(exchange_timestamp_ns),
+        ))
+
+    def poll_l2_updates(self, max_count: int = 1024) -> List[L2Update]:
+        """Drains up to max_count pending order-book updates. Never blocks;
+        returns fewer than max_count (including zero/empty) if fewer are
+        currently pending. Zero-copy: `buf` is a single contiguous ctypes
+        array allocated once per call, written into directly by the native
+        side, same pattern as AnimusBindings.poll_signals().
+        """
+        buf = (L2Update * max_count)()
+        count = self._lib.animus_feed_poll_l2_updates(self._handle, buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def poll_trades(self, max_count: int = 1024) -> List[TradeTick]:
+        """Drains up to max_count pending trade ticks. Same contract as
+        poll_l2_updates().
+        """
+        buf = (TradeTick * max_count)()
+        count = self._lib.animus_feed_poll_trades(self._handle, buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def close(self) -> None:
+        """Releases this feed's native rings. Safe to call more than once."""
+        if self._handle:
+            self._lib.animus_feed_close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        # Same finalizer-safety rationale as SharedTelemetryChannel.__del__ above.
         try:
             self.close()
         except Exception:

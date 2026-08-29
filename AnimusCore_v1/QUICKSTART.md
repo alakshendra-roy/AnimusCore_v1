@@ -1,6 +1,6 @@
 # Animus Core v1.0 -- Client Quickstart Guides
 
-Four proof-of-concept quickstarts, one per way of consuming Animus Core.
+Seven proof-of-concept quickstarts, one per way of consuming Animus Core.
 Pick the one that matches your integration:
 
 | Guide | For | Platform |
@@ -9,8 +9,11 @@ Pick the one that matches your integration:
 | [2. C++ single header](#2-c-single-header-embedded--in-process) | Embedding directly in a C++17 service, ultra-low-latency execution paths | Any (portable subset); Windows + MSVC for the full feature set |
 | [3. Secure multi-tenant + mTLS](#3-secure-multi-tenant--mtls-transport) | Multiple isolated tenants, encrypted remote ingestion | Windows + MSVC |
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
+| [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
+| [6. Market data feed adapters](#6-market-data-feed-adapters-l2l3-book--trade-ticks) | Live L2/L3 order book + trade tick ingestion (`proprietary-edition` branch only) | Any (Windows/Linux/macOS) |
+| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes (no Python interop) | Windows + MSVC (verified); POSIX path implemented, not yet build-verified in this repo |
 
-All four PoCs below are real, runnable code paths already exercised in this
+All seven PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
@@ -203,6 +206,43 @@ one core is briefly needed elsewhere, while an unpinned thread can migrate
 away. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 14 section for the full
 numbers, including the exact ratio of runs where each percentile improved
 vs. got worse.
+
+**Automated benchmark suite: tick-to-trade latency, 8-thread ring buffer
+throughput, and CPU cache locality, rendered to a Markdown report:**
+
+```bash
+python benchmarks/generate_benchmark_report.py
+```
+
+This compiles and runs `AnimusCore_v1/animus_benchmark_suite.cpp` --
+deliberately native C++, not Python/ctypes, since two of its three
+measurements can't be honestly taken from Python: the GIL would
+serialize an "8 concurrent threads" test onto one core instead of really
+exercising cross-core ring contention, and the ~1,300 ns/call ctypes
+marshalling tax documented in Phase 16 is on its own wider than the
+sub-microsecond tick-to-trade latency this suite measures. The script
+itself is the automation layer -- compile (g++/clang++, cached until the
+source changes), run, parse, and write `benchmarks/BENCHMARK_REPORT.md`,
+a fully reproducible report with its own Methodology & Limitations
+section, not a hand-typed one.
+
+Measured across 5 consecutive runs on the development machine: a
+single-threaded, sequential `MarketDataFeed` push -> poll ->
+`ExecutionClient::submit()` round trip lands at p50/p99 = 100 ns and
+p99.9 = 100-200 ns -- genuinely sub-microsecond. `LockFreeRingBuffer`
+sustained 6.9-9.6M pushes/sec under real 8-thread producer contention,
+with a post-hoc drain-count check confirming zero lost or duplicated
+pushes every run. A pointer-chase cache-locality sweep plus a
+false-sharing A/B test found cache-line padding (`alignas(64)`) worth a
+consistent >4x throughput improvement over false sharing -- a direct,
+data-backed justification of the same `alignas(64)` layout
+`LockFreeRingBuffer`/`SpscRingBuffer` already use for their head/tail
+index atomics, not an abstract exercise. See
+`AnimusCore_v1/BENCHMARKS.md`'s Phase 19 section for the full breakdown,
+including a real methodology bug (an early two-thread tick-to-trade
+design that measured *milliseconds*, not nanoseconds, due to the same
+unpaced-producer-backlog effect Phase 16 already documented once before)
+found and fixed while building this suite.
 
 **Instrumenting existing code with `@animus.trace`:**
 
@@ -663,6 +703,388 @@ cluster_demo.exe
 
 ---
 
+## 5. Enterprise Edition: Offline RSA-Signed Hardware Licensing
+
+**`proprietary-edition` branch only** -- not part of the MIT `master`
+tree, for the same reason a node-lock and open source don't mix: anyone
+with the source can delete a check baked into it. This branch replaces
+`LICENSE` with a placeholder "All Rights Reserved" notice (not reviewed
+by counsel -- don't ship it to a customer as-is) specifically to carry
+this feature.
+
+`animus_verify_license(path)` validates a signed license file entirely
+offline -- no license server, no network call -- and gates two existing
+primitives from guide 1/2 (`spsc_init`/`animus_spsc_init` and
+`pin_current_thread_to_core`/`animus_pin_current_thread_to_core`) behind
+it: neither succeeds until a valid license has been verified in-process,
+and pinning additionally rejects any core at or beyond the license's
+`max_cores`, independent of the machine's real core count.
+
+**1. Generate a signing keypair (once, on the machine that issues licenses):**
+
+```powershell
+powershell -File AnimusCore_v1/license_tools/generate_license_keypair.ps1
+```
+
+Writes the private key to `license_tools/private/license_private.blob`
+(gitignored -- never commit it; anyone with this file can mint a license
+for any machine) and the public key as a generated C++ header,
+`AnimusCore_v1/animus_license_pubkey.hpp` (safe to commit -- it's baked
+into every shipped binary so `animus_verify_license` can check signatures
+without ever calling home). Regenerating the keypair invalidates every
+license issued against the old one.
+
+**2. Issue a license for a customer's machine:**
+
+```powershell
+# Local testing -- licenses THIS machine (auto-computes its fingerprint):
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 -OutFile test.lic -MaxCores 8
+
+# A real customer license -- their fingerprint, their core entitlement,
+# an optional expiry:
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 `
+    -OutFile customer.lic -MaxCores 4 `
+    -FingerprintHex <64 hex chars from the customer's machine> `
+    -ExpiresInDays 365
+```
+
+The fingerprint is SHA-256(`MachineGuid` + primary MAC address) -- not a
+literal CPU serial number, since modern CPUs don't expose one via CPUID
+for privacy reasons. `MachineGuid` comes from
+`HKLM\SOFTWARE\Microsoft\Cryptography`; the MAC is the smallest
+candidate among the machine's genuine, manufacturer-assigned addresses
+(filtered via the IEEE "locally administered address" bit to exclude
+Windows' own virtual/randomized MACs -- a real dev machine surfaced three
+different Wi-Fi MACs from virtual roles alone before this filter was
+added, so "first adapter" is not a safe rule). `sign_license.ps1`
+computes this identically to `animus_verify_license`'s C++ side -- cross-
+verified byte-for-byte before either was relied on.
+
+**3. Verify the license and use the entitlement it grants:**
+
+```python
+from animus.bindings import AnimusBindings
+
+bindings = AnimusBindings()
+if not bindings.verify_license("customer.lic"):
+    raise SystemExit("license invalid, expired, or issued for a different machine")
+
+assert bindings.is_licensed()
+core_budget = bindings.licensed_max_cores()   # e.g. 4
+
+bindings.spsc_init(buffer_capacity=1_000_000)          # fails closed until verified above
+bindings.pin_current_thread_to_core(core_budget - 1)   # fails if >= core_budget
+```
+
+`verify_license()`/`is_licensed()`/`licensed_max_cores()` have no
+pure-Python fallback, same as `spsc_init`/`pin_current_thread_to_core`
+themselves -- they raise `RuntimeError` without a compiled native binary
+loaded, rather than silently granting an entitlement nothing actually
+checked. License state is a process-wide singleton: once
+`verify_license()` succeeds, it stays succeeded for the rest of the
+process (there's no way to "un-verify"), and it does not persist across
+process restarts -- call it again at startup every time.
+
+**Fails closed, checked directly against the real DLL, not just
+asserted:** a validly-signed license for a *different* machine's
+fingerprint is rejected; a byte-tampered license (even one bit flipped
+in an otherwise correctly-signed file) is rejected; a nonexistent file
+path is rejected; and a fresh process that hasn't called
+`verify_license()` at all fails closed on both `spsc_init()` and
+`pin_current_thread_to_core()` -- confirmed via a subprocess-isolated
+test, since license state can't be reset within a single process once
+set. See `tests/test_bindings.py`'s `RealNativeEngineIntegrationTests`
+license tests and `UnlicensedGatingTests` for the full suite, and
+`AnimusCore_v1/license_tools/test_fixtures/wrong_machine_test_license.lic`
+for a real, validly-signed license fixture safe to commit and test
+against on any machine (including CI) precisely because it's signed for
+a fingerprint that can never match real hardware.
+
+**Windows-only, explicitly, not silently:** `animus_verify_license`
+returns `false` immediately on non-Windows builds (RSA verification uses
+Windows CNG/BCrypt directly, `BCryptVerifySignature` with PKCS1 padding +
+SHA-256 -- no OpenSSL, no external crypto dependency) rather than faking
+a pass. A Linux/macOS build of this branch cannot verify a license at
+all yet; that's a documented gap, not an oversight.
+
+---
+
+## 6. Market Data Feed Adapters (L2/L3 Book + Trade Ticks)
+
+**Currently lives on the `proprietary-edition` branch** (alongside guide
+5) simply because that's where it was added -- unlike guide 5, nothing
+about this feature actually depends on licensing or Windows; it's plain
+portable C++17 like guides 1/2's core engine.
+
+`animus::MarketDataFeed` (`AnimusCore_v1/animus.hpp`) is a dedicated
+low-latency ingestion primitive for live market data: two independent
+lock-free rings (order-book updates, trade ticks), each backed by the
+same `LockFreeRingBuffer` (Vyukov MPMC) `EngineImpl`'s own telemetry ring
+uses. Unlike guide 2's `SpscRingBuffer`, it's genuinely thread-safe for
+**concurrent producers and concurrent consumers** -- multiple feed-handler
+threads (e.g. one per venue connection) can push into the same feed at
+once, and multiple consumer threads can drain it at once, with no
+external locking.
+
+```python
+from animus import MarketDataFeed, BookSide, BookUpdateAction, TradeAggressor
+
+feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+# Any number of producer threads, e.g. one per venue connection:
+feed.push_l2_update(
+    instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW,
+    level=0,                     # venue-relative depth index, 0 = best
+    price_ticks=101250, quantity=300,
+    sequence_number=1,           # the venue's own feed sequence number
+    exchange_timestamp_ns=venue_ts_ns,
+)
+feed.push_trade(
+    instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+    price_ticks=101250, quantity=50,
+    sequence_number=2, exchange_timestamp_ns=venue_ts_ns,
+)
+
+# Any number of consumer threads, e.g. a book builder and a strategy,
+# each independently draining what they need:
+for update in feed.poll_l2_updates(max_count=1024):
+    print(update.instrument_id, BookSide(update.side), BookUpdateAction(update.action),
+          update.level, update.price_ticks, update.quantity)
+for trade in feed.poll_trades(max_count=1024):
+    print(trade.instrument_id, trade.trade_id, TradeAggressor(trade.aggressor_side),
+          trade.price_ticks, trade.quantity)
+
+feed.close()
+```
+
+**`level`, not price, indexes the book.** `L2Update.level` is a
+venue-relative depth index (0 = best bid/ask), not a raw price -- a
+consumer reconstructs book state by keyed `(instrument_id, side, level)`
+replacement, matching how incremental L2 feeds (ITCH, ArcaBook, ...)
+actually publish updates, rather than by summing per-price deltas.
+`action` tells you what kind of change it is: `NEW` (a fresh level
+entered the book at this index), `UPDATE` (that level's quantity
+changed), or `DELETE` (the level was removed -- `quantity` is not
+meaningful on a `DELETE` and should be ignored).
+
+**Two independent rings, two independent capacities.** `l2_capacity` and
+`trade_capacity` are sized separately at `create()` time (each rounded up
+to the next power of two internally, same as `init()`'s
+`buffer_capacity`) -- a full order-book ring does not block trade
+ingestion, and vice versa, since they're genuinely separate
+`LockFreeRingBuffer` instances, not a shared one keyed by message type.
+
+**Sequence numbers are yours to reconcile, not this feed's.**
+`sequence_number` carries whatever the venue's own feed sequence number
+was; `MarketDataFeed` stores and returns it but does not itself detect
+gaps -- compare successive values per `instrument_id` and decide how to
+react (resync, drop, ...) at the strategy/book-builder layer, since that
+policy is venue- and strategy-specific. `timestamp_cycles` is stamped
+locally at the moment of the `push_*` call (`read_cycle_counter()`, same
+convention as `TelemetryPayload`); `exchange_timestamp_ns` is whatever
+timestamp the feed itself carried -- comparing the two measures
+feed-to-ingestion latency directly.
+
+**Handle-based, not a singleton, same as `SharedTelemetryChannel`
+(guide 1) --** `MarketDataFeed.create()` returns an independent instance,
+so run as many feeds as you need in one process (e.g. one per venue or
+instrument shard), each with its own pair of rings.
+
+**No pure-Python fallback, same reasoning as `SpscRingBuffer` and
+`SharedTelemetryChannel`:** `MarketDataFeed.create()` raises
+`FileNotFoundError` if no compiled native binary is found -- this is a
+native concurrency primitive, not something a Python reimplementation
+could meaningfully provide the same thread-safety guarantee for.
+
+**Thread-safety verified directly, not just claimed:** a stress test
+drives 6-8 real OS producer threads and 3-4 real OS consumer threads
+against one `MarketDataFeed` instance concurrently, pushing/draining tens
+of thousands of records across both rings, and confirms every record is
+drained exactly once with no corrupted fields -- see
+`tests/test_bindings.py`'s `MarketDataFeedIntegrationTests` for the full
+suite. No dedicated throughput/tail-latency benchmark has been run for
+this feature yet (unlike `record_events_batch`/SPSC's Phase 11/13/14
+numbers) -- treat it as functionally verified, not yet performance-
+characterized.
+
+The C++ single-header path (guide 2) works identically, with no C-ABI/
+ctypes hop: `#include "animus.hpp"` and drive `animus::MarketDataFeed`
+directly -- `push_l2_update`/`push_trade`/`poll_l2_updates`/`poll_trades`
+are ordinary member functions, same names and same thread-safety
+guarantee as the Python methods above.
+
+---
+
+## 7. Generic Shared-Memory IPC (`ShmRing<T>`)
+
+**A different tradeoff from guide 1/2's `SharedTelemetryChannel`/
+`SharedTelemetryRing`, not a replacement for them.** Those two are
+deliberately wire-compatible with each other (identical byte layout, so a
+C++ process and a Python process can produce/consume interchangeably) and
+therefore deliberately *not* cache-line-padded, to preserve that
+compatibility. `animus::sys::ipc::ShmRing<T>` (`include/animus/shm_ipc.hpp`)
+drops the interop constraint entirely -- it's a generic template for any
+trivially-copyable `T` you define, with its header explicitly padded so
+the producer's `head` cursor and the consumer's `tail` cursor each get
+their own cache line, eliminating false sharing between them. Reach for
+this when the two ends are both native C++ processes and raw latency
+matters more than being able to swap in a Python producer or consumer.
+
+**No Python binding today.** Unlike every other shared-memory primitive in
+this document, `ShmRing<T>` has no C-ABI export and no ctypes wrapper --
+it's currently C++-only. If you need a Python-reachable cross-process
+channel, guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` is what
+you want instead.
+
+**Standalone, not part of `animus.hpp`:** `shm_ipc.hpp` has no dependency
+on `animus.hpp` or `animus_release.hpp` -- it only includes
+`include/animus/thread_affinity.hpp` (for `ANIMUS_CACHE_LINE_SIZE` and
+`animus::cpu_relax()`, guide 2's CPU-pinning module), so it can be dropped
+into a project that wants nothing else from this repo.
+
+```cpp
+#include "include/animus/shm_ipc.hpp"   // pulls in thread_affinity.hpp
+
+using namespace animus::sys::ipc;
+
+struct Tick {
+    uint64_t sequence;
+    uint64_t price_ticks;
+};
+static_assert(std::is_trivially_copyable<Tick>::value, "");  // enforced by ShmRing<T> itself too
+
+// Process A: owns the ring's lifecycle (create it first, unlink it last).
+auto ring = ShmRing<Tick>::create("my-ring", /*requested_capacity=*/4096);
+if (!ring) { /* name collision, or the OS refused the mapping */ }
+
+ring->push_spin(Tick{1, 101250});   // spin-polls with animus::cpu_relax()
+                                     // until there's room, or max_spins attempts pass
+bool pushed = ring->try_push(Tick{2, 101300});  // never blocks; false if full, no spinning
+
+// Process B, on the same machine, any time after Process A's create() returns:
+auto ring2 = ShmRing<Tick>::open("my-ring");
+Tick out{};
+if (ring2->try_pop(out)) { /* ... */ }           // never blocks; false if empty
+ring2->pop_spin(out);                            // spin-polls until something arrives
+
+// Whichever process should own teardown, once both sides are done:
+ShmRing<Tick>::unlink("my-ring");
+```
+
+`create()`/`open()` return `nullptr` (never throw -- every entry point in
+this header is `noexcept`) on failure: a name collision, a segment that
+doesn't exist yet, or a header whose claimed capacity doesn't fit the
+mapped region. Requested capacity is rounded up to a power of two, same
+convention as `animus.hpp`'s `LockFreeRingBuffer`/`SpscRingBuffer`.
+
+**Single-producer/single-consumer, same contract as guide 2's
+`SpscRingBuffer`:** don't share one `ShmRing<T>` across more than one
+producer process or more than one consumer process -- it isn't enforced
+at runtime, for the same reason it isn't in `SpscRingBuffer`.
+
+**An unpaced burst can still build a backlog -- this primitive doesn't
+prevent that, your usage of it does.** `push_spin()` only blocks once the
+ring is actually full; if your producer is faster than your consumer, a
+backlog accumulates inside the ring first, and messages sitting in that
+backlog experience real queueing delay before your consumer ever touches
+them -- indistinguishable, from the consumer's side, from the transport
+itself being slow. This is exactly the mistake the ring's own benchmark
+made on its first attempt (see below) before being fixed; if your
+end-to-end latency matters, measure it the way that benchmark now does
+(paced/lockstep), not with an unpaced burst.
+
+**Measured, not assumed:** `AnimusCore_v1/shm_ipc_bench.cpp` is a
+standalone two-process benchmark -- real cross-process, TSC-timestamped,
+lockstep (an ack ring keeps at most one message in flight, so the number
+reported is genuine transit latency, not queueing delay). Build and run it
+as two separate processes, consumer first:
+
+```powershell
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/shm_ipc_bench.cpp /Fe:shm_ipc_bench.exe
+
+# Terminal 1 -- owns the ring's creation/unlink, start this first:
+shm_ipc_bench.exe --consumer my-ring 500000
+
+# Terminal 2:
+shm_ipc_bench.exe --producer my-ring 500000
+```
+
+Across 5 consecutive runs, 500,000 round trips each: p50 = 23.6-37.6 ns,
+p99 = 43.4-51.3 ns -- both genuinely sub-50ns in every run. p99.9 was
+*not*: it landed at 51-57 ns in all 5 runs, consistently just over the
+target rather than around it -- reported as measured, not rounded down to
+fit. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 20 section for the full
+numbers, including the producer-faster-than-consumer backlog bug found
+and fixed while building this benchmark (the same failure family already
+documented in the Phase 16 and Phase 19 sections).
+
+**A real ingestion pipeline, not just a latency probe:**
+`AnimusCore_v1/shm_ipc_ingest_demo.cpp` wires `ShmRing<T>` into an actual
+`animus::Engine` instead of just timestamping round trips -- a producer
+process pushes `animus::RawEvent` telemetry across
+`ShmRing<animus::RawEvent>`; a consumer process drains it into a real
+`Engine` (rules registered, `record_batch()` for ingestion,
+`start_persistence()`/`stop_persistence()`, `poll_signals()` for matches),
+the same native pipeline guide 1's `ingest_engine.py` drives via ctypes,
+except events arrive over shared memory from a genuinely separate
+process:
+
+```powershell
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/shm_ipc_ingest_demo.cpp /Fe:shm_ipc_ingest_demo.exe
+
+# Terminal 1 -- owns ring creation/unlink and the Engine instance, start first:
+shm_ipc_ingest_demo.exe --consumer my-ring 200000 telemetry.bin
+
+# Terminal 2:
+shm_ipc_ingest_demo.exe --producer my-ring 200000
+```
+
+**Read this before assuming `ShmRing<T>` alone makes an ingestion pipeline
+lossless -- it doesn't, your retry discipline does.** `ShmRing<T>` itself
+never drops anything (it's a bounded lock-free ring, not a lossy queue),
+but everything *behind* it can still refuse a push if you don't retry.
+Building this demo hit that twice, in two different rings:
+
+1. `Engine::record_batch()` documents "stops at the first push that fails,
+   returns how many actually made it in" -- a first version of this demo's
+   consumer called it once per batch and treated the remainder as
+   rejected, so once the engine's own internal ring filled, the majority
+   of a 200,000-event run vanished (65,536 accepted -- exactly one ring's
+   worth) despite `ShmRing` having delivered every event intact. Fixed by
+   retrying the unpushed remainder with `animus::cpu_relax()` until the
+   persistence worker catches up.
+2. The signal ring (separate from the telemetry ring, same default
+   capacity) has the exact same failure mode from the *other* direction --
+   see guide 1's own "Known Limit" note on `poll_signals()` under high
+   fan-out with no concurrent drain. A background poller thread fixes it
+   the same way guide 1's `ingest_engine.py` already does, with one
+   further wrinkle: `ingest_engine.py`'s own 1ms `sleep_for` between empty
+   polls is tuned for a ctypes-throttled Python producer, and reusing that
+   interval here still dropped most signals, because this native pipeline
+   generates matches far faster. Spin-polling with `animus::cpu_relax()`
+   instead of sleeping resolved it completely.
+
+Fixed, 200,000 events across 5 consecutive runs: 200,000/200,000
+received, accepted, and rule-matched every time (zero loss), persisted
+bytes exactly matching `accepted * sizeof(TelemetryPayload)` every time,
+throughput 555,412-571,615 events/sec. See `AnimusCore_v1/BENCHMARKS.md`'s
+Phase 20 section (the "Real Cross-Process Ingestion Pipeline" subsection)
+for the full numbers, including an early, discarded measurement whose
+~4-second wall times turned out to be an artifact of how the two
+processes happened to be launched in that measurement, not a property of
+the pipeline.
+
+**Platform coverage, stated precisely:** the Windows path
+(`CreateFileMappingA`/`MapViewOfFile`/`OpenFileMappingA`) is what every
+number above was measured against. The POSIX path (`shm_open`/`mmap`)
+follows the identical approach already verified in `animus.hpp`'s
+`SharedMemorySegment` (guide 1/2), but this specific header has not yet
+been build-verified on Linux/macOS in this repo -- treat it as
+implemented-but-unverified there until a real POSIX build confirms it,
+the same honesty bar guide 5 applies to its own Windows-only limitation.
+
+---
+
 ## Which guide should I start with?
 
 - Building a Python-based SOAR/orchestration pipeline, or just scripting
@@ -673,3 +1095,14 @@ cluster_demo.exe
   (layers on top of Guide 2's engine).
 - Need the rule set to survive a node failure? **Guide 4** (layers on top
   of Guide 3's transport).
+- Shipping a commercial, node-locked build to customers? **Guide 5**
+  (`proprietary-edition` branch only, layers on top of Guide 1/2's
+  `spsc_init`/pinning primitives).
+- Ingesting a live L2/L3 order book or trade tick feed, possibly from
+  multiple venue connections at once? **Guide 6** (`proprietary-edition`
+  branch only for now; portable and independent of Guide 5's licensing).
+- Need the lowest-latency cross-process transport between two native C++
+  processes, and don't need Python interop? **Guide 7** (a different
+  tradeoff than Guide 1/2's `SharedTelemetryChannel`/`SharedTelemetryRing`
+  -- no wire-compatibility constraint, so it cache-line-pads the
+  producer/consumer cursors instead).
