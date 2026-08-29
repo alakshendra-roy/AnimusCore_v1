@@ -364,3 +364,46 @@
 * **A genuinely surprising sub-finding:** `ctypes.c_size_t` does not raise `OverflowError` for a negative Python int the way the `struct.pack`-validated fields above do -- it silently reinterprets `-1` as the maximum unsigned 64-bit value and passes that straight through. This was verified empirically (not assumed) before being relied on in the script's fuzz case, after an earlier assumption in this investigation about ctypes' negative-value handling turned out to be wrong for this specific argument-conversion path.
 * **Why this is not a defect in the public SDK:** `AnimusBindings.record_events_batch()` (`animus/bindings.py`) always derives `count` from `len(events)` and sizes its `(NativeEvent * count)` buffer to exactly that count in the same call -- the two can never disagree through the public API. Reaching any of the crashing/unsafe cases above requires bypassing the SDK and calling the raw `_lib` handle directly, exactly as this fuzz harness does and exactly as no ordinary caller would. The raw C-ABI's behavior here is the same caller-must-not-lie-about-length contract every pointer+length C API has (`memcpy`, `read()`, ...), not something unique to this engine -- worth documenting precisely, not worth "fixing" by adding a length field to the wire struct at the cost of the zero-copy design this API exists for.
 * **Status:** Phase 12 C-ABI Boundary Safety Verified (public SDK path: safe by construction; raw C-ABI path: behaves exactly as its documented trust contract implies, confirmed empirically rather than assumed)
+
+## Phase 13: Fintech-Style Tail Latency -- Batched Ingestion (`animus_record_events_batch`)
+
+* **Target System:** `benchmarks/fintech_tail_latency.py` -- `AnimusBindings.record_events_batch()` timed call-by-call with `time.perf_counter_ns()` (nanosecond resolution, reported in microseconds), framed the way a latency-sensitive caller (order ingestion, a risk check on a hot path) cares about it: not just a mean, but p50 through p99.99.
+* **Method:** 1,000,000 events pushed at each of three batch sizes (100 / 1,000 / 10,000 events per call), timing only `record_events_batch()` itself -- the Python-side event-list for each call is built *before* that call's timer starts, so list construction never contaminates the measured latency. The ring buffer is sized to hold the entire 1,000,000-event sweep (`buffer_capacity=total_events`), so no call ever blocks on a full buffer or needs draining -- every call in a sweep measures the same thing. Each batch size runs in its own fresh subprocess (`--run-sweep <n>`), not sequentially in one process, specifically because tail-latency measurement is sensitive to cross-run contamination (a partially-drained ring, a warmer allocator from the previous sweep) in a way a mean is not. 5 consecutive full runs (all 3 batch sizes each).
+
+### Batch size = 100 (10,000 calls)
+
+| Metric | Representative run | Range across 5 runs |
+|---|---|---|
+| Throughput | 6,891,485 ev/s | 6,615,997 - 6,891,485 ev/s |
+| Mean | 14.51 us | 14.51 - 15.11 us |
+| p50 | 13.70 us | 13.70 - 14.40 us |
+| p90 | 14.60 us | 14.60 - 15.60 us |
+| p99 | 27.60 us | 24.80 - 28.40 us |
+| p99.99 | 385.42 us | 182.66 - 590.01 us |
+
+### Batch size = 1,000 (1,000 calls)
+
+| Metric | Representative run | Range across 5 runs |
+|---|---|---|
+| Throughput | 8,723,895 ev/s | 7,985,224 - 8,806,654 ev/s |
+| Mean | 114.63 us | 113.55 - 125.23 us |
+| p50 | 107.50 us | 107.50 - 119.85 us |
+| p90 | 122.31 us | 122.31 - 142.20 us |
+| p99 | 211.97 us | 184.61 - 228.99 us |
+| p99.99 | 895.49 us | 367.01 - 1,045.34 us |
+
+### Batch size = 10,000 (100 calls)
+
+| Metric | Representative run | Range across 5 runs |
+|---|---|---|
+| Throughput | 7,131,335 ev/s | 6,472,970 - 7,232,394 ev/s |
+| Mean | 1,402.26 us | 1,382.67 - 1,544.89 us |
+| p50 | 1,373.30 us | 1,350.15 - 1,507.15 us |
+| p90 | 1,588.62 us | 1,473.25 - 1,694.62 us |
+| p99 | 1,865.05 us | 1,815.56 - 2,056.52 us |
+| p99.99 | 1,958.56 us | 1,958.56 - 2,586.12 us |
+
+* **Sample-size caveat on p99.99, stated in the script's own output, not just here:** p99.99 needs on the order of 10,000+ samples to land on a real data point rather than interpolating near the max. The batch=100 sweep (10,000 calls) is reasonably resolved; batch=1,000 (1,000 calls) is thin; batch=10,000 (only 100 calls) is barely more than "the max of 100 samples" and should be read that way, not as a precise tail estimate.
+* **Key finding -- the relative tail shrinks as batch size grows, even though absolute latency grows:** using the representative run, p99.99/p50 is ~28.1x at batch=100, ~8.3x at batch=1,000, and ~1.4x at batch=10,000. Smaller batches are dominated by fixed per-call jitter (OS scheduling, Python-level GC, allocator stalls) that a 100-event batch's real work barely amortizes; a 10,000-event batch's real work is large enough that the same fixed jitter becomes a much smaller fraction of the call, tightening the tail relative to the median even as every absolute number (mean, p50, p99.99) grows with batch size.
+* **Throughput is essentially flat across batch sizes** (6.5-8.8M events/sec across all three, overlapping ranges) -- the native ring-buffer push itself is cheap enough (see Phase 11's ~2.5 ms measurement for 100,000 events) that batch size mostly trades off call-count against per-call tail risk, not raw throughput.
+* **Status:** Phase 13 Fintech Tail Latency Verified
