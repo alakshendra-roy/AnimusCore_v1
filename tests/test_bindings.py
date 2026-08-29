@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from animus.bindings import (  # noqa: E402
     AnimusBindings,
+    NativeEvent,
     RuleComparator,
     ThreatSignal,
     find_native_library,
@@ -155,6 +156,13 @@ class _FakeNativeLib:
             return True
         self.animus_record_event = animus_record_event
 
+        def animus_record_events_batch(buf, count):
+            n = _unwrap(count)
+            for i in range(n):
+                self.state["events"].append((buf[i].event_id, buf[i].trace_id, buf[i].metric_value))
+            return n
+        self.animus_record_events_batch = animus_record_events_batch
+
         def animus_start_logging(filepath):
             self.state["logging"] = True
             self.state["log_path"] = filepath
@@ -233,6 +241,17 @@ class ZeroCopyPollSignalsTests(unittest.TestCase):
         self.assertEqual(self.fake_lib.state["rules"], [(1, 42, 100, 0, 5)])
         self.assertEqual(self.fake_lib.state["events"], [(42, 7, 250)])
 
+    def test_record_events_batch_marshals_through_to_native_in_one_call(self):
+        events = [(42, i, i * 10) for i in range(5)]
+        pushed = self.bindings.record_events_batch(events)
+
+        self.assertEqual(pushed, 5)
+        self.assertEqual(self.fake_lib.state["events"], events)
+
+    def test_record_events_batch_empty_is_a_noop(self):
+        self.assertEqual(self.bindings.record_events_batch([]), 0)
+        self.assertEqual(self.fake_lib.state["events"], [])
+
     def test_start_stop_logging_delegate_to_native(self):
         self.bindings.start_logging("telemetry.log")
         self.assertTrue(self.fake_lib.state["logging"])
@@ -274,6 +293,11 @@ class PurePythonFallbackTests(unittest.TestCase):
             self.assertTrue(self.bindings.record_event(1, 1, 1))
         # Ring is full: push must return False, not block or evict.
         self.assertFalse(self.bindings.record_event(1, 1, 1))
+
+    def test_record_events_batch_stops_when_ring_fills_partway(self):
+        self.bindings.init(buffer_capacity=4)
+        pushed = self.bindings.record_events_batch([(1, i, i) for i in range(6)])
+        self.assertEqual(pushed, 4)
 
     def test_full_pipeline_matches_rule_and_polls_signal(self):
         self.bindings.init(buffer_capacity=256)
