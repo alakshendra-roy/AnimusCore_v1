@@ -274,3 +274,40 @@
 * **Target System:** `AnimusCore_v1/QUICKSTART.md` -- four PoC guides (Python SDK, C++ single header, secure multi-tenant + mTLS, distributed cluster), each layering on the previous
 * **Method:** every code sample was either compiled and run for real as part of this phase's verification (guides 1 and 2 -- see the Python wheel and single-header checks above) or checked against the actual current method signatures in the source headers (guides 3 and 4 -- `CertificateIdentityMap::add`/`resolve`, `RaftNode`'s constructor and `propose()` signature), not written from memory of an earlier phase and left unverified
 * **Status:** Phase 10 Client Quickstart Guides Verified
+
+## Phase 11: Batched Event Ingestion (`animus_record_events_batch`)
+
+### Diagnosis: isolating the real cost of driving the engine from Python
+
+* **Target System:** `benchmarks/benchmark_engine.py`, comparing the native engine against an equivalent pure-Python `dict`-loop implementation across four scenarios instead of reporting one headline number: (1) the full native `record_event()` -> evaluate -> persist pipeline, (2) a pure-Python loop doing the same logical work in memory (dict-keyed rule lookup, no ctypes, no disk I/O), (3) native ring-buffer ingestion alone (no persistence worker running, so no rule evaluation and no disk I/O), (4) native batched ingestion via the new `animus_record_events_batch`.
+* **Method:** 100,000 events per scenario per run, `time.perf_counter()` spanning each scenario's full call loop (native scenarios' internal timing follows the same convention already established for Phase 4's `ingest_engine.py` harness -- Python-side wall clock, not a native-side counter, so ctypes marshalling cost is included, not excluded). 5 consecutive runs against `build/Release/AnimusNative.dll` (the CMake build), plus a same-session cross-check against the MSVC `x64/Release/AnimusCore_v1.dll` build with the CMake binary temporarily removed so `find_native_library()` was forced onto the legacy binary.
+
+| Scenario | Representative run | Range across 5 runs (`AnimusNative.dll`) |
+|---|---|---|
+| Native, full pipeline (ingest + evaluate + persist) | 115.39 ms (866,651 ev/s) | 109.11 - 125.27 ms |
+| Pure-Python dict loop | 32.19 ms (3,106,748 ev/s) | 32.05 - 33.69 ms |
+| Native, ring-buffer ingestion only (no eval, no disk I/O) | 113.46 ms (881,395 ev/s) | 107.71 - 113.46 ms |
+| Native speedup over pure-Python, full pipeline | 0.28x | 0.26x - 0.31x |
+| Native speedup over pure-Python, ring-buffer only | 0.28x | 0.28x - 0.31x |
+
+* **Finding:** the native engine lost to a pure-Python in-memory loop by roughly 3.5x at this event count, and removing the disk I/O entirely (scenario 3) barely moved the needle (~113 ms vs. ~115 ms) -- ruling out batched-disk-flush cost as the dominant factor, contrary to the initial hypothesis when this comparison was first built.
+* **Root-cause isolation:** a follow-up ad hoc measurement split `record_event()`'s ~1.1 us/call cost into its two components -- the native C-ABI call itself, and the ctypes call-marshalling Python performs to make it. Timed separately: 100,000 individual `animus_record_event` ctypes calls (Python-side loop) vs. one `animus_record_events_batch` call carrying all 100,000 events. The native side processed the full 100,000-event batch in ~2.5 ms; the remaining ~110 ms was Python-side ctypes call overhead paid once per event, not native execution time.
+
+### Fix, and a second bottleneck found while fixing it
+
+* **`animus_record_events_batch`** (`AnimusCore_v1/animus.hpp`'s `Engine::record_batch` / `EngineImpl::record_batch`, shimmed in `animus_engine.cpp`) pushes a whole batch of events onto the ring buffer in one C-ABI call, stopping at the first push that fails (ring full) so its return value tells the caller exactly how many of the batch, in order, were ingested -- same never-blocks contract as `record()`, extended to a batch. Exposed from Python as `AnimusBindings.record_events_batch()` (`animus/bindings.py`), with a matching method on `_PurePythonEngine` for API parity when no native binary is present.
+* **First implementation, and why it only closed ~15% of the gap:** building the `(NativeEvent * N)` ctypes array by constructing one `NativeEvent(event_id, trace_id, metric_value)` Python object per event (then unpacking into the array) reduced that run's batched-ingestion time from 108.85 ms (ring-buffer-only, one call per event) to 92.70 ms -- Python object-construction overhead, not the FFI call boundary, was still the dominant cost, since eliminating 99,999 of the 100,000 ctypes *calls* only removed a small fraction of the total time.
+* **Second fix:** replaced per-event `ctypes.Structure` construction with `struct.pack("<IIQ", event_id, trace_id, metric_value)` per event, joined into one `bytes` object, then a single `ctypes.memmove()` into the array's backing memory. Isolated measurement at 100,000 events: constructing the array via `ctypes.Structure` objects took ~82 ms; via `struct.pack` + `memmove`, ~14 ms -- roughly 6x faster to build, for byte-identical output (`struct.calcsize("<IIQ") == ctypes.sizeof(NativeEvent)`, asserted at import time in `bindings.py`).
+
+### Result
+
+| Scenario | Representative run | Range across 5 runs (`AnimusNative.dll`) |
+|---|---|---|
+| Native, batched ingestion (`record_events_batch`) | 16.03 ms (6,238,420 ev/s) | 14.13 - 17.49 ms |
+| Native speedup over pure-Python, batched ingestion | 2.01x | 1.83x - 2.30x |
+| Native speedup over native ring-buffer-only ingestion | 7.08x | 6.30x - 7.62x |
+
+* **Build parity:** re-ran the full benchmark against the MSVC-built `x64/Release/AnimusCore_v1.dll` (with the CMake-built `AnimusNative.dll` temporarily hidden so `find_native_library()` fell back to it) -- batched ingestion measured 15.88 ms (2.10x pure-Python), inside the range measured against `AnimusNative.dll`, confirming the two build outputs behave identically now that both compile the same `animus.hpp` / `animus_engine.cpp` source carrying the new export.
+* **Regression check:** the full `tests/test_bindings.py` suite (23 tests, including new coverage for `record_events_batch`'s native marshalling, empty-batch no-op, and bounded-capacity truncation behavior, plus the pure-Python fallback) passed against both binaries with no changes to existing test expectations.
+* **Interpretation:** the native engine's own ingestion work is not the bottleneck at any point in this investigation -- 100,000 events costs it ~2.5 ms either way. What determines whether calling it from Python is faster or slower than staying in pure Python is entirely how the caller crosses the language boundary: once per event (loses to pure Python), or once per batch with the argument buffer built as raw bytes rather than individual wrapper objects (wins by ~2x).
+* **Status:** Phase 11 Batched Event Ingestion Verified
