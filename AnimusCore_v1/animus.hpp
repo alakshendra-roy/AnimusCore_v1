@@ -1685,4 +1685,23 @@ extern "C" {
     // corrupts state, just tells the caller how far it got.
     ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count);
     ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count);
+
+    // Same animus::sys::ipc::ShmRing<T> primitive, instantiated for
+    // animus::OrderRequest instead of animus::RawEvent -- routing orders
+    // (not telemetry) across a shared-memory ring needs its own wire shape,
+    // not a reinterpretation of RawEvent's fields. Otherwise byte-for-byte
+    // the same 9-function surface and the same contracts as the
+    // animus_shm_ring_* block above (create/open own the segment's
+    // lifecycle the same way; try_push/try_pop never block;
+    // push_batch/pop_batch stop at the first failure and report how far
+    // they got) -- see that block's own comments for what each one means.
+    ANIMUS_API void* animus_shm_ring_order_create(const char* name, size_t requested_capacity);
+    ANIMUS_API void* animus_shm_ring_order_open(const char* name);
+    ANIMUS_API void animus_shm_ring_order_close(void* ring);
+    ANIMUS_API bool animus_shm_ring_order_unlink(const char* name);
+    ANIMUS_API size_t animus_shm_ring_order_capacity(void* ring);
+    ANIMUS_API bool animus_shm_ring_order_try_push(void* ring, const animus::OrderRequest* order);
+    ANIMUS_API bool animus_shm_ring_order_try_pop(void* ring, animus::OrderRequest* out);
+    ANIMUS_API size_t animus_shm_ring_order_push_batch(void* ring, const animus::OrderRequest* orders, size_t count);
+    ANIMUS_API size_t animus_shm_ring_order_pop_batch(void* ring, animus::OrderRequest* out, size_t max_count);
 }

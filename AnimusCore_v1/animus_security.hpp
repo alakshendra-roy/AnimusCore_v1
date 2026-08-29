@@ -36,11 +36,12 @@ namespace security {
         AddRule = 2,
         ManagePersistence = 3,
         ManageTenants = 4,
+        SubmitOrder = 5,
     };
 
     // Static role -> permission table, checked in O(1) with no allocation.
     // Deliberately a flat switch rather than a data-driven policy file: RBAC
-    // here is a small, fixed lattice (3 roles x 5 permissions), and a
+    // here is a small, fixed lattice (3 roles x 6 permissions), and a
     // switch keeps the mapping exhaustively checkable by the compiler
     // (-Wswitch) if a role or permission is ever added.
     class RbacPolicy {
@@ -50,7 +51,11 @@ namespace security {
             case Role::Viewer:
                 return perm == Permission::PollSignals;
             case Role::Operator:
-                return perm == Permission::PollSignals || perm == Permission::RecordEvent;
+                // Operator already covers "a trading/agent process" per
+                // this enum's own docstring above -- SubmitOrder belongs
+                // here for exactly the same reason RecordEvent does.
+                return perm == Permission::PollSignals || perm == Permission::RecordEvent
+                    || perm == Permission::SubmitOrder;
             case Role::Admin:
                 return true;
             }
@@ -211,5 +216,145 @@ namespace security {
         std::deque<AuditEvent> audit_log_;
     };
 
+    // Authorization + tenant-routing facade over animus::ExecutionClient,
+    // same shape and same reasoning as SecureTelemetryGateway above -- every
+    // method takes an AccessToken, checks it against RbacPolicy, resolves
+    // the token's own tenant ExecutionClient (never a caller-supplied one),
+    // and appends one AuditEvent per call to its own audit trail, separate
+    // from SecureTelemetryGateway's (an auditor scoped to telemetry is not
+    // automatically entitled to see execution decisions, or vice versa).
+    //
+    // Deliberately reuses the SAME TenantRegistry SecureTelemetryGateway
+    // does, rather than owning a second, parallel notion of "tenant":
+    // execution instrumentation (ExecutionClient::submit's own
+    // kExecutionLatencyEventId telemetry) needs somewhere to record into,
+    // and that's the tenant's already-isolated Engine -- one Engine per
+    // tenant remains the single source of isolation, not two.
+    class SecureExecutionGateway {
+    public:
+        explicit SecureExecutionGateway(TenantRegistry& registry) noexcept
+            : registry_(registry) {
+        }
+
+        // Wires tenant_id's execution path: one LoopbackBrokerGateway + one
+        // ExecutionClient bound to that tenant's existing Engine. Requires
+        // ManageTenants (Admin only), and requires the tenant's Engine to
+        // already exist (registry.create_tenant/gateway.create_tenant must
+        // have been called first) -- there is no "create both at once"
+        // convenience here, the same way TenantRegistry itself doesn't
+        // auto-vivify a tenant on first use elsewhere in this file.
+        // Idempotent: calling this again for an already-set-up tenant is a
+        // no-op success, not an error.
+        bool create_execution_tenant(const AccessToken& token, uint32_t tenant_id) {
+            bool allowed = RbacPolicy::is_allowed(token.role, Permission::ManageTenants);
+            Engine* engine = allowed ? registry_.get_tenant(tenant_id) : nullptr;
+            bool ok = false;
+            if (allowed && engine) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                if (tenants_.find(tenant_id) == tenants_.end()) {
+                    auto gateway = std::make_unique<LoopbackBrokerGateway>();
+                    auto client = std::make_unique<ExecutionClient>(*engine, *gateway);
+                    tenants_.emplace(tenant_id, TenantExecution{ std::move(gateway), std::move(client) });
+                }
+                ok = true;
+            }
+            append_audit(token, Permission::ManageTenants, (allowed && engine) ? AuditOutcome::Allowed : AuditOutcome::Denied);
+            return ok;
+        }
+
+        // Routes one order through the token's own tenant ExecutionClient.
+        // Requires SubmitOrder. Returns false for BOTH a denied token and a
+        // broker-rejected order -- same flat-bool convention as
+        // SecureTelemetryGateway::record() above; poll_execution_audit_log()
+        // is how a caller distinguishes "not authorized" from "the tenant's
+        // execution path isn't set up yet" from "the broker rejected it",
+        // not the return value of this call.
+        bool submit(const AccessToken& token, const OrderRequest& request, ExecutionReport& out) {
+            bool allowed = RbacPolicy::is_allowed(token.role, Permission::SubmitOrder);
+            ExecutionClient* client = nullptr;
+            if (allowed) {
+                std::lock_guard<std::mutex> lock(mutex_);
+                auto it = tenants_.find(token.tenant_id);
+                if (it != tenants_.end()) client = it->second.client.get();
+            }
+            bool ok = client && client->submit(request, out);
+            append_audit(token, Permission::SubmitOrder, (allowed && client) ? AuditOutcome::Allowed : AuditOutcome::Denied);
+            return ok;
+        }
+
+        size_t poll_execution_audit_log(AuditEvent* out, size_t max_count) {
+            std::lock_guard<std::mutex> lock(audit_mutex_);
+            size_t count = 0;
+            while (count < max_count && !audit_log_.empty()) {
+                out[count++] = audit_log_.front();
+                audit_log_.pop_front();
+            }
+            return count;
+        }
+
+    private:
+        struct TenantExecution {
+            std::unique_ptr<LoopbackBrokerGateway> gateway;
+            std::unique_ptr<ExecutionClient> client;
+        };
+
+        void append_audit(const AccessToken& token, Permission perm, AuditOutcome outcome) {
+            std::lock_guard<std::mutex> lock(audit_mutex_);
+            audit_log_.push_back(AuditEvent{
+                read_cycle_counter(), token.tenant_id, token.principal_id, perm, outcome });
+        }
+
+        TenantRegistry& registry_;
+        std::mutex mutex_;
+        std::unordered_map<uint32_t, TenantExecution> tenants_;
+        std::mutex audit_mutex_;
+        std::deque<AuditEvent> audit_log_;
+    };
+
 } // namespace security
 } // namespace animus
+
+// ---- C-ABI: RBAC-gated multi-tenant execution orchestration ------------
+// Declared here rather than in animus.hpp's own extern "C" block:
+// animus::security::AccessToken/AuditEvent are defined in this header, not
+// animus.hpp, and animus.hpp cannot depend on this file without inverting
+// the layering animus_security.hpp itself documents (this file includes
+// animus.hpp, not the other way around). Definitions live in
+// animus_engine.cpp, same split as every other C-ABI export in this
+// codebase (portable declaration, platform-specific/DLL-only definition).
+//
+// SecurityContext (animus_engine.cpp) bundles one TenantRegistry + one
+// SecureTelemetryGateway + one SecureExecutionGateway behind a single
+// handle -- Python drives one object, not three. Deliberately NOT
+// exposing SecureTelemetryGateway's record/add_rule/poll_signals/
+// persistence surface here: animus_security_create_tenant exists only
+// because animus_security_create_execution_tenant requires the tenant's
+// Engine to already exist, not to give Python a general-purpose RBAC'd
+// telemetry API -- that would be a separate feature, not this one.
+extern "C" {
+    ANIMUS_API void* animus_security_create_context(void);
+    ANIMUS_API void animus_security_close_context(void* ctx);
+
+    // Requires ManageTenants (Admin). buffer_capacity sizes the new
+    // tenant's own isolated Engine ring (same default as Engine::Create).
+    ANIMUS_API bool animus_security_create_tenant(void* ctx, const animus::security::AccessToken* token,
+        uint32_t new_tenant_id, size_t buffer_capacity);
+
+    // Requires ManageTenants (Admin) AND new_tenant_id's telemetry tenant
+    // to already exist via animus_security_create_tenant. Idempotent.
+    ANIMUS_API bool animus_security_create_execution_tenant(void* ctx, const animus::security::AccessToken* token,
+        uint32_t tenant_id);
+
+    // Requires SubmitOrder (Operator/Admin). Returns false for a denied
+    // token, a tenant with no execution path set up, or a broker-rejected
+    // order alike -- poll_execution_audit_log distinguishes why, not this
+    // return value.
+    ANIMUS_API bool animus_security_submit_order(void* ctx, const animus::security::AccessToken* token,
+        const animus::OrderRequest* request, animus::ExecutionReport* out);
+
+    // Drains up to max_count pending execution RBAC decisions (allowed and
+    // denied alike). Not gated by any permission itself -- same as
+    // SecureTelemetryGateway's poll_audit_log, auditing the audit log is
+    // intentionally not part of this lattice.
+    ANIMUS_API size_t animus_security_poll_execution_audit_log(void* ctx, animus::security::AuditEvent* out, size_t max_count);
+}
