@@ -1255,3 +1255,167 @@ class MarketDataFeed:
             self.close()
         except Exception:
             pass
+
+
+def _configure_shm_ring_signatures(lib: ctypes.CDLL) -> None:
+    lib.animus_shm_ring_create.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+    lib.animus_shm_ring_create.restype = ctypes.c_void_p
+    lib.animus_shm_ring_open.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_ring_open.restype = ctypes.c_void_p
+    lib.animus_shm_ring_close.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_ring_close.restype = None
+    lib.animus_shm_ring_unlink.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_ring_unlink.restype = ctypes.c_bool
+    lib.animus_shm_ring_capacity.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_ring_capacity.restype = ctypes.c_size_t
+    lib.animus_shm_ring_try_push.argtypes = [ctypes.c_void_p, ctypes.POINTER(NativeEvent)]
+    lib.animus_shm_ring_try_push.restype = ctypes.c_bool
+    lib.animus_shm_ring_try_pop.argtypes = [ctypes.c_void_p, ctypes.POINTER(NativeEvent)]
+    lib.animus_shm_ring_try_pop.restype = ctypes.c_bool
+    lib.animus_shm_ring_push_batch.argtypes = [ctypes.c_void_p, ctypes.POINTER(NativeEvent), ctypes.c_size_t]
+    lib.animus_shm_ring_push_batch.restype = ctypes.c_size_t
+    lib.animus_shm_ring_pop_batch.argtypes = [ctypes.c_void_p, ctypes.POINTER(NativeEvent), ctypes.c_size_t]
+    lib.animus_shm_ring_pop_batch.restype = ctypes.c_size_t
+
+
+class ShmRingChannel:
+    """ctypes-backed wrapper over animus::sys::ipc::ShmRing<animus::RawEvent>
+    (include/animus/shm_ipc.hpp), instantiated for animus::RawEvent -- the
+    same 16-byte record animus_record_events_batch itself takes, so a batch
+    popped off this ring is exactly the array record_events_batch() wants,
+    with no translation step.
+
+    Distinct from SharedTelemetryChannel above, not a replacement for it:
+    that class is deliberately wire-compatible with the pure-Python
+    SharedTelemetryRing (identical byte layout, no cache-line padding, so
+    either implementation can produce or consume the same segment).
+    ShmRing<T> has no such interop constraint -- it pads its producer head
+    and consumer tail cursors onto separate cache lines to eliminate false
+    sharing between them, at the cost of that Python/C++ wire compatibility.
+    See include/animus/shm_ipc.hpp's own module docstring and
+    AnimusCore_v1/BENCHMARKS.md's Phase 20 section for the measured latency
+    difference that buys.
+
+    Single-producer/single-consumer, same contract as SpscRingBuffer/
+    SharedTelemetryChannel elsewhere in this module -- don't share one
+    channel across more than one producer or more than one consumer
+    process/thread; it isn't enforced at runtime, for the same reason it
+    isn't there either.
+
+    No spin-blocking wait is exposed here, on purpose. ShmRing<T>'s own C++
+    push_spin()/pop_spin() can legitimately block for low seconds waiting
+    for a peer (bounded, not infinite, but still long for one call) -- a
+    ctypes call that blocks that long releases the GIL for its entire
+    duration and cannot be interrupted with Ctrl+C from Python. If you need
+    "wait for the next item," poll try_pop()/pop_batch() in your own
+    Python-level loop instead (optionally with a short time.sleep()) --
+    interruptible at every iteration, same pattern
+    AnimusCore_v1/ingest_engine.py's own signal-poller loop already uses.
+
+    Requires the native engine; there is no pure-Python fallback (a native
+    concurrency primitive, same reasoning as SpscRingBuffer/MarketDataFeed
+    elsewhere in this module).
+    """
+
+    def __init__(self, handle: int, lib: ctypes.CDLL) -> None:
+        self._handle = handle
+        self._lib = lib
+
+    @classmethod
+    def create(cls, name: str, capacity: int) -> "ShmRingChannel":
+        """Allocates a new named ring sized for at least `capacity` slots
+        (rounded up to the next power of two internally, see
+        ShmRing<T>::create). Raises OSError if a ring with this name
+        already exists.
+        """
+        if capacity < 1:
+            raise ValueError("capacity must be >= 1")
+        lib = load_native_library(required=True)
+        _configure_shm_ring_signatures(lib)
+        handle = lib.animus_shm_ring_create(name.encode("utf-8"), ctypes.c_size_t(capacity))
+        if not handle:
+            raise OSError(f"failed to create shm ring {name!r} (does one already exist?)")
+        return cls(handle, lib)
+
+    @classmethod
+    def open(cls, name: str) -> "ShmRingChannel":
+        """Maps an existing ring created by another process's create()
+        call. Raises OSError if no such ring exists.
+        """
+        lib = load_native_library(required=True)
+        _configure_shm_ring_signatures(lib)
+        handle = lib.animus_shm_ring_open(name.encode("utf-8"))
+        if not handle:
+            raise OSError(f"failed to open shm ring {name!r} (does it exist?)")
+        return cls(handle, lib)
+
+    @staticmethod
+    def unlink(name: str) -> bool:
+        """Destroys the underlying OS shared-memory object. POSIX: a real
+        unlink -- call once every attached process has closed its mapping.
+        Windows: a documented no-op (see SharedMemoryRegion::unlink) --
+        always returns True there, with nothing left to do.
+        """
+        lib = load_native_library(required=True)
+        _configure_shm_ring_signatures(lib)
+        return bool(lib.animus_shm_ring_unlink(name.encode("utf-8")))
+
+    @property
+    def capacity(self) -> int:
+        return int(self._lib.animus_shm_ring_capacity(self._handle))
+
+    def try_push(self, event_id: int, trace_id: int, metric_value: int) -> bool:
+        """Producer-side. Never blocks; returns False if the ring is full."""
+        event = NativeEvent(event_id, trace_id, metric_value)
+        return bool(self._lib.animus_shm_ring_try_push(self._handle, ctypes.byref(event)))
+
+    def try_pop(self) -> Optional[NativeEvent]:
+        """Consumer-side. Never blocks; returns None if the ring is empty."""
+        event = NativeEvent()
+        if not self._lib.animus_shm_ring_try_pop(self._handle, ctypes.byref(event)):
+            return None
+        return event
+
+    def push_batch(self, events: "list[tuple[int, int, int]]") -> int:
+        """Producer-side batch push. Amortizes the ctypes call boundary
+        across the whole batch -- same reasoning, and the same
+        struct.pack()+memmove() buffer-building, as
+        AnimusBindings.record_events_batch(). Stops at the first push that
+        fails (ring full); returns how many, in order, actually made it in
+        (never blocks, same contract as try_push()).
+        """
+        events = list(events)
+        if not events:
+            return 0
+        count = len(events)
+        packed = b"".join(
+            struct.pack(_NATIVE_EVENT_FORMAT, event_id, trace_id, metric_value)
+            for event_id, trace_id, metric_value in events
+        )
+        buf = (NativeEvent * count)()
+        ctypes.memmove(buf, packed, len(packed))
+        return int(self._lib.animus_shm_ring_push_batch(self._handle, buf, ctypes.c_size_t(count)))
+
+    def pop_batch(self, max_count: int = 1024) -> List[NativeEvent]:
+        """Consumer-side batch drain. Never blocks; returns fewer than
+        max_count (including zero/empty) if fewer are currently pending.
+        Zero-copy: `buf` is a single contiguous ctypes array written into
+        directly by the native side, same pattern as
+        MarketDataFeed.poll_trades().
+        """
+        buf = (NativeEvent * max_count)()
+        count = self._lib.animus_shm_ring_pop_batch(self._handle, buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def close(self) -> None:
+        """Releases this process's mapping. Safe to call more than once."""
+        if self._handle:
+            self._lib.animus_shm_ring_close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        # Same finalizer-safety rationale as SharedTelemetryChannel.__del__ above.
+        try:
+            self.close()
+        except Exception:
+            pass

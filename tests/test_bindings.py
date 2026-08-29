@@ -34,6 +34,7 @@ from animus.bindings import (  # noqa: E402
     RuleComparator,
     SharedRecord,
     SharedTelemetryChannel,
+    ShmRingChannel,
     SpscTelemetryRecord,
     ThreatSignal,
     TradeAggressor,
@@ -293,6 +294,10 @@ class _FakeNativeLib:
         def animus_get_cpu_count():
             return 4
         self.animus_get_cpu_count = animus_get_cpu_count
+
+        def animus_set_thread_high_priority():
+            self.state["high_priority_requested"] = True
+        self.animus_set_thread_high_priority = animus_set_thread_high_priority
 
         self.state["licensed"] = False
         self.state["licensed_max_cores"] = 0
@@ -995,6 +1000,145 @@ class SharedTelemetryChannelIntegrationTests(unittest.TestCase):
 
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class ShmRingChannelIntegrationTests(unittest.TestCase):
+    """End-to-end tests for animus::sys::ipc::ShmRing<animus::RawEvent>
+    (include/animus/shm_ipc.hpp, exposed as animus_shm_ring_*) against the
+    real compiled binary. Distinct from SharedTelemetryChannelIntegrationTests
+    above: ShmRing<T> has no Python/C++ wire-compatibility constraint (see
+    ShmRingChannel's own docstring), so there is no SharedTelemetryRing-style
+    pure-Python interop to test here -- only round-trip correctness,
+    capacity semantics, and genuine cross-process delivery, same bar as
+    every other native-only primitive in this file.
+    """
+
+    def setUp(self):
+        self._names = []
+
+    def tearDown(self):
+        for name in self._names:
+            try:
+                ShmRingChannel.unlink(name)
+            except Exception:
+                pass
+
+    def _unique_name(self, label: str) -> str:
+        name = f"animus_shm_ring_test_{label}_{os.getpid()}_{id(self)}"
+        self._names.append(name)
+        return name
+
+    def test_try_push_try_pop_round_trip(self):
+        name = self._unique_name("roundtrip")
+        producer = ShmRingChannel.create(name, capacity=64)
+        self.assertIsNone(producer.try_pop())  # empty
+
+        events = [(1, i, i * 5) for i in range(10)]
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(producer.try_push(event_id, trace_id, metric_value))
+
+        consumer = ShmRingChannel.open(name)
+        self.assertEqual(consumer.capacity, 64)
+        results = []
+        while True:
+            ev = consumer.try_pop()
+            if ev is None:
+                break
+            results.append((ev.event_id, ev.trace_id, ev.metric_value))
+
+        self.assertEqual(results, events)
+        producer.close()
+        consumer.close()
+
+    def test_capacity_rounds_up_to_power_of_two(self):
+        # Unlike SharedTelemetryChannel (exact capacity, modulo indexing),
+        # ShmRing<T> uses a bitmask for slot indexing (see
+        # include/animus/shm_ipc.hpp's own ShmRing::round_up_pow2) and so
+        # requires -- and silently rounds up to -- a power-of-two capacity.
+        name = self._unique_name("powtwocap")
+        channel = ShmRingChannel.create(name, capacity=1000)
+        self.assertEqual(channel.capacity, 1024)
+        channel.close()
+
+    def test_ring_full_and_empty_return_false_and_none(self):
+        name = self._unique_name("fullempty")
+        channel = ShmRingChannel.create(name, capacity=4)
+        self.assertIsNone(channel.try_pop())  # empty
+        for i in range(4):
+            self.assertTrue(channel.try_push(1, i, i))
+        self.assertFalse(channel.try_push(1, 99, 99))  # full
+        for _ in range(4):
+            self.assertIsNotNone(channel.try_pop())
+        self.assertIsNone(channel.try_pop())  # empty again
+        channel.close()
+
+    def test_push_batch_pop_batch_round_trip(self):
+        # push_batch's contract mirrors AnimusBindings.record_events_batch:
+        # stop at the first push that fails, return how many actually made
+        # it in -- verified here both under-capacity (everything fits) and
+        # over-capacity (partial acceptance, in order).
+        name = self._unique_name("batch")
+        channel = ShmRingChannel.create(name, capacity=8)
+
+        events = [(1, i, i * 3) for i in range(5)]
+        pushed = channel.push_batch(events)
+        self.assertEqual(pushed, 5)
+
+        drained = channel.pop_batch(max_count=100)
+        self.assertEqual([(e.event_id, e.trace_id, e.metric_value) for e in drained], events)
+        self.assertEqual(channel.pop_batch(max_count=100), [])  # empty
+
+        overflow_events = [(2, i, i) for i in range(12)]  # capacity is only 8
+        pushed = channel.push_batch(overflow_events)
+        self.assertEqual(pushed, 8)
+        drained = channel.pop_batch(max_count=100)
+        self.assertEqual([(e.event_id, e.trace_id, e.metric_value) for e in drained], overflow_events[:8])
+        channel.close()
+
+    def test_push_batch_empty_list_is_a_no_op(self):
+        name = self._unique_name("emptybatch")
+        channel = ShmRingChannel.create(name, capacity=4)
+        self.assertEqual(channel.push_batch([]), 0)
+        channel.close()
+
+    def test_open_nonexistent_ring_raises(self):
+        with self.assertRaises(OSError):
+            ShmRingChannel.open("animus_shm_ring_definitely_does_not_exist_12345")
+
+    def test_create_with_duplicate_name_raises(self):
+        name = self._unique_name("duplicate")
+        first = ShmRingChannel.create(name, capacity=8)
+        with self.assertRaises(OSError):
+            ShmRingChannel.create(name, capacity=8)
+        first.close()
+
+    def test_create_with_zero_capacity_raises(self):
+        with self.assertRaises(ValueError):
+            ShmRingChannel.create(self._unique_name("zerocap"), capacity=0)
+
+    def test_real_cross_process_round_trip(self):
+        # Same bar as SharedTelemetryChannelIntegrationTests's own
+        # test_real_cross_process_round_trip above: a genuinely separate OS
+        # process (subprocess.Popen), not a second handle in this process.
+        name = self._unique_name("crossprocess")
+        events = [(55, i, i * 9) for i in range(10)]
+        producer = ShmRingChannel.create(name, capacity=256)
+
+        child = subprocess.Popen(
+            [sys.executable, __file__, "--shmring-child", name, str(len(events))],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        time.sleep(0.3)  # let the child open the ring before this process starts pushing
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(producer.try_push(event_id, trace_id, metric_value))
+
+        stdout, stderr = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, msg=stderr)
+        results = json.loads(stdout)
+
+        self.assertEqual([tuple(r) for r in results], events)
+        producer.close()
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
 class MarketDataFeedIntegrationTests(unittest.TestCase):
     """End-to-end tests for the native market-data feed adapters
     (animus::MarketDataFeed / animus_feed_*) against the real compiled
@@ -1135,6 +1279,24 @@ if __name__ == "__main__":
                 continue
             _child_results.append((_child_rec.event_id, _child_rec.trace_id, _child_rec.metric_value))
         _child_channel.close()
+        print(json.dumps(_child_results))
+    elif len(sys.argv) >= 4 and sys.argv[1] == "--shmring-child":
+        # Consumer side of ShmRingChannelIntegrationTests.
+        # test_real_cross_process_round_trip above -- same pattern as
+        # --shm-child, opens the named ring the parent process created and
+        # prints what it read as JSON.
+        _child_name = sys.argv[2]
+        _child_expected_count = int(sys.argv[3])
+        _child_ring = ShmRingChannel.open(_child_name)
+        _child_results = []
+        _child_deadline = time.time() + 5.0
+        while len(_child_results) < _child_expected_count and time.time() < _child_deadline:
+            _child_ev = _child_ring.try_pop()
+            if _child_ev is None:
+                time.sleep(0.001)
+                continue
+            _child_results.append((_child_ev.event_id, _child_ev.trace_id, _child_ev.metric_value))
+        _child_ring.close()
         print(json.dumps(_child_results))
     else:
         unittest.main()
