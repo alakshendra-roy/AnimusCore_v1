@@ -1018,6 +1018,62 @@ numbers, including the producer-faster-than-consumer backlog bug found
 and fixed while building this benchmark (the same failure family already
 documented in the Phase 16 and Phase 19 sections).
 
+**A real ingestion pipeline, not just a latency probe:**
+`AnimusCore_v1/shm_ipc_ingest_demo.cpp` wires `ShmRing<T>` into an actual
+`animus::Engine` instead of just timestamping round trips -- a producer
+process pushes `animus::RawEvent` telemetry across
+`ShmRing<animus::RawEvent>`; a consumer process drains it into a real
+`Engine` (rules registered, `record_batch()` for ingestion,
+`start_persistence()`/`stop_persistence()`, `poll_signals()` for matches),
+the same native pipeline guide 1's `ingest_engine.py` drives via ctypes,
+except events arrive over shared memory from a genuinely separate
+process:
+
+```powershell
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/shm_ipc_ingest_demo.cpp /Fe:shm_ipc_ingest_demo.exe
+
+# Terminal 1 -- owns ring creation/unlink and the Engine instance, start first:
+shm_ipc_ingest_demo.exe --consumer my-ring 200000 telemetry.bin
+
+# Terminal 2:
+shm_ipc_ingest_demo.exe --producer my-ring 200000
+```
+
+**Read this before assuming `ShmRing<T>` alone makes an ingestion pipeline
+lossless -- it doesn't, your retry discipline does.** `ShmRing<T>` itself
+never drops anything (it's a bounded lock-free ring, not a lossy queue),
+but everything *behind* it can still refuse a push if you don't retry.
+Building this demo hit that twice, in two different rings:
+
+1. `Engine::record_batch()` documents "stops at the first push that fails,
+   returns how many actually made it in" -- a first version of this demo's
+   consumer called it once per batch and treated the remainder as
+   rejected, so once the engine's own internal ring filled, the majority
+   of a 200,000-event run vanished (65,536 accepted -- exactly one ring's
+   worth) despite `ShmRing` having delivered every event intact. Fixed by
+   retrying the unpushed remainder with `animus::cpu_relax()` until the
+   persistence worker catches up.
+2. The signal ring (separate from the telemetry ring, same default
+   capacity) has the exact same failure mode from the *other* direction --
+   see guide 1's own "Known Limit" note on `poll_signals()` under high
+   fan-out with no concurrent drain. A background poller thread fixes it
+   the same way guide 1's `ingest_engine.py` already does, with one
+   further wrinkle: `ingest_engine.py`'s own 1ms `sleep_for` between empty
+   polls is tuned for a ctypes-throttled Python producer, and reusing that
+   interval here still dropped most signals, because this native pipeline
+   generates matches far faster. Spin-polling with `animus::cpu_relax()`
+   instead of sleeping resolved it completely.
+
+Fixed, 200,000 events across 5 consecutive runs: 200,000/200,000
+received, accepted, and rule-matched every time (zero loss), persisted
+bytes exactly matching `accepted * sizeof(TelemetryPayload)` every time,
+throughput 555,412-571,615 events/sec. See `AnimusCore_v1/BENCHMARKS.md`'s
+Phase 20 section (the "Real Cross-Process Ingestion Pipeline" subsection)
+for the full numbers, including an early, discarded measurement whose
+~4-second wall times turned out to be an artifact of how the two
+processes happened to be launched in that measurement, not a property of
+the pipeline.
+
 **Platform coverage, stated precisely:** the Windows path
 (`CreateFileMappingA`/`MapViewOfFile`/`OpenFileMappingA`) is what every
 number above was measured against. The POSIX path (`shm_open`/`mmap`)
