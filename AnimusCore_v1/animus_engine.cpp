@@ -46,6 +46,7 @@
 // shim around it.
 #include "../include/animus/thread_affinity.hpp"
 #include "../include/animus/shm_ipc.hpp"
+#include "animus_security.hpp"
 
 // Only used by animus_verify_license (Windows-only, see its definition
 // below) -- kept out of animus.hpp's own includes for the same "portable
@@ -201,6 +202,25 @@ namespace {
 
 } // namespace
 #endif // _WIN32
+
+namespace {
+
+    // Bundles one TenantRegistry + one SecureTelemetryGateway + one
+    // SecureExecutionGateway behind a single C-ABI handle -- Python drives
+    // one animus_security_create_context() object, not three separate
+    // handles it would otherwise have to keep in sync itself. Not part of
+    // animus_security.hpp: this is a C-ABI convenience aggregate, not a
+    // reusable C++ abstraction (same reasoning g_engine/g_spsc_ring above
+    // are DLL-shim-only, not in the portable headers).
+    struct SecurityContext {
+        animus::security::TenantRegistry registry;
+        animus::security::SecureTelemetryGateway telemetry;
+        animus::security::SecureExecutionGateway execution;
+
+        SecurityContext() : telemetry(registry), execution(registry) {}
+    };
+
+} // namespace
 
 extern "C" {
     // Cold path: guarded by a mutex since it runs once at startup. The hot
@@ -467,6 +487,60 @@ extern "C" {
         return popped;
     }
 
+    ANIMUS_API void* animus_shm_ring_order_create(const char* name, size_t requested_capacity) {
+        if (!name) return nullptr;
+        return animus::sys::ipc::ShmRing<animus::OrderRequest>::create(name, requested_capacity).release();
+    }
+
+    ANIMUS_API void* animus_shm_ring_order_open(const char* name) {
+        if (!name) return nullptr;
+        return animus::sys::ipc::ShmRing<animus::OrderRequest>::open(name).release();
+    }
+
+    ANIMUS_API void animus_shm_ring_order_close(void* ring) {
+        delete static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+    }
+
+    ANIMUS_API bool animus_shm_ring_order_unlink(const char* name) {
+        if (!name) return false;
+        return animus::sys::ipc::ShmRing<animus::OrderRequest>::unlink(name);
+    }
+
+    ANIMUS_API size_t animus_shm_ring_order_capacity(void* ring) {
+        if (!ring) return 0;
+        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->capacity();
+    }
+
+    ANIMUS_API bool animus_shm_ring_order_try_push(void* ring, const animus::OrderRequest* order) {
+        if (!ring || !order) return false;
+        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_push(*order);
+    }
+
+    ANIMUS_API bool animus_shm_ring_order_try_pop(void* ring, animus::OrderRequest* out) {
+        if (!ring || !out) return false;
+        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_pop(*out);
+    }
+
+    ANIMUS_API size_t animus_shm_ring_order_push_batch(void* ring, const animus::OrderRequest* orders, size_t count) {
+        if (!ring || !orders) return 0;
+        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+        size_t pushed = 0;
+        for (; pushed < count; ++pushed) {
+            if (!r->try_push(orders[pushed])) break;
+        }
+        return pushed;
+    }
+
+    ANIMUS_API size_t animus_shm_ring_order_pop_batch(void* ring, animus::OrderRequest* out, size_t max_count) {
+        if (!ring || !out) return 0;
+        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+        size_t popped = 0;
+        for (; popped < max_count; ++popped) {
+            if (!r->try_pop(out[popped])) break;
+        }
+        return popped;
+    }
+
     ANIMUS_API bool animus_verify_license(const char* license_path) {
 #if defined(_WIN32)
         if (!license_path) return false;
@@ -515,5 +589,40 @@ extern "C" {
 
     ANIMUS_API uint32_t animus_licensed_max_cores(void) {
         return g_license_verified.load(std::memory_order_acquire) ? g_license_max_cores.load(std::memory_order_acquire) : 0;
+    }
+
+    ANIMUS_API void* animus_security_create_context(void) {
+        return new SecurityContext();
+    }
+
+    ANIMUS_API void animus_security_close_context(void* ctx) {
+        delete static_cast<SecurityContext*>(ctx);
+    }
+
+    ANIMUS_API bool animus_security_create_tenant(void* ctx, const animus::security::AccessToken* token,
+        uint32_t new_tenant_id, size_t buffer_capacity) {
+        if (!ctx || !token) return false;
+        auto* sc = static_cast<SecurityContext*>(ctx);
+        return sc->telemetry.create_tenant(*token, new_tenant_id, buffer_capacity);
+    }
+
+    ANIMUS_API bool animus_security_create_execution_tenant(void* ctx, const animus::security::AccessToken* token,
+        uint32_t tenant_id) {
+        if (!ctx || !token) return false;
+        auto* sc = static_cast<SecurityContext*>(ctx);
+        return sc->execution.create_execution_tenant(*token, tenant_id);
+    }
+
+    ANIMUS_API bool animus_security_submit_order(void* ctx, const animus::security::AccessToken* token,
+        const animus::OrderRequest* request, animus::ExecutionReport* out) {
+        if (!ctx || !token || !request || !out) return false;
+        auto* sc = static_cast<SecurityContext*>(ctx);
+        return sc->execution.submit(*token, *request, *out);
+    }
+
+    ANIMUS_API size_t animus_security_poll_execution_audit_log(void* ctx, animus::security::AuditEvent* out, size_t max_count) {
+        if (!ctx || !out) return 0;
+        auto* sc = static_cast<SecurityContext*>(ctx);
+        return sc->execution.poll_execution_audit_log(out, max_count);
     }
 }

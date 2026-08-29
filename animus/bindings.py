@@ -286,6 +286,158 @@ class TradeTick(ctypes.Structure):
 assert ctypes.sizeof(TradeTick) == 56
 
 
+class OrderSide(IntEnum):
+    """Mirrors animus::OrderSide (animus.hpp) -- values must stay in sync."""
+    BUY = 0
+    SELL = 1
+
+
+class OrderType(IntEnum):
+    """Mirrors animus::OrderType (animus.hpp) -- values must stay in sync."""
+    MARKET = 0
+    LIMIT = 1
+
+
+class ExecStatus(IntEnum):
+    """Mirrors animus::ExecStatus (animus.hpp) -- values must stay in sync."""
+    ACCEPTED = 0
+    REJECTED = 1
+    FILLED = 2
+    PARTIALLY_FILLED = 3
+
+
+class Role(IntEnum):
+    """Mirrors animus::security::Role (animus_security.hpp) -- values must
+    stay in sync. Viewer: read-only (poll signals). Operator: Viewer plus
+    ingest telemetry and submit orders (e.g. a trading/agent process).
+    Admin: everything, including tenant/execution-tenant management.
+    """
+    VIEWER = 0
+    OPERATOR = 1
+    ADMIN = 2
+
+
+class Permission(IntEnum):
+    """Mirrors animus::security::Permission (animus_security.hpp) -- values
+    must stay in sync. Exposed for reading AuditEvent.permission back;
+    RBAC itself is enforced natively, not re-implemented here.
+    """
+    RECORD_EVENT = 0
+    POLL_SIGNALS = 1
+    ADD_RULE = 2
+    MANAGE_PERSISTENCE = 3
+    MANAGE_TENANTS = 4
+    SUBMIT_ORDER = 5
+
+
+class AuditOutcome(IntEnum):
+    """Mirrors animus::security::AuditOutcome (animus_security.hpp)."""
+    ALLOWED = 0
+    DENIED = 1
+
+
+class OrderRequest(ctypes.Structure):
+    """Mirrors animus::OrderRequest (animus.hpp) byte-for-byte, INCLUDING its
+    2 bytes of internal alignment padding between `type` and `price_ticks`
+    -- crosses the real C-ABI via animus_security_submit_order and
+    animus_shm_ring_order_*'s caller-supplied buffers, so this layout must
+    match the native struct's actual 32-byte size and field offsets exactly
+    (verified against a real sizeof/offsetof build before being relied on
+    here, same bar as every other wire struct in this module). side/type
+    are raw ctypes.c_uint8, not OrderSide/OrderType directly -- wrap with
+    OrderSide(order.side) / OrderType(order.type) if you want the enum,
+    same convention L2Update.side/action already follow.
+    """
+    _fields_ = [
+        ("client_order_id", ctypes.c_uint64),
+        ("instrument_id", ctypes.c_uint32),
+        ("side", ctypes.c_uint8),
+        ("type", ctypes.c_uint8),
+        ("_reserved", ctypes.c_uint8 * 2),
+        ("price_ticks", ctypes.c_uint64),
+        ("quantity", ctypes.c_uint64),
+    ]
+
+
+assert ctypes.sizeof(OrderRequest) == 32
+
+
+class ExecutionReport(ctypes.Structure):
+    """Mirrors animus::ExecutionReport (animus.hpp) byte-for-byte, INCLUDING
+    its 4 bytes of internal padding (after `instrument_id`) and 7 bytes of
+    trailing padding (after `status`) -- same rationale and same
+    real-build verification as OrderRequest above. status is raw
+    ctypes.c_uint8 -- wrap with ExecStatus(report.status) for the enum.
+    """
+    _fields_ = [
+        ("client_order_id", ctypes.c_uint64),
+        ("instrument_id", ctypes.c_uint32),
+        ("_reserved0", ctypes.c_uint8 * 4),
+        ("filled_quantity", ctypes.c_uint64),
+        ("avg_price_ticks", ctypes.c_uint64),
+        ("status", ctypes.c_uint8),
+        ("_reserved1", ctypes.c_uint8 * 7),
+    ]
+
+
+assert ctypes.sizeof(ExecutionReport) == 40
+
+
+class AccessToken(ctypes.Structure):
+    """Mirrors animus::security::AccessToken (animus_security.hpp)
+    byte-for-byte, INCLUDING its 4 bytes of internal padding (after
+    `tenant_id`) and 7 bytes of trailing padding (after `role`) -- verified
+    against a real sizeof/offsetof build, same bar as every other wire
+    struct in this module.
+
+    Construct via AccessToken.make(...), not positionally
+    (AccessToken(10, 1, Role.OPERATOR)) -- the padding sits BETWEEN
+    tenant_id and principal_id, so positional construction would silently
+    write into the reserved field instead of principal_id rather than
+    raising anything.
+    """
+    _fields_ = [
+        ("tenant_id", ctypes.c_uint32),
+        ("_reserved0", ctypes.c_uint8 * 4),
+        ("principal_id", ctypes.c_uint64),
+        ("role", ctypes.c_uint8),
+        ("_reserved1", ctypes.c_uint8 * 7),
+    ]
+
+    @classmethod
+    def make(cls, tenant_id: int, principal_id: int, role: "Role | int") -> "AccessToken":
+        token = cls()
+        token.tenant_id = tenant_id
+        token.principal_id = principal_id
+        token.role = int(role)
+        return token
+
+
+assert ctypes.sizeof(AccessToken) == 24
+
+
+class AuditEvent(ctypes.Structure):
+    """Mirrors animus::security::AuditEvent (animus_security.hpp)
+    byte-for-byte, INCLUDING its 4 bytes of internal padding (after
+    `tenant_id`) and 6 bytes of trailing padding (after `outcome`) --
+    verified against a real sizeof/offsetof build. permission/outcome are
+    raw ctypes.c_uint8 -- wrap with Permission(ev.permission) /
+    AuditOutcome(ev.outcome) for the enums.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("tenant_id", ctypes.c_uint32),
+        ("_reserved0", ctypes.c_uint8 * 4),
+        ("principal_id", ctypes.c_uint64),
+        ("permission", ctypes.c_uint8),
+        ("outcome", ctypes.c_uint8),
+        ("_reserved1", ctypes.c_uint8 * 6),
+    ]
+
+
+assert ctypes.sizeof(AuditEvent) == 32
+
+
 class _TelemetryRecord(NamedTuple):
     """Mirrors animus::TelemetryPayload's logical fields (animus.hpp),
     without its 64-byte cache-line padding -- see shm.py's identical
@@ -1415,6 +1567,233 @@ class ShmRingChannel:
 
     def __del__(self) -> None:
         # Same finalizer-safety rationale as SharedTelemetryChannel.__del__ above.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _configure_shm_ring_order_signatures(lib: ctypes.CDLL) -> None:
+    lib.animus_shm_ring_order_create.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+    lib.animus_shm_ring_order_create.restype = ctypes.c_void_p
+    lib.animus_shm_ring_order_open.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_ring_order_open.restype = ctypes.c_void_p
+    lib.animus_shm_ring_order_close.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_ring_order_close.restype = None
+    lib.animus_shm_ring_order_unlink.argtypes = [ctypes.c_char_p]
+    lib.animus_shm_ring_order_unlink.restype = ctypes.c_bool
+    lib.animus_shm_ring_order_capacity.argtypes = [ctypes.c_void_p]
+    lib.animus_shm_ring_order_capacity.restype = ctypes.c_size_t
+    lib.animus_shm_ring_order_try_push.argtypes = [ctypes.c_void_p, ctypes.POINTER(OrderRequest)]
+    lib.animus_shm_ring_order_try_push.restype = ctypes.c_bool
+    lib.animus_shm_ring_order_try_pop.argtypes = [ctypes.c_void_p, ctypes.POINTER(OrderRequest)]
+    lib.animus_shm_ring_order_try_pop.restype = ctypes.c_bool
+    lib.animus_shm_ring_order_push_batch.argtypes = [ctypes.c_void_p, ctypes.POINTER(OrderRequest), ctypes.c_size_t]
+    lib.animus_shm_ring_order_push_batch.restype = ctypes.c_size_t
+    lib.animus_shm_ring_order_pop_batch.argtypes = [ctypes.c_void_p, ctypes.POINTER(OrderRequest), ctypes.c_size_t]
+    lib.animus_shm_ring_order_pop_batch.restype = ctypes.c_size_t
+
+
+class ShmOrderRingChannel:
+    """ctypes-backed wrapper over animus::sys::ipc::ShmRing<animus::OrderRequest>
+    (include/animus/shm_ipc.hpp), instantiated for animus::OrderRequest --
+    the order-routing counterpart to ShmRingChannel above (which carries
+    animus::RawEvent, a telemetry shape). Same API shape, same contracts,
+    same single-producer/single-consumer restriction, same "no spin-blocking
+    wait exposed here" rationale as ShmRingChannel's own docstring -- see
+    that class for the full explanation, not repeated here.
+
+    Typically paired with SecurityContext below: a producer process pushes
+    OrderRequest records for ONE tenant into one named ring; the consumer
+    process (holding the SecurityContext) drains that tenant's own ring and
+    calls SecurityContext.submit_order() with an AccessToken scoped to that
+    same tenant -- one ring per tenant, not one shared ring carrying a
+    tenant id on the wire, matching animus_security.hpp's own "isolation is
+    structural" design (see SecureExecutionGateway's docstring).
+    """
+
+    def __init__(self, handle: int, lib: ctypes.CDLL) -> None:
+        self._handle = handle
+        self._lib = lib
+
+    @classmethod
+    def create(cls, name: str, capacity: int) -> "ShmOrderRingChannel":
+        if capacity < 1:
+            raise ValueError("capacity must be >= 1")
+        lib = load_native_library(required=True)
+        _configure_shm_ring_order_signatures(lib)
+        handle = lib.animus_shm_ring_order_create(name.encode("utf-8"), ctypes.c_size_t(capacity))
+        if not handle:
+            raise OSError(f"failed to create shm order ring {name!r} (does one already exist?)")
+        return cls(handle, lib)
+
+    @classmethod
+    def open(cls, name: str) -> "ShmOrderRingChannel":
+        lib = load_native_library(required=True)
+        _configure_shm_ring_order_signatures(lib)
+        handle = lib.animus_shm_ring_order_open(name.encode("utf-8"))
+        if not handle:
+            raise OSError(f"failed to open shm order ring {name!r} (does it exist?)")
+        return cls(handle, lib)
+
+    @staticmethod
+    def unlink(name: str) -> bool:
+        lib = load_native_library(required=True)
+        _configure_shm_ring_order_signatures(lib)
+        return bool(lib.animus_shm_ring_order_unlink(name.encode("utf-8")))
+
+    @property
+    def capacity(self) -> int:
+        return int(self._lib.animus_shm_ring_order_capacity(self._handle))
+
+    def try_push(self, order: OrderRequest) -> bool:
+        """Producer-side. Never blocks; returns False if the ring is full."""
+        return bool(self._lib.animus_shm_ring_order_try_push(self._handle, ctypes.byref(order)))
+
+    def try_pop(self) -> Optional[OrderRequest]:
+        """Consumer-side. Never blocks; returns None if the ring is empty."""
+        order = OrderRequest()
+        if not self._lib.animus_shm_ring_order_try_pop(self._handle, ctypes.byref(order)):
+            return None
+        return order
+
+    def push_batch(self, orders: "list[OrderRequest]") -> int:
+        """Producer-side batch push. Stops at the first push that fails
+        (ring full); returns how many, in order, actually made it in.
+        """
+        orders = list(orders)
+        if not orders:
+            return 0
+        buf = (OrderRequest * len(orders))(*orders)
+        return int(self._lib.animus_shm_ring_order_push_batch(self._handle, buf, ctypes.c_size_t(len(orders))))
+
+    def pop_batch(self, max_count: int = 1024) -> List[OrderRequest]:
+        """Consumer-side batch drain. Never blocks; returns fewer than
+        max_count (including zero/empty) if fewer are currently pending.
+        """
+        buf = (OrderRequest * max_count)()
+        count = self._lib.animus_shm_ring_order_pop_batch(self._handle, buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def close(self) -> None:
+        """Releases this process's mapping. Safe to call more than once."""
+        if self._handle:
+            self._lib.animus_shm_ring_order_close(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _configure_security_signatures(lib: ctypes.CDLL) -> None:
+    lib.animus_security_create_context.argtypes = []
+    lib.animus_security_create_context.restype = ctypes.c_void_p
+    lib.animus_security_close_context.argtypes = [ctypes.c_void_p]
+    lib.animus_security_close_context.restype = None
+    lib.animus_security_create_tenant.argtypes = [ctypes.c_void_p, ctypes.POINTER(AccessToken), ctypes.c_uint32, ctypes.c_size_t]
+    lib.animus_security_create_tenant.restype = ctypes.c_bool
+    lib.animus_security_create_execution_tenant.argtypes = [ctypes.c_void_p, ctypes.POINTER(AccessToken), ctypes.c_uint32]
+    lib.animus_security_create_execution_tenant.restype = ctypes.c_bool
+    lib.animus_security_submit_order.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(AccessToken), ctypes.POINTER(OrderRequest), ctypes.POINTER(ExecutionReport),
+    ]
+    lib.animus_security_submit_order.restype = ctypes.c_bool
+    lib.animus_security_poll_execution_audit_log.argtypes = [ctypes.c_void_p, ctypes.POINTER(AuditEvent), ctypes.c_size_t]
+    lib.animus_security_poll_execution_audit_log.restype = ctypes.c_size_t
+
+
+class SecurityContext:
+    """ctypes-backed wrapper over one RBAC-gated multi-tenant context
+    bundling animus::security::TenantRegistry + SecureTelemetryGateway +
+    SecureExecutionGateway (animus_security.hpp) behind a single handle.
+
+    Every method takes an AccessToken (see AccessToken.make()) and is
+    enforced natively against animus::security::RbacPolicy -- this class
+    does not re-implement or pre-check RBAC in Python; a denied call simply
+    returns False, exactly as the native SecureTelemetryGateway/
+    SecureExecutionGateway methods it wraps do. Use
+    poll_execution_audit_log() to see *why* a call was denied (or
+    confirmed allowed), not the return value of the call itself.
+
+    Deliberately narrow: only tenant creation (a prerequisite for
+    create_execution_tenant), execution-tenant creation, order submission,
+    and execution audit-log polling are exposed here -- record_event/
+    add_rule/poll_signals/persistence are SecureTelemetryGateway's existing
+    surface and are out of scope for this class, which exists for RBAC'd
+    order routing specifically, not as a general Python RBAC'd telemetry
+    API.
+
+    Requires the native engine; there is no pure-Python fallback (a native
+    security boundary, same reasoning as AnimusBindings.verify_license()).
+    """
+
+    def __init__(self, handle: int, lib: ctypes.CDLL) -> None:
+        self._handle = handle
+        self._lib = lib
+
+    @classmethod
+    def create(cls) -> "SecurityContext":
+        lib = load_native_library(required=True)
+        _configure_security_signatures(lib)
+        handle = lib.animus_security_create_context()
+        if not handle:
+            raise OSError("failed to allocate SecurityContext (out of memory?)")
+        return cls(handle, lib)
+
+    def create_tenant(self, token: AccessToken, new_tenant_id: int, buffer_capacity: int = 65536) -> bool:
+        """Requires Role.ADMIN (Permission.MANAGE_TENANTS). Allocates the new
+        tenant's isolated telemetry Engine -- a prerequisite for
+        create_execution_tenant() below, not itself an execution action.
+        """
+        return bool(self._lib.animus_security_create_tenant(
+            self._handle, ctypes.byref(token), ctypes.c_uint32(new_tenant_id), ctypes.c_size_t(buffer_capacity),
+        ))
+
+    def create_execution_tenant(self, token: AccessToken, tenant_id: int) -> bool:
+        """Requires Role.ADMIN (Permission.MANAGE_TENANTS) AND tenant_id's
+        telemetry tenant to already exist via create_tenant() above. Wires
+        one LoopbackBrokerGateway + one ExecutionClient bound to that
+        tenant's Engine. Idempotent: calling this again for an
+        already-set-up tenant is a no-op success.
+        """
+        return bool(self._lib.animus_security_create_execution_tenant(
+            self._handle, ctypes.byref(token), ctypes.c_uint32(tenant_id),
+        ))
+
+    def submit_order(self, token: AccessToken, request: OrderRequest) -> Optional[ExecutionReport]:
+        """Requires Role.OPERATOR or Role.ADMIN (Permission.SUBMIT_ORDER),
+        routed to the token's own tenant_id -- never a caller-chosen tenant.
+        Returns the ExecutionReport on success, or None for a denied
+        token, a tenant with no execution path set up yet, or a
+        broker-rejected order alike (poll_execution_audit_log()
+        distinguishes why, not this return value -- see this class's own
+        docstring).
+        """
+        report = ExecutionReport()
+        ok = self._lib.animus_security_submit_order(
+            self._handle, ctypes.byref(token), ctypes.byref(request), ctypes.byref(report),
+        )
+        return report if ok else None
+
+    def poll_execution_audit_log(self, max_count: int = 1024) -> List[AuditEvent]:
+        """Drains up to max_count pending execution RBAC decisions (allowed
+        and denied alike). Never blocks; returns fewer than max_count
+        (including zero/empty) if fewer are currently pending.
+        """
+        buf = (AuditEvent * max_count)()
+        count = self._lib.animus_security_poll_execution_audit_log(self._handle, buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def close(self) -> None:
+        """Releases this context. Safe to call more than once."""
+        if self._handle:
+            self._lib.animus_security_close_context(self._handle)
+            self._handle = None
+
+    def __del__(self) -> None:
         try:
             self.close()
         except Exception:
