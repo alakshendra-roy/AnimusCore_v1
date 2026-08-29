@@ -30,6 +30,9 @@ python benchmarks/benchmark_engine.py
 
 # Stress-test sustained load (1.2M+ events), memory leaks, and C-ABI boundary safety
 python benchmarks/stress_test_engine.py
+
+# Tail latency (p50-p99.99) for batched ingestion, baseline vs. SPSC ring + CPU pinning
+python benchmarks/fintech_tail_latency.py
  ```
 
 See `AnimusCore_v1/QUICKSTART.md` for four client proof-of-concept guides
@@ -184,4 +187,29 @@ python benchmarks/stress_test_engine.py
 ```
 
 Measured across 5 consecutive runs: RSS growth from the warm baseline stayed in a 1.82-2.49% band (consistent with no leak), with all 108,000 expected threat signals matched and drained every run, zero loss. Boundary fuzzing found the out-of-bounds-count cases crash non-deterministically -- depending on heap layout, not the input -- so a run that doesn't crash isn't proof the input was safe; that distinction is reported explicitly rather than glossed over. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 12 section for the full breakdown, including a real ctypes bug (a truncated 64-bit process handle) found and fixed while building the memory-check harness itself.
+
+## Phase 13: Fintech-Style Tail Latency
+
+`benchmarks/fintech_tail_latency.py` asks a different question than throughput: not "how fast on average," but "how bad is the tail" -- p50 through p99.99 -- for `record_events_batch()` at batch sizes of 100 / 1,000 / 10,000 events, timing only the native call itself (`time.perf_counter_ns()`, batch construction excluded from the measured window).
+
+```bash
+python benchmarks/fintech_tail_latency.py
+```
+
+Measured across 5 consecutive runs: at batch size 100, p50 is ~13.7 us but p99.99 is ~385 us -- roughly a 28x tail. At batch size 10,000, p50 is ~1,373 us and p99.99 ~1,959 us -- only ~1.4x. Smaller batches are dominated by fixed per-call jitter (OS scheduling, Python-level GC, allocator stalls) that their small amount of real work barely amortizes; larger batches trade higher absolute latency for a *tighter* tail relative to their own median. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 13 section for the full per-batch-size breakdown and sample-size caveats on p99.99.
+
+## Phase 14: Lock-Free SPSC Ring Buffer & CPU Core Pinning
+
+Two new, fully additive primitives -- neither touches the existing `Engine` or its MPMC ring -- aimed at the one-dedicated-hot-thread case a general-purpose ingestion API can't specialize for:
+
+* **`animus::SpscRingBuffer<T>`** (`AnimusCore_v1/animus.hpp`): a single-producer/single-consumer ring using a plain atomic load/store pair instead of the MPMC ring's compare-exchange retry loop, backed by one contiguous pre-allocated `std::vector<T>`. Fully header-only -- usable from C++ with zero DLL, same as `Engine`. Exposed as a standalone C-ABI channel (`animus_spsc_init` / `animus_spsc_record_events_batch` / `animus_spsc_drain`), and from Python as `AnimusBindings.spsc_*`.
+* **`animus_pin_current_thread_to_core(core_id)` / `animus_get_cpu_count()`** (Windows: `SetThreadAffinityMask`; Linux: `pthread_setaffinity_np`; honestly returns `false` on platforms with no real pinning API rather than faking success), exposed from Python as `AnimusBindings.pin_current_thread_to_core()` / `get_cpu_count()`.
+
+`benchmarks/fintech_tail_latency.py` was extended to compare baseline (MPMC, unpinned) against SPSC + pinned. The first version pinned to the highest-numbered CPU core -- a common informal convention -- and measured tail latency up to **34.5x worse**: this development machine has a hybrid Intel P-core/E-core CPU, and the last core is an Efficiency core. There is no portable way to ask the OS which cores are P-cores, so the benchmark now *probes* several candidate cores with a cheap workload and pins to whichever measures fastest, rather than guessing.
+
+```bash
+python benchmarks/fintech_tail_latency.py
+```
+
+With a well-chosen core, measured across 5 runs: **throughput and p50/p90 latency improve in every single trial** (15/15) -- real, consistent gains from cache locality and the simpler SPSC push path. p99 is a mixed bag (9/15 improved). **p99.99 gets worse more often than not (12/15 trials)**, sometimes by 5-6x, and this did not go away with a properly probed, fast core. Likely cause: `SetThreadAffinityMask`/`pthread_setaffinity_np` pin a thread but don't reserve a core *exclusively* -- real OS-level isolation would take `isolcpus`/CPU Sets, which this benchmark deliberately doesn't set up. An unpinned thread that hits contention can migrate to any idle core; a pinned thread has nowhere to go until its one core frees up, which specifically inflates the rare worst case even as it helps the common one. Reported as measured, not adjusted to match the "pinning reduces p99.99" outcome this phase originally set out to confirm. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 14 section for the full per-batch-size numbers, the core-probe data, and the `alignas(64)` ctypes bug caught while building the SPSC drain path.
 
