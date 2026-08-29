@@ -1,6 +1,6 @@
 # Animus Core v1.0 -- Client Quickstart Guides
 
-Four proof-of-concept quickstarts, one per way of consuming Animus Core.
+Six proof-of-concept quickstarts, one per way of consuming Animus Core.
 Pick the one that matches your integration:
 
 | Guide | For | Platform |
@@ -10,8 +10,9 @@ Pick the one that matches your integration:
 | [3. Secure multi-tenant + mTLS](#3-secure-multi-tenant--mtls-transport) | Multiple isolated tenants, encrypted remote ingestion | Windows + MSVC |
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
 | [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
+| [6. Market data feed adapters](#6-market-data-feed-adapters-l2l3-book--trade-ticks) | Live L2/L3 order book + trade tick ingestion (`proprietary-edition` branch only) | Any (Windows/Linux/macOS) |
 
-All five PoCs below are real, runnable code paths already exercised in this
+All six PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
@@ -770,6 +771,112 @@ all yet; that's a documented gap, not an oversight.
 
 ---
 
+## 6. Market Data Feed Adapters (L2/L3 Book + Trade Ticks)
+
+**Currently lives on the `proprietary-edition` branch** (alongside guide
+5) simply because that's where it was added -- unlike guide 5, nothing
+about this feature actually depends on licensing or Windows; it's plain
+portable C++17 like guides 1/2's core engine.
+
+`animus::MarketDataFeed` (`AnimusCore_v1/animus.hpp`) is a dedicated
+low-latency ingestion primitive for live market data: two independent
+lock-free rings (order-book updates, trade ticks), each backed by the
+same `LockFreeRingBuffer` (Vyukov MPMC) `EngineImpl`'s own telemetry ring
+uses. Unlike guide 2's `SpscRingBuffer`, it's genuinely thread-safe for
+**concurrent producers and concurrent consumers** -- multiple feed-handler
+threads (e.g. one per venue connection) can push into the same feed at
+once, and multiple consumer threads can drain it at once, with no
+external locking.
+
+```python
+from animus import MarketDataFeed, BookSide, BookUpdateAction, TradeAggressor
+
+feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+# Any number of producer threads, e.g. one per venue connection:
+feed.push_l2_update(
+    instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW,
+    level=0,                     # venue-relative depth index, 0 = best
+    price_ticks=101250, quantity=300,
+    sequence_number=1,           # the venue's own feed sequence number
+    exchange_timestamp_ns=venue_ts_ns,
+)
+feed.push_trade(
+    instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+    price_ticks=101250, quantity=50,
+    sequence_number=2, exchange_timestamp_ns=venue_ts_ns,
+)
+
+# Any number of consumer threads, e.g. a book builder and a strategy,
+# each independently draining what they need:
+for update in feed.poll_l2_updates(max_count=1024):
+    print(update.instrument_id, BookSide(update.side), BookUpdateAction(update.action),
+          update.level, update.price_ticks, update.quantity)
+for trade in feed.poll_trades(max_count=1024):
+    print(trade.instrument_id, trade.trade_id, TradeAggressor(trade.aggressor_side),
+          trade.price_ticks, trade.quantity)
+
+feed.close()
+```
+
+**`level`, not price, indexes the book.** `L2Update.level` is a
+venue-relative depth index (0 = best bid/ask), not a raw price -- a
+consumer reconstructs book state by keyed `(instrument_id, side, level)`
+replacement, matching how incremental L2 feeds (ITCH, ArcaBook, ...)
+actually publish updates, rather than by summing per-price deltas.
+`action` tells you what kind of change it is: `NEW` (a fresh level
+entered the book at this index), `UPDATE` (that level's quantity
+changed), or `DELETE` (the level was removed -- `quantity` is not
+meaningful on a `DELETE` and should be ignored).
+
+**Two independent rings, two independent capacities.** `l2_capacity` and
+`trade_capacity` are sized separately at `create()` time (each rounded up
+to the next power of two internally, same as `init()`'s
+`buffer_capacity`) -- a full order-book ring does not block trade
+ingestion, and vice versa, since they're genuinely separate
+`LockFreeRingBuffer` instances, not a shared one keyed by message type.
+
+**Sequence numbers are yours to reconcile, not this feed's.**
+`sequence_number` carries whatever the venue's own feed sequence number
+was; `MarketDataFeed` stores and returns it but does not itself detect
+gaps -- compare successive values per `instrument_id` and decide how to
+react (resync, drop, ...) at the strategy/book-builder layer, since that
+policy is venue- and strategy-specific. `timestamp_cycles` is stamped
+locally at the moment of the `push_*` call (`read_cycle_counter()`, same
+convention as `TelemetryPayload`); `exchange_timestamp_ns` is whatever
+timestamp the feed itself carried -- comparing the two measures
+feed-to-ingestion latency directly.
+
+**Handle-based, not a singleton, same as `SharedTelemetryChannel`
+(guide 1) --** `MarketDataFeed.create()` returns an independent instance,
+so run as many feeds as you need in one process (e.g. one per venue or
+instrument shard), each with its own pair of rings.
+
+**No pure-Python fallback, same reasoning as `SpscRingBuffer` and
+`SharedTelemetryChannel`:** `MarketDataFeed.create()` raises
+`FileNotFoundError` if no compiled native binary is found -- this is a
+native concurrency primitive, not something a Python reimplementation
+could meaningfully provide the same thread-safety guarantee for.
+
+**Thread-safety verified directly, not just claimed:** a stress test
+drives 6-8 real OS producer threads and 3-4 real OS consumer threads
+against one `MarketDataFeed` instance concurrently, pushing/draining tens
+of thousands of records across both rings, and confirms every record is
+drained exactly once with no corrupted fields -- see
+`tests/test_bindings.py`'s `MarketDataFeedIntegrationTests` for the full
+suite. No dedicated throughput/tail-latency benchmark has been run for
+this feature yet (unlike `record_events_batch`/SPSC's Phase 11/13/14
+numbers) -- treat it as functionally verified, not yet performance-
+characterized.
+
+The C++ single-header path (guide 2) works identically, with no C-ABI/
+ctypes hop: `#include "animus.hpp"` and drive `animus::MarketDataFeed`
+directly -- `push_l2_update`/`push_trade`/`poll_l2_updates`/`poll_trades`
+are ordinary member functions, same names and same thread-safety
+guarantee as the Python methods above.
+
+---
+
 ## Which guide should I start with?
 
 - Building a Python-based SOAR/orchestration pipeline, or just scripting
@@ -783,3 +890,6 @@ all yet; that's a documented gap, not an oversight.
 - Shipping a commercial, node-locked build to customers? **Guide 5**
   (`proprietary-edition` branch only, layers on top of Guide 1/2's
   `spsc_init`/pinning primitives).
+- Ingesting a live L2/L3 order book or trade tick feed, possibly from
+  multiple venue connections at once? **Guide 6** (`proprietary-edition`
+  branch only for now; portable and independent of Guide 5's licensing).

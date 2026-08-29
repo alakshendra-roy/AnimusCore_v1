@@ -6,10 +6,10 @@
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 
 > **`proprietary-edition` branch.** This branch adds an offline RSA-signed
-> hardware licensing layer (Phase 17 below) on top of the MIT `master`
-> branch and is licensed differently -- see `LICENSE` in this branch,
-> which is a placeholder pending real legal review, not the MIT text on
-> `master`.
+> hardware licensing layer (Phase 17) and lock-free market data feed
+> adapters (Phase 18 below) on top of the MIT `master` branch and is
+> licensed differently -- see `LICENSE` in this branch, which is a
+> placeholder pending real legal review, not the MIT text on `master`.
 
 ## Overview
 Animus Core is an enterprise-grade, low-latency telemetry ingestion and automated response engine engineered in C++ with native Python SDK bindings. It bridges C-ABI execution memory boundaries with high-level orchestrators to process high-throughput telemetry streams without zero-copy buffer degradation.
@@ -311,4 +311,66 @@ subprocess-isolated test, since license state is a process-wide singleton
 that can't be un-set once verified). See `tests/test_bindings.py`'s
 `RealNativeEngineIntegrationTests` license tests and `UnlicensedGatingTests`
 for the full suite.
+
+## Phase 18: Lock-Free Market Data Feed Adapters (L2/L3 Book + Trade Ticks)
+
+`animus::MarketDataFeed` (`AnimusCore_v1/animus.hpp`) adds a dedicated
+low-latency ingestion primitive for live market data, separate from the
+general telemetry `Engine` and from the SPSC ring both used for
+higher-throughput single-thread paths:
+
+* **Two independent lock-free rings, one per message type:** order-book
+  price-level updates (`L2Update`, 56 bytes) and executed-trade ticks
+  (`TradeTick`, 56 bytes), each backed by the existing `LockFreeRingBuffer`
+  (the Vyukov MPMC ring `EngineImpl`'s own telemetry ring already uses),
+  not a new ring algorithm.
+* **Genuinely thread-safe for concurrent producers *and* consumers** --
+  unlike `SpscRingBuffer`/`SharedTelemetryChannel` elsewhere in this
+  header, which are deliberately single-producer/single-consumer for
+  extra throughput, `MarketDataFeed` supports multiple feed-handler
+  threads (e.g. one per venue connection) pushing into the same instance
+  concurrently, and multiple consumer threads draining it concurrently,
+  with no external locking.
+* **Handle-based, not a singleton:** `animus_feed_create`/`animus_feed_close`
+  follow the same pattern as `animus_shm_create`/`animus_shm_close`, so a
+  caller can run any number of independent feeds (e.g. one per venue or
+  instrument shard) in one process.
+* **`L2Update` carries a venue-relative depth index (`level`), not a raw
+  price** -- consumers reconstruct book state by keyed
+  `(instrument_id, side, level)` replacement, matching how incremental L2
+  feeds (ITCH, ArcaBook, ...) actually publish updates, rather than by
+  summing deltas. Both structs carry the venue's own `sequence_number`
+  (for gap detection, left to the consumer) and both a locally-stamped
+  `timestamp_cycles` and a caller-supplied `exchange_timestamp_ns`, so
+  feed-to-ingestion latency can be measured directly.
+
+```python
+from animus import MarketDataFeed, BookSide, BookUpdateAction, TradeAggressor
+
+feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+# Producer thread(s) -- e.g. one per venue connection:
+feed.push_l2_update(instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW,
+                     level=0, price_ticks=101250, quantity=300,
+                     sequence_number=1, exchange_timestamp_ns=venue_ts_ns)
+feed.push_trade(instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+                 price_ticks=101250, quantity=50,
+                 sequence_number=2, exchange_timestamp_ns=venue_ts_ns)
+
+# Consumer thread(s) -- e.g. book builder + strategy, independently:
+for update in feed.poll_l2_updates(max_count=1024):
+    ...
+for trade in feed.poll_trades(max_count=1024):
+    ...
+```
+
+Verified, not assumed: struct layouts (56 bytes each) confirmed via a real
+`sizeof()`/`offsetof()` build before being mirrored in
+`animus/bindings.py`'s ctypes `Structure`s; a real multi-threaded stress
+test with 6-8 concurrent producer threads and 3-4 concurrent consumer
+threads pushing/draining tens of thousands of records across both rings
+at once, confirming zero loss, zero duplication, and zero field
+corruption under genuine OS-thread concurrency -- not merely asserted from
+the ring algorithm's known correctness. See `tests/test_bindings.py`'s
+`MarketDataFeedIntegrationTests` for the full suite.
 
