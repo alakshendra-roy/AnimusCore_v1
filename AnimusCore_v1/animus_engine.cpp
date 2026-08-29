@@ -200,6 +200,45 @@ namespace {
         return st == 0;
     }
 
+    // Shared implementation behind both animus_verify_license (collapses
+    // this to a bool) and animus_check_license_status (returns this
+    // directly) -- one code path, not two that could drift apart. Sets the
+    // process-wide entitlement state on success, same as the old
+    // animus_verify_license body this was factored out of.
+    animus::LicenseStatus compute_license_status(const char* license_path) {
+        if (!license_path) return animus::LicenseStatus::Missing;
+
+        std::ifstream file(license_path, std::ios::binary);
+        if (!file) return animus::LicenseStatus::Missing;
+        std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        if (bytes.size() != animus::kLicenseFileSize) return animus::LicenseStatus::Malformed;
+
+        animus::LicensePayload payload{};
+        memcpy(&payload, bytes.data(), sizeof(payload));
+        if (payload.magic != animus::kLicenseMagic) return animus::LicenseStatus::Malformed;
+
+        const unsigned char* signature = bytes.data() + sizeof(animus::LicensePayload);
+        if (!rsa_verify(bytes.data(), sizeof(animus::LicensePayload), signature, animus::kLicenseSignatureSize)) {
+            return animus::LicenseStatus::BadSignature; // tampered payload, or not signed by the key this build embeds
+        }
+
+        if (payload.expires_at_unix != 0) {
+            auto now = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            if (static_cast<uint64_t>(now) > payload.expires_at_unix) return animus::LicenseStatus::Expired;
+        }
+
+        unsigned char my_fingerprint[32];
+        if (!compute_machine_fingerprint(my_fingerprint)) return animus::LicenseStatus::UnsupportedPlatform;
+        if (memcmp(my_fingerprint, payload.fingerprint_sha256, 32) != 0) {
+            return animus::LicenseStatus::WrongMachine; // validly signed, but issued for a different machine
+        }
+
+        g_license_max_cores.store(payload.max_cores, std::memory_order_release);
+        g_license_verified.store(true, std::memory_order_release);
+        return animus::LicenseStatus::Valid;
+    }
+
 } // namespace
 #endif // _WIN32
 
@@ -543,43 +582,22 @@ extern "C" {
 
     ANIMUS_API bool animus_verify_license(const char* license_path) {
 #if defined(_WIN32)
-        if (!license_path) return false;
-
-        std::ifstream file(license_path, std::ios::binary);
-        if (!file) return false;
-        std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        if (bytes.size() != animus::kLicenseFileSize) return false; // wrong size -- not a license this build understands
-
-        animus::LicensePayload payload{};
-        memcpy(&payload, bytes.data(), sizeof(payload));
-        if (payload.magic != animus::kLicenseMagic) return false;
-
-        const unsigned char* signature = bytes.data() + sizeof(animus::LicensePayload);
-        if (!rsa_verify(bytes.data(), sizeof(animus::LicensePayload), signature, animus::kLicenseSignatureSize)) {
-            return false; // tampered payload, or not signed by the key this build embeds
-        }
-
-        if (payload.expires_at_unix != 0) {
-            auto now = std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
-            if (static_cast<uint64_t>(now) > payload.expires_at_unix) return false;
-        }
-
-        unsigned char my_fingerprint[32];
-        if (!compute_machine_fingerprint(my_fingerprint)) return false;
-        if (memcmp(my_fingerprint, payload.fingerprint_sha256, 32) != 0) {
-            return false; // validly signed, but issued for a different machine
-        }
-
-        g_license_max_cores.store(payload.max_cores, std::memory_order_release);
-        g_license_verified.store(true, std::memory_order_release);
-        return true;
+        return compute_license_status(license_path) == animus::LicenseStatus::Valid;
 #else
         // No implementation on this platform yet -- see animus.hpp's
         // declaration for why returning false here (never faking success)
         // is the deliberate choice, same as animus_pin_current_thread_to_core.
         (void)license_path;
         return false;
+#endif
+    }
+
+    ANIMUS_API animus::LicenseStatus animus_check_license_status(const char* license_path) {
+#if defined(_WIN32)
+        return compute_license_status(license_path);
+#else
+        (void)license_path;
+        return animus::LicenseStatus::UnsupportedPlatform;
 #endif
     }
 
@@ -624,5 +642,11 @@ extern "C" {
         if (!ctx || !out) return 0;
         auto* sc = static_cast<SecurityContext*>(ctx);
         return sc->execution.poll_execution_audit_log(out, max_count);
+    }
+
+    ANIMUS_API void animus_security_set_execution_license_required(void* ctx, bool required) {
+        if (!ctx) return;
+        auto* sc = static_cast<SecurityContext*>(ctx);
+        sc->execution.set_execution_license_required(required);
     }
 }

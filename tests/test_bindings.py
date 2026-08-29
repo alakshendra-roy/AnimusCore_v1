@@ -34,6 +34,8 @@ from animus.bindings import (  # noqa: E402
     BookUpdateAction,
     ExecStatus,
     ExecutionReport,
+    LicenseError,
+    LicenseStatus,
     MarketDataFeed,
     NativeEvent,
     OrderRequest,
@@ -389,6 +391,21 @@ class _FakeNativeLib:
             return self.state["licensed_max_cores"] if self.state["licensed"] else 0
         self.animus_licensed_max_cores = animus_licensed_max_cores
 
+        def animus_check_license_status(path):
+            # Fake: same "good.lic" shape as animus_verify_license above,
+            # but distinguishes b"missing.lic" (MISSING) from anything else
+            # (BAD_SIGNATURE) so check_license_status()'s "specific reason"
+            # contract has something real to assert on without needing
+            # every real failure mode reproduced here.
+            if path == b"good.lic":
+                self.state["licensed"] = True
+                self.state["licensed_max_cores"] = 4
+                return LicenseStatus.VALID
+            if path == b"missing.lic":
+                return LicenseStatus.MISSING
+            return LicenseStatus.BAD_SIGNATURE
+        self.animus_check_license_status = animus_check_license_status
+
 
 class ZeroCopyPollSignalsTests(unittest.TestCase):
     """Verifies AnimusBindings.poll_signals()'s zero-copy contract: the
@@ -491,6 +508,22 @@ class ZeroCopyPollSignalsTests(unittest.TestCase):
         self.assertTrue(self.bindings.is_licensed())
         self.assertEqual(self.bindings.licensed_max_cores(), 4)
 
+    def test_check_license_status_returns_specific_reason(self):
+        self.assertEqual(self.bindings.check_license_status("missing.lic"), LicenseStatus.MISSING)
+        self.assertEqual(self.bindings.check_license_status("tampered.lic"), LicenseStatus.BAD_SIGNATURE)
+
+        self.assertEqual(self.bindings.check_license_status("good.lic"), LicenseStatus.VALID)
+        self.assertTrue(self.bindings.is_licensed())
+        self.assertEqual(self.bindings.licensed_max_cores(), 4)
+
+    def test_require_license_raises_with_status_on_failure(self):
+        with self.assertRaises(LicenseError) as ctx:
+            self.bindings.require_license("missing.lic")
+        self.assertEqual(ctx.exception.status, LicenseStatus.MISSING)
+
+        self.bindings.require_license("good.lic")  # must not raise
+        self.assertTrue(self.bindings.is_licensed())
+
     def test_start_stop_logging_delegate_to_native(self):
         self.bindings.start_logging("telemetry.log")
         self.assertTrue(self.fake_lib.state["logging"])
@@ -537,6 +570,8 @@ class PurePythonFallbackTests(unittest.TestCase):
             (self.bindings.verify_license, ("anything.lic",)),
             (self.bindings.is_licensed, ()),
             (self.bindings.licensed_max_cores, ()),
+            (self.bindings.check_license_status, ("anything.lic",)),
+            (self.bindings.require_license, ("anything.lic",)),
         ]:
             with self.assertRaises(RuntimeError):
                 method(*args)
@@ -823,6 +858,7 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
         # specific machine's fingerprint or the private key.
         bindings = AnimusBindings()
         self.assertFalse(bindings.verify_license(_WRONG_MACHINE_LICENSE))
+        self.assertEqual(bindings.check_license_status(_WRONG_MACHINE_LICENSE), LicenseStatus.WRONG_MACHINE)
 
     def test_verify_license_rejects_tampered_file(self):
         with open(_WRONG_MACHINE_LICENSE, "rb") as fh:
@@ -834,12 +870,27 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
         try:
             bindings = AnimusBindings()
             self.assertFalse(bindings.verify_license(tampered_path))
+            self.assertEqual(bindings.check_license_status(tampered_path), LicenseStatus.BAD_SIGNATURE)
         finally:
             os.unlink(tampered_path)
+
+    def test_check_license_status_rejects_malformed_file(self):
+        with tempfile.NamedTemporaryFile(suffix=".lic", delete=False) as tmp:
+            tmp.write(b"too short to be a real license")
+            malformed_path = tmp.name
+        try:
+            bindings = AnimusBindings()
+            self.assertEqual(bindings.check_license_status(malformed_path), LicenseStatus.MALFORMED)
+        finally:
+            os.unlink(malformed_path)
 
     def test_verify_license_rejects_missing_file(self):
         bindings = AnimusBindings()
         self.assertFalse(bindings.verify_license("this_license_file_does_not_exist.lic"))
+        self.assertEqual(bindings.check_license_status("this_license_file_does_not_exist.lic"), LicenseStatus.MISSING)
+        with self.assertRaises(LicenseError) as ctx:
+            bindings.require_license("this_license_file_does_not_exist.lic")
+        self.assertEqual(ctx.exception.status, LicenseStatus.MISSING)
 
     @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
                           "no local test license for this machine -- run license_tools/sign_license.ps1")
@@ -854,6 +905,8 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
         self.assertEqual(bindings.licensed_max_cores(), 8)
         self.assertTrue(bindings.verify_license(_LOCAL_TEST_LICENSE))
         self.assertEqual(bindings.licensed_max_cores(), 8)
+        self.assertEqual(bindings.check_license_status(_LOCAL_TEST_LICENSE), LicenseStatus.VALID)
+        bindings.require_license(_LOCAL_TEST_LICENSE)  # must not raise
 
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
@@ -1401,6 +1454,65 @@ class SecurityContextIntegrationTests(unittest.TestCase):
         self.assertEqual(Permission(audit[1].permission), Permission.SUBMIT_ORDER)
         self.assertEqual(AuditOutcome(audit[1].outcome), AuditOutcome.DENIED)
         self.assertEqual(audit[1].principal_id, 3)
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class ExecutionLicenseRequirementTests(unittest.TestCase):
+    """Verifies SecurityContext.set_execution_license_required() -- the new,
+    opt-in (default OFF) license gate on SecureExecutionGateway.submit().
+
+    OFF is exercised implicitly by every SecurityContextIntegrationTests
+    test above (none of them ever verify a license, and submit_order
+    already succeeds for them) -- that is the whole point of defaulting to
+    OFF: this feature shipped in v1.1.0-rc1 with no license concept
+    attached, and none of that behavior may silently change. This class
+    covers only the ON path, and does so in a fresh subprocess (never
+    in-process here) for the same reason UnlicensedGatingTests does:
+    license state is a process-wide singleton this test run may have
+    already flipped true via RealNativeEngineIntegrationTests.setUpClass.
+    """
+
+    def test_submit_denied_when_required_and_no_license_verified(self):
+        script = (
+            "import sys; sys.path.insert(0, '.'); "
+            "from animus.bindings import SecurityContext, AccessToken, Role, OrderRequest, OrderSide, OrderType; "
+            "ctx = SecurityContext.create(); "
+            "admin = AccessToken.make(tenant_id=0, principal_id=1, role=Role.ADMIN); "
+            "assert ctx.create_tenant(admin, new_tenant_id=10); "
+            "assert ctx.create_execution_tenant(admin, tenant_id=10); "
+            "ctx.set_execution_license_required(True); "
+            "operator = AccessToken.make(tenant_id=10, principal_id=2, role=Role.OPERATOR); "
+            "order = OrderRequest(client_order_id=1, instrument_id=7, side=OrderSide.BUY, "
+            "                     type=OrderType.MARKET, price_ticks=100, quantity=1); "
+            "assert ctx.submit_order(operator, order) is None, 'expected denial with no license verified'; "
+            "ctx.close(); "
+            "print('OK')"
+        )
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                               cwd=os.path.join(os.path.dirname(__file__), ".."), timeout=30)
+        self.assertEqual(proc.returncode, 0, msg=f"stdout={proc.stdout!r} stderr={proc.stderr!r}")
+        self.assertIn("OK", proc.stdout)
+
+    @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
+                          "no local test license for this machine -- run license_tools/sign_license.ps1")
+    def test_submit_succeeds_when_required_and_license_verified(self):
+        # setUpClass on RealNativeEngineIntegrationTests already verified
+        # the local license once for this whole process (if present) --
+        # confirm the ON gate lets an otherwise-authorized order through
+        # once that has happened.
+        AnimusBindings().verify_license(_LOCAL_TEST_LICENSE)
+        ctx = SecurityContext.create()
+        try:
+            admin = AccessToken.make(tenant_id=0, principal_id=1, role=Role.ADMIN)
+            self.assertTrue(ctx.create_tenant(admin, new_tenant_id=10))
+            self.assertTrue(ctx.create_execution_tenant(admin, tenant_id=10))
+            ctx.set_execution_license_required(True)
+            operator = AccessToken.make(tenant_id=10, principal_id=2, role=Role.OPERATOR)
+            order = OrderRequest(client_order_id=1, instrument_id=7, side=OrderSide.BUY,
+                                  type=OrderType.MARKET, price_ticks=100, quantity=1)
+            self.assertIsNotNone(ctx.submit_order(operator, order))
+        finally:
+            ctx.close()
 
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
