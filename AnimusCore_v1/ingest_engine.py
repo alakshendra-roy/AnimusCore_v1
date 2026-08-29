@@ -18,7 +18,33 @@ from animus.bindings import AnimusBindings, RuleComparator, ThreatSignal
 RULE_EVENT_ID = 101
 
 
-def _producer(bindings: AnimusBindings, event_count: int, trace_offset: int, results: List[Tuple[int, int]], slot: int) -> None:
+def _pin_and_prioritize(bindings: AnimusBindings, core_id: int) -> bool:
+    """Best-effort: pins the calling OS thread to `core_id` and raises it to
+    the host's highest realtime/time-critical scheduling tier, via the
+    native animus::sys thread-affinity utilities (see
+    include/animus/thread_affinity.hpp, wired through animus_engine.cpp's
+    licensed C-ABI and animus/bindings.py). A Python thread is still a real
+    OS thread even under the GIL, and both native calls below release the
+    GIL for their duration (plain ctypes calls do by default), so this
+    actually pins/reprioritizes the OS thread the calling Python thread
+    runs on -- not a no-op.
+
+    Silently returns False under the pure-Python fallback engine (no
+    native affinity API exists to call) or an unlicensed native build
+    (animus_pin_current_thread_to_core/animus_set_thread_high_priority
+    both fail closed with no verified license) -- this is a latency
+    optimization the stress test's correctness never depends on, so a
+    denial here must never abort the run.
+    """
+    if not bindings.using_native_engine:
+        return False
+    pinned = bindings.pin_current_thread_to_core(core_id)
+    bindings.set_thread_high_priority()
+    return pinned
+
+
+def _producer(bindings: AnimusBindings, event_count: int, trace_offset: int, results: List[Tuple[int, int]], slot: int, core_id: int, pin_results: List[bool]) -> None:
+    pin_results[slot] = _pin_and_prioritize(bindings, core_id)
     accepted = 0
     rejected = 0
     for i in range(event_count):
@@ -29,12 +55,13 @@ def _producer(bindings: AnimusBindings, event_count: int, trace_offset: int, res
     results[slot] = (accepted, rejected)
 
 
-def _drain_signals(bindings: AnimusBindings, stop_event: threading.Event, collected: List[ThreatSignal]) -> None:
+def _drain_signals(bindings: AnimusBindings, stop_event: threading.Event, collected: List[ThreatSignal], core_id: int) -> None:
     """Continuously polls the non-blocking signal ring while producers run,
     rather than polling once at the end -- this is the pattern a real
     consumer should use, and avoids needing a signal ring sized to hold
     every possible match for the whole run.
     """
+    _pin_and_prioritize(bindings, core_id)
     while not stop_event.is_set():
         batch = bindings.poll_signals(max_count=4096)
         if batch:
@@ -54,6 +81,15 @@ def run_stress_test(total_events: int, ring_capacity: int, log_path: str, thread
     poller_thread = None
     stop_poll = threading.Event()
 
+    # Core assignment for pinning (see _pin_and_prioritize): one producer per
+    # core, cycling via modulo if thread_count exceeds the machine's logical
+    # CPU count. The poller thread -- when running -- gets the LAST core
+    # rather than sharing core 0 with a producer, since it is a genuinely
+    # separate hot loop (continuous poll_signals()) and would otherwise
+    # contend with whichever producer landed on that same core.
+    cpu_count = bindings.get_cpu_count() if bindings.using_native_engine else (os.cpu_count() or 1)
+    poller_core = cpu_count - 1
+
     if exercise_rules:
         # Rule 1 matches every event from _producer (metric_value is always
         # 9999, which is > 5000). Rule 2 never matches (9999 is never < 10).
@@ -64,7 +100,7 @@ def run_stress_test(total_events: int, ring_capacity: int, log_path: str, thread
         if not bindings.add_rule(2, RULE_EVENT_ID, 10, RuleComparator.LESS_THAN, severity=1):
             raise RuntimeError("add_rule (rule 2) failed")
 
-        poller_thread = threading.Thread(target=_drain_signals, args=(bindings, stop_poll, signals_collected), daemon=True)
+        poller_thread = threading.Thread(target=_drain_signals, args=(bindings, stop_poll, signals_collected, poller_core), daemon=True)
         poller_thread.start()
 
     if os.path.exists(log_path):
@@ -75,16 +111,17 @@ def run_stress_test(total_events: int, ring_capacity: int, log_path: str, thread
     events_per_thread = total_events // thread_count
     remainder = total_events - events_per_thread * thread_count
     results: List[Tuple[int, int]] = [(0, 0)] * thread_count
+    pin_results: List[bool] = [False] * thread_count
 
     start = time.perf_counter_ns()
     if thread_count == 1:
-        _producer(bindings, total_events, 0, results, 0)
+        _producer(bindings, total_events, 0, results, 0, 0, pin_results)
     else:
         threads = []
         offset = 0
         for slot in range(thread_count):
             count = events_per_thread + (1 if slot < remainder else 0)
-            t = threading.Thread(target=_producer, args=(bindings, count, offset, results, slot))
+            t = threading.Thread(target=_producer, args=(bindings, count, offset, results, slot, slot % cpu_count, pin_results))
             threads.append(t)
             offset += count
         for t in threads:
@@ -128,6 +165,10 @@ def run_stress_test(total_events: int, ring_capacity: int, log_path: str, thread
     print(f"[ingest] Avg latency per op:    {avg_ns:.2f} ns")
     print(f"[ingest] Throughput:            {throughput:,.0f} events/sec")
     print(f"[ingest] Persisted bytes:       {persisted_bytes:,} ({bytes_per_record:.1f} bytes/record)")
+    pinned_count = sum(1 for p in pin_results if p)
+    print(f"[ingest] Threads core-pinned:   {pinned_count}/{thread_count} "
+          f"(unpinned threads still ran correctly -- see AnimusBindings.verify_license "
+          f"if 0/{thread_count} on a native build)")
     if exercise_rules:
         rule1_hits = sum(1 for s in signals_collected if s.rule_id == 1)
         rule2_hits = sum(1 for s in signals_collected if s.rule_id == 2)

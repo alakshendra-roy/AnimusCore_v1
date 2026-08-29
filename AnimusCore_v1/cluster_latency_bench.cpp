@@ -30,6 +30,7 @@
 //   cl /std:c++17 /EHsc /O2 cluster_latency_bench.cpp /Fe:cluster_latency_bench.exe
 //   cluster_latency_bench.exe
 #include "animus_cluster.hpp"
+#include "../include/animus/thread_affinity.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -86,6 +87,26 @@ namespace {
 
 int main() {
     std::cout << std::unitbuf;
+
+    // Pin and raise the priority of THIS thread -- the one whose wall-clock
+    // gap around each propose() call is what Pass 1/Pass 2 below actually
+    // report -- before anything else runs. Deliberately NOT extended to
+    // RaftNode's own listener/tick/handler threads (animus_cluster.hpp):
+    // this benchmark runs all three simulated cluster nodes' background
+    // threads in one shared process, so hard-pinning each of their threads
+    // to fixed cores here would create fixed 3-way contention on whichever
+    // cores were chosen rather than remove scheduling jitter -- a real
+    // one-node-per-process deployment is a different, and more useful,
+    // place to pin those. Note this benchmark's own latency floor is set
+    // by real loopback TLS network round-trips and majority-commit waits
+    // (millisecond scale, not sub-microsecond); pinning here reduces
+    // scheduler-induced tail-latency noise on top of that floor, it does
+    // not (and cannot) shrink the floor itself.
+    if (!animus::sys::pin_current_thread_to_core(0)) {
+        std::cerr << "[CLUSTER LATENCY BENCH] warning: could not pin benchmark thread to core 0 (continuing unpinned)\n";
+    }
+    animus::sys::set_thread_high_priority();
+
     WinsockInit wsa;
     if (!wsa.ok()) {
         std::cerr << "[CLUSTER LATENCY BENCH] WSAStartup failed\n";

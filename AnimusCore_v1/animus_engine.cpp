@@ -35,10 +35,16 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "ws2_32.lib")
-#elif defined(__linux__)
-#include <pthread.h>
-#include <sched.h>
 #endif
+
+// The actual pin/priority mechanics (SetThreadAffinityMask/pthread_setaffinity_np,
+// _mm_pause, etc.) now live in this standalone header, shared with every
+// other native consumer (animus_cluster.hpp's RaftNode threads,
+// animus_benchmark_suite.cpp's producer threads) instead of being
+// duplicated per translation unit. animus_pin_current_thread_to_core /
+// animus_set_thread_high_priority below are just the license-gated C-ABI
+// shim around it.
+#include "../include/animus/thread_affinity.hpp"
 
 // Only used by animus_verify_license (Windows-only, see its definition
 // below) -- kept out of animus.hpp's own includes for the same "portable
@@ -308,25 +314,21 @@ extern "C" {
         if (core_id < 0) return false;
         if (!g_license_verified.load(std::memory_order_acquire)) return false;
         if (static_cast<uint32_t>(core_id) >= g_license_max_cores.load(std::memory_order_acquire)) return false;
-#if defined(_WIN32)
-        // SetThreadAffinityMask's mask is machine-word width (64 bits on
-        // x64); a core_id at or beyond that can never be expressed.
-        if (core_id >= 64) return false;
-        DWORD_PTR mask = (DWORD_PTR)1 << core_id;
-        return SetThreadAffinityMask(GetCurrentThread(), mask) != 0;
-#elif defined(__linux__)
-        cpu_set_t cpuset;
-        CPU_ZERO(&cpuset);
-        CPU_SET(core_id, &cpuset);
-        return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0;
-#else
-        // No portable hard-pinning API on this platform (e.g. macOS's
-        // thread_policy_set/THREAD_AFFINITY_POLICY is an affinity *hint*
-        // the scheduler is free to ignore, not a real pin -- claiming
-        // success here would be dishonest about what actually happened).
-        (void)core_id;
-        return false;
-#endif
+        return animus::sys::pin_current_thread_to_core(static_cast<size_t>(core_id));
+    }
+
+    // Same entitlement gate as animus_pin_current_thread_to_core -- realtime/
+    // high-priority scheduling is the same class of "take more of the host's
+    // scheduler than a default-priority process gets" capability as hard core
+    // pinning, so it is licensed identically: fails closed with no verified
+    // license, independent of core_id/max_cores (there's no per-core count to
+    // check here, just whether this install is entitled at all). Best-effort
+    // like animus::sys::set_thread_high_priority() itself -- always returns,
+    // never throws, so a caller on a host that denies realtime scheduling
+    // (e.g. no CAP_SYS_NICE) still runs, just without the priority boost.
+    ANIMUS_API void animus_set_thread_high_priority(void) {
+        if (!g_license_verified.load(std::memory_order_acquire)) return;
+        animus::sys::set_thread_high_priority();
     }
 
     ANIMUS_API unsigned animus_get_cpu_count(void) {

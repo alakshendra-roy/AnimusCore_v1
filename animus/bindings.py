@@ -661,6 +661,9 @@ class AnimusBindings:
         self._lib.animus_pin_current_thread_to_core.argtypes = [ctypes.c_int]
         self._lib.animus_pin_current_thread_to_core.restype = ctypes.c_bool
 
+        self._lib.animus_set_thread_high_priority.argtypes = []
+        self._lib.animus_set_thread_high_priority.restype = None
+
         self._lib.animus_get_cpu_count.argtypes = []
         self._lib.animus_get_cpu_count.restype = ctypes.c_uint
 
@@ -911,6 +914,20 @@ class AnimusBindings:
         """
         self._require_native("pin_current_thread_to_core")
         return bool(self._lib.animus_pin_current_thread_to_core(ctypes.c_int(core_id)))
+
+    def set_thread_high_priority(self) -> None:
+        """Raises the calling OS thread to the highest realtime/time-critical
+        scheduling tier this host will grant (see
+        animus::sys::set_thread_high_priority,
+        include/animus/thread_affinity.hpp), falling back a tier if the host
+        denies it. Same license gate as pin_current_thread_to_core: a no-op
+        with no verified license. Best-effort by design -- never raises,
+        call it right after pin_current_thread_to_core() on a thread about
+        to enter its hot loop. No pure-Python fallback: OS scheduling
+        priority is not something Python can provide portably on its own.
+        """
+        self._require_native("set_thread_high_priority")
+        self._lib.animus_set_thread_high_priority()
 
     def get_cpu_count(self) -> int:
         """Logical CPU count on this machine, for sanity-checking a core_id

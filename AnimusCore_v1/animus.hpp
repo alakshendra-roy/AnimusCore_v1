@@ -1549,6 +1549,16 @@ extern "C" {
     // calls, not process-wide affinity.
     ANIMUS_API bool animus_pin_current_thread_to_core(int core_id);
 
+    // Raises the calling OS thread (and, on Windows, this process) to the
+    // highest realtime/time-critical scheduling tier the host will grant,
+    // falling back a tier if it won't (see animus::sys::set_thread_high_priority,
+    // include/animus/thread_affinity.hpp, for exactly what that means per
+    // platform). Same license gate as animus_pin_current_thread_to_core --
+    // fails closed (silently returns without changing scheduling) with no
+    // verified license. Never fails loudly and never throws: call it once,
+    // right after pinning, on a thread about to enter its hot loop.
+    ANIMUS_API void animus_set_thread_high_priority(void);
+
     // Logical CPU count on this machine, for sanity-checking a core_id
     // before calling animus_pin_current_thread_to_core.
     ANIMUS_API unsigned animus_get_cpu_count(void);
