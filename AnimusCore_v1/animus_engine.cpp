@@ -162,4 +162,38 @@ extern "C" {
         unsigned n = std::thread::hardware_concurrency();
         return n > 0 ? n : 1;
     }
+
+    ANIMUS_API void* animus_shm_create(const char* name, uint64_t capacity) {
+        if (!name) return nullptr;
+        return animus::SharedTelemetryChannel::create(name, capacity).release();
+    }
+
+    ANIMUS_API void* animus_shm_attach(const char* name) {
+        if (!name) return nullptr;
+        return animus::SharedTelemetryChannel::attach(name).release();
+    }
+
+    ANIMUS_API void animus_shm_close(void* channel) {
+        delete static_cast<animus::SharedTelemetryChannel*>(channel);
+    }
+
+    ANIMUS_API bool animus_shm_unlink(const char* name) {
+        if (!name) return false;
+        return animus::SharedTelemetryChannel::unlink(name);
+    }
+
+    ANIMUS_API uint64_t animus_shm_capacity(void* channel) {
+        if (!channel) return 0;
+        return static_cast<animus::SharedTelemetryChannel*>(channel)->capacity();
+    }
+
+    ANIMUS_API bool animus_shm_push(void* channel, uint32_t event_id, uint32_t trace_id, uint64_t metric_value) {
+        if (!channel) return false;
+        return static_cast<animus::SharedTelemetryChannel*>(channel)->push(event_id, trace_id, metric_value);
+    }
+
+    ANIMUS_API bool animus_shm_pop(void* channel, animus::SharedTelemetryRecord* out) {
+        if (!channel || !out) return false;
+        return static_cast<animus::SharedTelemetryChannel*>(channel)->pop(*out);
+    }
 }

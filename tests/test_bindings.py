@@ -11,8 +11,10 @@ pytest collects and runs them without any extra plugin):
     python -m pytest tests
 """
 import ctypes
+import json
 import os
 import struct
+import subprocess
 import sys
 import tempfile
 import time
@@ -26,12 +28,15 @@ from animus.bindings import (  # noqa: E402
     AnimusBindings,
     NativeEvent,
     RuleComparator,
+    SharedRecord,
+    SharedTelemetryChannel,
     SpscTelemetryRecord,
     ThreatSignal,
     WindowType,
     find_native_library,
     load_native_library,
 )
+from animus.shm import SharedTelemetryRing  # noqa: E402
 
 
 class ThreatSignalLayoutTests(unittest.TestCase):
@@ -67,6 +72,33 @@ class ThreatSignalLayoutTests(unittest.TestCase):
         self.assertEqual((sig.timestamp_cycles, sig.event_id, sig.trace_id,
                            sig.metric_value, sig.rule_id, sig.severity),
                           (123, 1, 2, 99, 7, 5))
+
+
+class SharedRecordLayoutTests(unittest.TestCase):
+    """SharedRecord must stay byte-for-byte identical to
+    animus::SharedTelemetryRecord (animus.hpp) -- it crosses the C-ABI via
+    animus_shm_pop's caller-supplied buffer, and it must ALSO stay
+    byte-for-byte identical to animus.shm's own on-disk _RECORD_FORMAT
+    ("<QIIQ") for the two implementations to genuinely interoperate on the
+    same shared-memory segment, not just each work in isolation.
+    """
+
+    def test_size_matches_native_struct_and_shm_wire_format(self):
+        # 2x uint64 (8) + 2x uint32 (4) = 24 bytes, no padding -- matches
+        # struct.calcsize("<QIIQ") in animus/shm.py exactly.
+        self.assertEqual(ctypes.sizeof(SharedRecord), 24)
+        self.assertEqual(ctypes.sizeof(SharedRecord), struct.calcsize("<QIIQ"))
+
+    def test_field_order_and_offsets(self):
+        expected = [
+            ("timestamp_cycles", 0),
+            ("event_id", 8),
+            ("trace_id", 12),
+            ("metric_value", 16),
+        ]
+        for name, offset in expected:
+            field = getattr(SharedRecord, name)
+            self.assertEqual(field.offset, offset, f"{name} offset")
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
@@ -624,5 +656,205 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
         self.assertFalse(bindings.pin_current_thread_to_core(cpu_count + 1000))
 
 
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class SharedTelemetryChannelIntegrationTests(unittest.TestCase):
+    """End-to-end tests for the native shared-memory IPC transport
+    (animus::SharedTelemetryChannel / animus_shm_*) against the real
+    compiled binary -- there is no pure-Python fallback for this class
+    (that role belongs to animus.shm.SharedTelemetryRing, tested here
+    specifically for wire-format interop with the native channel, not on
+    its own -- see tests elsewhere for SharedTelemetryRing in isolation).
+    """
+
+    def setUp(self):
+        # A unique-per-test name avoids colliding with a leftover segment
+        # from a previous interrupted run (e.g. a failed assertion before
+        # cleanup) on the same machine.
+        self._names = []
+
+    def tearDown(self):
+        for name in self._names:
+            try:
+                SharedTelemetryChannel.unlink(name)
+            except Exception:
+                pass
+
+    def _unique_name(self, label: str) -> str:
+        name = f"animus_shm_test_{label}_{os.getpid()}_{id(self)}"
+        self._names.append(name)
+        return name
+
+    def test_create_attach_push_pop_round_trip(self):
+        name = self._unique_name("roundtrip")
+        producer = SharedTelemetryChannel.create(name, capacity=64)
+        self.assertEqual(producer.capacity, 64)
+
+        events = [(1, i, i * 5) for i in range(10)]
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(producer.push(event_id, trace_id, metric_value))
+
+        consumer = SharedTelemetryChannel.attach(name)
+        self.assertEqual(consumer.capacity, 64)
+        results = []
+        while True:
+            rec = consumer.pop()
+            if rec is None:
+                break
+            results.append((rec.event_id, rec.trace_id, rec.metric_value))
+
+        self.assertEqual(results, events)
+        producer.close()
+        consumer.close()
+
+    def test_non_power_of_two_capacity_indexes_correctly(self):
+        # A deliberately non-power-of-two capacity: catches a regression
+        # back to a bitmask-based slot index (`& (capacity - 1)`), which
+        # only works for power-of-two capacities and would silently
+        # corrupt indexing here -- push()/pop() must use `% capacity`.
+        name = self._unique_name("oddcap")
+        capacity = 37
+        channel = SharedTelemetryChannel.create(name, capacity=capacity)
+        self.assertEqual(channel.capacity, capacity)
+
+        # Fill most of the way, then alternate one push with one pop for
+        # many iterations: net occupancy stays bounded (never fills, never
+        # empties early), while head/tail both keep advancing past
+        # `capacity` many times over, cycling the underlying slot index
+        # around the physical array repeatedly -- exactly the condition
+        # that would expose a wrong (bitmask-based) index computation.
+        pushed_values = []
+        popped_values = []
+        for i in range(capacity - 1):
+            self.assertTrue(channel.push(1, i, i * 2))
+            pushed_values.append((1, i, i * 2))
+
+        next_value = capacity - 1
+        for _ in range(capacity * 5):
+            rec = channel.pop()
+            popped_values.append((rec.event_id, rec.trace_id, rec.metric_value))
+            self.assertTrue(channel.push(1, next_value, next_value * 2))
+            pushed_values.append((1, next_value, next_value * 2))
+            next_value += 1
+
+        while True:
+            rec = channel.pop()
+            if rec is None:
+                break
+            popped_values.append((rec.event_id, rec.trace_id, rec.metric_value))
+
+        self.assertEqual(popped_values, pushed_values)
+        channel.close()
+
+    def test_ring_full_and_empty_return_false_and_none(self):
+        name = self._unique_name("fullempty")
+        channel = SharedTelemetryChannel.create(name, capacity=4)
+        self.assertIsNone(channel.pop())  # empty
+        for i in range(4):
+            self.assertTrue(channel.push(1, i, i))
+        self.assertFalse(channel.push(1, 99, 99))  # full
+        for _ in range(4):
+            self.assertIsNotNone(channel.pop())
+        self.assertIsNone(channel.pop())  # empty again
+        channel.close()
+
+    def test_interop_native_writes_python_reads(self):
+        name = self._unique_name("interop_native_to_python")
+        events = [(9, i, i * 11) for i in range(6)]
+        channel = SharedTelemetryChannel.create(name, capacity=30)
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(channel.push(event_id, trace_id, metric_value))
+
+        ring = SharedTelemetryRing.attach(name)
+        results = []
+        while True:
+            rec = ring.pop()
+            if rec is None:
+                break
+            results.append((rec.event_id, rec.trace_id, rec.metric_value))
+        ring.close()
+
+        self.assertEqual(results, events)
+        channel.close()
+
+    def test_interop_python_writes_native_reads(self):
+        name = self._unique_name("interop_python_to_native")
+        events = [(3, i, i * 4) for i in range(6)]
+        ring = SharedTelemetryRing.create(name, capacity=30)
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(ring.push(event_id, trace_id, metric_value))
+
+        channel = SharedTelemetryChannel.attach(name)
+        results = []
+        while True:
+            rec = channel.pop()
+            if rec is None:
+                break
+            results.append((rec.event_id, rec.trace_id, rec.metric_value))
+        channel.close()
+
+        self.assertEqual(results, events)
+        ring.close()
+
+    def test_attach_to_nonexistent_segment_raises(self):
+        with self.assertRaises(OSError):
+            SharedTelemetryChannel.attach("animus_shm_definitely_does_not_exist_12345")
+
+    def test_create_with_duplicate_name_raises(self):
+        name = self._unique_name("duplicate")
+        first = SharedTelemetryChannel.create(name, capacity=8)
+        with self.assertRaises(OSError):
+            SharedTelemetryChannel.create(name, capacity=8)
+        first.close()
+
+    def test_create_with_zero_capacity_raises(self):
+        with self.assertRaises(ValueError):
+            SharedTelemetryChannel.create(self._unique_name("zerocap"), capacity=0)
+
+    def test_real_cross_process_round_trip(self):
+        # The actual claim under test: a genuinely separate OS process --
+        # not just a second handle in this same process -- can attach to
+        # a segment this process created and read what it wrote. Spawns
+        # this file itself in --shm-child mode (see the dispatch at the
+        # bottom of this file) rather than a same-process attach(), which
+        # would not prove cross-process IPC actually works.
+        name = self._unique_name("crossprocess")
+        events = [(55, i, i * 9) for i in range(10)]
+        producer = SharedTelemetryChannel.create(name, capacity=256)
+
+        child = subprocess.Popen(
+            [sys.executable, __file__, "--shm-child", name, str(len(events))],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        time.sleep(0.3)  # let the child attach before this process starts pushing
+        for event_id, trace_id, metric_value in events:
+            self.assertTrue(producer.push(event_id, trace_id, metric_value))
+
+        stdout, stderr = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, msg=stderr)
+        results = json.loads(stdout)
+
+        self.assertEqual([tuple(r) for r in results], events)
+        producer.close()
+
+
 if __name__ == "__main__":
-    unittest.main()
+    if len(sys.argv) >= 4 and sys.argv[1] == "--shm-child":
+        # Consumer side of test_real_cross_process_round_trip above, run
+        # in a genuinely separate OS process (spawned via subprocess.Popen,
+        # not called in-process) -- attaches to the named segment the
+        # parent process created and prints what it read as JSON.
+        _child_name = sys.argv[2]
+        _child_expected_count = int(sys.argv[3])
+        _child_channel = SharedTelemetryChannel.attach(_child_name)
+        _child_results = []
+        _child_deadline = time.time() + 5.0
+        while len(_child_results) < _child_expected_count and time.time() < _child_deadline:
+            _child_rec = _child_channel.pop()
+            if _child_rec is None:
+                time.sleep(0.001)
+                continue
+            _child_results.append((_child_rec.event_id, _child_rec.trace_id, _child_rec.metric_value))
+        _child_channel.close()
+        print(json.dumps(_child_results))
+    else:
+        unittest.main()

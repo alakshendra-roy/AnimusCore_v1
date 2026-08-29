@@ -33,6 +33,16 @@ target_compile_definitions(animus_native PRIVATE ANIMUS_EXPORTS)
 find_package(Threads REQUIRED)
 target_link_libraries(animus_native PRIVATE Threads::Threads)
 
+# Needed for shm_open/shm_unlink (SharedMemorySegment's POSIX
+# implementation, animus.hpp) on glibc older than 2.34, which shipped them
+# in a separate librt rather than libc itself; harmless to link even where
+# it's already merged, since glibc still ships librt.so as a compatibility
+# stub. Not needed (and not present) on macOS, where shm_open is part of
+# libSystem directly.
+if(UNIX AND NOT APPLE)
+    target_link_libraries(animus_native PRIVATE rt)
+endif()
+
 if(NOT MSVC)
     target_compile_options(animus_native PRIVATE -fvisibility=hidden)
     # Statically link the GCC/MinGW runtime (libstdc++/libgcc/winpthread) so

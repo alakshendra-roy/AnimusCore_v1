@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <memory>
+#include <new>
 #include <string>
 #include <atomic>
 #include <vector>
@@ -13,6 +14,32 @@
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #include <intrin.h>
 #pragma intrinsic(__rdtsc)
+#endif
+
+// Cross-platform named shared-memory mapping, used by SharedMemorySegment
+// below. Unlike animus_transport.hpp's Schannel includes (a large,
+// Windows-only dependency chain deliberately kept out of this portable
+// core header), shared memory is both genuinely cross-platform and a
+// small enough API surface (four-ish functions per platform) that it
+// belongs directly in animus.hpp alongside SpscRingBuffer -- the same
+// "core, portable, header-only" bar the rest of this file holds itself
+// to, unlike animus_pin_current_thread_to_core (see animus_engine.cpp),
+// which stayed DLL-only specifically because windows.h's much larger
+// footprint wasn't worth it for two OS calls.
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <cerrno>
 #endif
 
 namespace animus {
@@ -430,6 +457,342 @@ namespace animus {
 
         alignas(64) std::atomic<size_t> head_{ 0 }; // written only by the producer
         alignas(64) std::atomic<size_t> tail_{ 0 }; // written only by the consumer
+    };
+
+    // ---- IPC shared-memory transport ---------------------------------
+    // A separate producer process and consumer process exchanging
+    // telemetry with no serialization step and no DLL-static-state
+    // barrier between them: ctypes gives each process its own copy of
+    // AnimusCore_v1.dll's g_engine, so animus_record_event() in one
+    // process is invisible to another -- these classes exist to give two
+    // *different* processes a channel that genuinely is the same memory
+    // on both sides.
+    //
+    // RAII wrapper over a named OS shared-memory mapping: Windows
+    // CreateFileMappingA/MapViewOfFile, POSIX shm_open/mmap. One process
+    // calls create() to allocate and own the segment; any other process
+    // on the same machine calls attach() with the same name to map the
+    // identical physical pages -- writes on one side are visible to
+    // reads on the other with no copy, no syscall, no kernel round trip
+    // once mapped.
+    class SharedMemorySegment {
+    public:
+        SharedMemorySegment() noexcept = default;
+        ~SharedMemorySegment() { close(); }
+        SharedMemorySegment(const SharedMemorySegment&) = delete;
+        SharedMemorySegment& operator=(const SharedMemorySegment&) = delete;
+
+        SharedMemorySegment(SharedMemorySegment&& other) noexcept { *this = std::move(other); }
+        SharedMemorySegment& operator=(SharedMemorySegment&& other) noexcept {
+            if (this != &other) {
+                close();
+                data_ = other.data_;
+                size_ = other.size_;
+#if defined(_WIN32)
+                handle_ = other.handle_;
+                other.handle_ = nullptr;
+#endif
+                other.data_ = nullptr;
+                other.size_ = 0;
+            }
+            return *this;
+        }
+
+        // Allocates a new named segment of exactly `size` bytes and maps
+        // it into this process. Returns false (out left empty) on any
+        // failure -- a name collision with an already-existing segment
+        // included, since silently reusing a stale segment of the wrong
+        // size would be worse than failing loudly.
+        static bool create(const char* name, size_t size, SharedMemorySegment& out) noexcept {
+            out.close();
+            if (!name || size == 0) return false;
+#if defined(_WIN32)
+            HANDLE h = CreateFileMappingA(
+                INVALID_HANDLE_VALUE, // backed by the system paging file, not a real file on disk
+                nullptr,
+                PAGE_READWRITE,
+                static_cast<DWORD>((static_cast<uint64_t>(size) >> 32) & 0xFFFFFFFFu),
+                static_cast<DWORD>(static_cast<uint64_t>(size) & 0xFFFFFFFFu),
+                name);
+            if (!h) return false;
+            if (GetLastError() == ERROR_ALREADY_EXISTS) {
+                // A mapping with this name already exists -- its size may
+                // not match `size`, so refuse rather than silently mapping
+                // a differently-sized, possibly in-use segment.
+                CloseHandle(h);
+                return false;
+            }
+            void* view = MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, size);
+            if (!view) {
+                CloseHandle(h);
+                return false;
+            }
+            out.handle_ = h;
+            out.data_ = view;
+            out.size_ = size;
+            return true;
+#else
+            int fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0600);
+            if (fd < 0) return false; // includes EEXIST -- same "don't silently reuse a stale segment" reasoning as Windows above
+            if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
+                ::close(fd);
+                shm_unlink(name);
+                return false;
+            }
+            void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            ::close(fd); // the mapping keeps the underlying object alive; the fd itself isn't needed after mmap
+            if (addr == MAP_FAILED) {
+                shm_unlink(name);
+                return false;
+            }
+            out.data_ = addr;
+            out.size_ = size;
+            return true;
+#endif
+        }
+
+        // Maps an existing segment created by another process's create()
+        // call. Size is discovered from the OS, not supplied by the
+        // caller, so both sides always agree on it.
+        static bool attach(const char* name, SharedMemorySegment& out) noexcept {
+            out.close();
+            if (!name) return false;
+#if defined(_WIN32)
+            HANDLE h = OpenFileMappingA(FILE_MAP_ALL_ACCESS, FALSE, name);
+            if (!h) return false;
+            void* view = MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, 0); // 0 = map the whole committed region
+            if (!view) {
+                CloseHandle(h);
+                return false;
+            }
+            // MapViewOfFile doesn't hand back how large the mapping is;
+            // VirtualQuery on the mapped base address reports the size of
+            // the contiguous region sharing its protection/state, which
+            // for a single MapViewOfFile call is exactly the whole view.
+            MEMORY_BASIC_INFORMATION mbi{};
+            if (VirtualQuery(view, &mbi, sizeof(mbi)) == 0) {
+                UnmapViewOfFile(view);
+                CloseHandle(h);
+                return false;
+            }
+            out.handle_ = h;
+            out.data_ = view;
+            out.size_ = mbi.RegionSize;
+            return true;
+#else
+            int fd = shm_open(name, O_RDWR, 0600);
+            if (fd < 0) return false;
+            struct stat st{};
+            if (fstat(fd, &st) != 0 || st.st_size <= 0) {
+                ::close(fd);
+                return false;
+            }
+            size_t size = static_cast<size_t>(st.st_size);
+            void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            ::close(fd);
+            if (addr == MAP_FAILED) return false;
+            out.data_ = addr;
+            out.size_ = size;
+            return true;
+#endif
+        }
+
+        // Destroys the underlying OS shared-memory object. POSIX:
+        // shm_unlink -- call once every attached process has closed its
+        // mapping, same contract as Python's SharedMemory.unlink()
+        // (animus/shm.py). Windows: named file mappings have no separate
+        // "unlink" step -- the OS object is destroyed automatically once
+        // the last HANDLE to it (this process's and every attached
+        // process's) closes, so this is a documented no-op there, not a
+        // silently-missing feature.
+        static bool unlink(const char* name) noexcept {
+#if defined(_WIN32)
+            (void)name;
+            return true;
+#else
+            if (!name) return false;
+            return shm_unlink(name) == 0;
+#endif
+        }
+
+        void* data() const noexcept { return data_; }
+        size_t size() const noexcept { return size_; }
+        bool valid() const noexcept { return data_ != nullptr; }
+
+        void close() noexcept {
+            if (data_) {
+#if defined(_WIN32)
+                UnmapViewOfFile(data_);
+#else
+                munmap(data_, size_);
+#endif
+                data_ = nullptr;
+                size_ = 0;
+            }
+#if defined(_WIN32)
+            if (handle_) {
+                CloseHandle(handle_);
+                handle_ = nullptr;
+            }
+#endif
+        }
+
+    private:
+        void* data_ = nullptr;
+        size_t size_ = 0;
+#if defined(_WIN32)
+        HANDLE handle_ = nullptr;
+#endif
+    };
+
+    // Wire-compatible with animus.shm.SharedTelemetryRing's Python-only
+    // implementation (_RECORD_FORMAT = "<QIIQ" there) -- deliberately, so
+    // a pure-Python producer/consumer and a native one can interoperate
+    // on the very same shared-memory segment. 24 bytes, naturally
+    // aligned, no padding.
+    struct SharedTelemetryRecord {
+        uint64_t timestamp_cycles;
+        uint32_t event_id;
+        uint32_t trace_id;
+        uint64_t metric_value;
+    };
+    static_assert(sizeof(SharedTelemetryRecord) == 24,
+        "must match animus.shm's <QIIQ> wire record exactly for cross-language interop");
+
+    // Wire-compatible with animus.shm's header (_HEADER_FORMAT = "<QQQ">):
+    // capacity, head, tail, all uint64, tightly packed -- deliberately
+    // NOT cache-line-padded between head/tail the way SpscRingBuffer's
+    // in-process head_/tail_ are, since padding would break byte-for-byte
+    // compatibility with the existing Python wire format for a false-
+    // sharing optimization that only matters at extreme sustained
+    // throughput, not for correctness. std::atomic<uint64_t> only
+    // requires 8-byte alignment to be lock-free, which three consecutive
+    // 8-byte fields already provide.
+    struct SharedRingHeader {
+        uint64_t capacity;
+        std::atomic<uint64_t> head; // producer-only writes
+        std::atomic<uint64_t> tail; // consumer-only writes
+    };
+    static_assert(sizeof(SharedRingHeader) == 24,
+        "must match animus.shm's <QQQ> wire header exactly for cross-language interop");
+    static_assert(std::atomic<uint64_t>::is_always_lock_free,
+        "SharedRingHeader is placed in memory shared across processes -- a non-lock-free "
+        "uint64_t atomic could fall back to a mutex/futex that isn't valid across process boundaries");
+
+    // Single-producer/single-consumer telemetry ring living entirely
+    // inside a SharedMemorySegment -- same head/tail algorithm as
+    // SpscRingBuffer above, but placement-based (the ring's storage is
+    // the mapped segment, not an owned std::vector) since two different
+    // OS processes, not two threads in one process, are what push()/
+    // pop() need to stay safe across here. Only ever constructed via
+    // create()/attach(); the private default constructor plus these
+    // named factories mirrors AnimusCore_v1's other native primitives
+    // (Engine::Create, AnimusBindings.spsc_init).
+    class SharedTelemetryChannel {
+    public:
+        SharedTelemetryChannel(const SharedTelemetryChannel&) = delete;
+        SharedTelemetryChannel& operator=(const SharedTelemetryChannel&) = delete;
+
+        // Allocates a new named segment sized for exactly `capacity`
+        // records -- NOT rounded up to a power of two, unlike
+        // SpscRingBuffer/LockFreeRingBuffer above. Those use `& (capacity
+        // - 1)` for slot indexing, which requires a power-of-two capacity;
+        // this uses plain `%` instead (see push()/pop()) specifically so
+        // capacity can be any value animus.shm.SharedTelemetryRing.create()
+        // was given, since the wire-compatibility this class is built for
+        // only holds if both sides agree on where record N actually lives
+        // -- a bitmask would silently index the wrong slot against a
+        // segment the Python side created with a non-power-of-two
+        // capacity. Returns nullptr on failure (including a name
+        // collision -- see SharedMemorySegment::create).
+        static std::unique_ptr<SharedTelemetryChannel> create(const char* name, uint64_t capacity) noexcept {
+            if (capacity == 0) capacity = 1;
+
+            SharedMemorySegment segment;
+            size_t total_size = sizeof(SharedRingHeader) + static_cast<size_t>(capacity) * sizeof(SharedTelemetryRecord);
+            if (!SharedMemorySegment::create(name, total_size, segment)) {
+                return nullptr;
+            }
+            auto* header = new (segment.data()) SharedRingHeader{}; // placement-new: zero-init head/tail
+            header->capacity = capacity;
+
+            std::unique_ptr<SharedTelemetryChannel> channel(new SharedTelemetryChannel());
+            channel->segment_ = std::move(segment);
+            channel->header_ = header;
+            channel->records_ = reinterpret_cast<SharedTelemetryRecord*>(header + 1);
+            return channel;
+        }
+
+        // Maps an existing segment created by another process's create()
+        // call. Returns nullptr if the segment doesn't exist or is too
+        // small to hold a valid header.
+        static std::unique_ptr<SharedTelemetryChannel> attach(const char* name) noexcept {
+            SharedMemorySegment segment;
+            if (!SharedMemorySegment::attach(name, segment)) {
+                return nullptr;
+            }
+            if (segment.size() < sizeof(SharedRingHeader)) {
+                return nullptr;
+            }
+            auto* header = reinterpret_cast<SharedRingHeader*>(segment.data());
+            if (header->capacity == 0 ||
+                segment.size() < sizeof(SharedRingHeader) + static_cast<size_t>(header->capacity) * sizeof(SharedTelemetryRecord)) {
+                return nullptr; // header claims a capacity the mapped region doesn't actually have room for
+            }
+
+            std::unique_ptr<SharedTelemetryChannel> channel(new SharedTelemetryChannel());
+            channel->segment_ = std::move(segment);
+            channel->header_ = header;
+            channel->records_ = reinterpret_cast<SharedTelemetryRecord*>(header + 1);
+            return channel;
+        }
+
+        static bool unlink(const char* name) noexcept { return SharedMemorySegment::unlink(name); }
+
+        bool valid() const noexcept { return segment_.valid(); }
+        uint64_t capacity() const noexcept { return header_ ? header_->capacity : 0; }
+
+        // Producer-side only (one process/thread). Never blocks; returns
+        // false if the ring is full. Stamps timestamp_cycles itself via
+        // read_cycle_counter(), same as Engine::record() -- unlike
+        // animus.shm.SharedTelemetryRing.push(), there is no caller-
+        // supplied timestamp override; this is a native hot-path primitive,
+        // not a general-purpose testing shim.
+        bool push(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) noexcept {
+            if (!header_) return false;
+            const uint64_t head = header_->head.load(std::memory_order_relaxed);
+            const uint64_t tail = header_->tail.load(std::memory_order_acquire);
+            if (head - tail >= header_->capacity) return false;
+            records_[head % header_->capacity] = SharedTelemetryRecord{
+                read_cycle_counter(), event_id, trace_id, metric_value };
+            header_->head.store(head + 1, std::memory_order_release);
+            return true;
+        }
+
+        // Consumer-side only (one process/thread). Never blocks; returns
+        // false if the ring is empty.
+        bool pop(SharedTelemetryRecord& out) noexcept {
+            if (!header_) return false;
+            const uint64_t tail = header_->tail.load(std::memory_order_relaxed);
+            const uint64_t head = header_->head.load(std::memory_order_acquire);
+            if (tail == head) return false;
+            out = records_[tail % header_->capacity];
+            header_->tail.store(tail + 1, std::memory_order_release);
+            return true;
+        }
+
+        void close() noexcept {
+            segment_.close();
+            header_ = nullptr;
+            records_ = nullptr;
+        }
+
+    private:
+        SharedTelemetryChannel() noexcept = default;
+
+        SharedMemorySegment segment_;
+        SharedRingHeader* header_ = nullptr;
+        SharedTelemetryRecord* records_ = nullptr;
     };
 
     class Engine {
@@ -972,4 +1335,26 @@ extern "C" {
     // Logical CPU count on this machine, for sanity-checking a core_id
     // before calling animus_pin_current_thread_to_core.
     ANIMUS_API unsigned animus_get_cpu_count(void);
+
+    // Cross-process shared-memory telemetry channel (animus::SharedTelemetryChannel).
+    // Handle-based, not a singleton like g_engine: animus_shm_create/attach
+    // return an opaque pointer to hand back into every other animus_shm_*
+    // call and finally into animus_shm_close, which destroys it (unmapping
+    // the segment on this process's side -- other attached processes keep
+    // their own mapping until they close theirs too). Returns nullptr on
+    // failure from create/attach (bad name, no such segment, a size/name
+    // collision) rather than a handle that then fails every subsequent call.
+    ANIMUS_API void* animus_shm_create(const char* name, uint64_t capacity);
+    ANIMUS_API void* animus_shm_attach(const char* name);
+    ANIMUS_API void animus_shm_close(void* channel);
+
+    // Destroys the underlying OS shared-memory object (POSIX: shm_unlink;
+    // Windows: a documented no-op -- see SharedMemorySegment::unlink).
+    // Call once every attached process has closed its handle, same
+    // contract as animus.shm.SharedTelemetryRing.unlink().
+    ANIMUS_API bool animus_shm_unlink(const char* name);
+
+    ANIMUS_API uint64_t animus_shm_capacity(void* channel);
+    ANIMUS_API bool animus_shm_push(void* channel, uint32_t event_id, uint32_t trace_id, uint64_t metric_value);
+    ANIMUS_API bool animus_shm_pop(void* channel, animus::SharedTelemetryRecord* out);
 }

@@ -1,5 +1,5 @@
 from .core import EventEngine
-from .bindings import AnimusBindings, RuleComparator, WindowType, AggregationFunction, ThreatSignal
+from .bindings import AnimusBindings, RuleComparator, WindowType, AggregationFunction, ThreatSignal, SharedTelemetryChannel
 from .decorators import trace
 from .shm import SharedTelemetryRing, TelemetryRecordView
 
@@ -13,5 +13,6 @@ __all__ = [
     'ThreatSignal',
     'trace',
     'SharedTelemetryRing',
+    'SharedTelemetryChannel',
     'TelemetryRecordView',
 ]
