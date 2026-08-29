@@ -135,6 +135,32 @@ int main() {
 }
 ```
 
+**Batched ingestion (`Engine::record_batch`):** if you already have a run
+of events available at once -- read off a queue, replayed from a file,
+received as one network payload -- push them in a single call instead of
+looping over `record()`:
+
+```cpp
+std::vector<animus::RawEvent> events;
+events.push_back(animus::RawEvent{/*event_id=*/500, /*trace_id=*/1, /*metric_value=*/150});
+// ... fill in the rest of the batch ...
+
+size_t pushed = engine->record_batch(events.data(), events.size());
+// Returns the number actually pushed -- fewer than events.size() if the
+// ring buffer fills partway through (never blocks, same contract as
+// record()). Stops at the first failed push rather than skipping ahead,
+// so `pushed` also tells you exactly how many of `events`, in order,
+// made it in.
+```
+
+Unlike the Python SDK's `record_events_batch` (guide 1), there's no
+ctypes/C-ABI boundary here to amortize -- this guide's whole point is that
+`record()` already avoids that cost. `record_batch()` still saves N-1
+virtual-dispatch calls into `Engine` and is convenient when your data is
+already batched, but at this call site it isn't the ~2x/~7x win it is from
+Python; see `AnimusCore_v1/BENCHMARKS.md`'s Phase 11 section for where
+that number actually comes from.
+
 ```bash
 # Portable core + RBAC layer (animus::, animus::security::) compiles with
 # any C++17 compiler -- Linux, macOS, or Windows with g++/clang -- and was
