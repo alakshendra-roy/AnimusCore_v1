@@ -57,6 +57,29 @@ for signal in engine.poll_signals(max_count=32):
 engine.stop_logging()
 ```
 
+**High-volume ingestion with `record_events_batch`:**
+
+`record_event()` crosses the ctypes/C-ABI boundary once per call -- fine at
+low rates, but at high event counts that per-call marshalling cost (not
+native execution time) dominates and can make calling into the native
+engine from Python *slower* than an equivalent pure-Python loop. If you're
+ingesting events in bursts (a batch pulled off a queue, a bulk import, a
+replay), push the whole batch in one call instead:
+
+```python
+events = [(event_id, trace_id, metric_value) for ...]  # e.g. 10k-100k events
+pushed = engine.record_events_batch(events)
+# Returns the number actually pushed -- fewer than len(events) if the ring
+# buffer fills partway through (never blocks, same contract as record_event).
+assert pushed == len(events)
+```
+
+Measured at 100,000 events: `record_events_batch` ran ~2x pure-Python's
+throughput and ~7x `record_event`'s per-event ingestion path -- see
+`AnimusCore_v1/BENCHMARKS.md`'s Phase 11 section for the full breakdown,
+including why the naive fix (building the batch as one `ctypes.Structure`
+object per event) only closed a small fraction of that gap on its own.
+
 **Instrumenting existing code with `@animus.trace`:**
 
 ```python
