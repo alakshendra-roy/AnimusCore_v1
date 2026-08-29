@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -26,12 +27,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from animus.bindings import (  # noqa: E402
     AggregationFunction,
     AnimusBindings,
+    BookSide,
+    BookUpdateAction,
+    MarketDataFeed,
     NativeEvent,
     RuleComparator,
     SharedRecord,
     SharedTelemetryChannel,
     SpscTelemetryRecord,
     ThreatSignal,
+    TradeAggressor,
     WindowType,
     find_native_library,
     load_native_library,
@@ -987,6 +992,129 @@ class SharedTelemetryChannelIntegrationTests(unittest.TestCase):
 
         self.assertEqual([tuple(r) for r in results], events)
         producer.close()
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class MarketDataFeedIntegrationTests(unittest.TestCase):
+    """End-to-end tests for the native market-data feed adapters
+    (animus::MarketDataFeed / animus_feed_*) against the real compiled
+    binary -- there is no pure-Python fallback for this class (a native
+    concurrency primitive, same reasoning as SpscRingBuffer/
+    SharedTelemetryChannel elsewhere in this file).
+    """
+
+    def test_l2_update_and_trade_round_trip(self):
+        feed = MarketDataFeed.create(l2_capacity=64, trade_capacity=64)
+        self.assertTrue(feed.push_l2_update(
+            instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW, level=2,
+            price_ticks=101250, quantity=300, sequence_number=1, exchange_timestamp_ns=555,
+        ))
+        self.assertTrue(feed.push_trade(
+            instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+            price_ticks=101250, quantity=50, sequence_number=2, exchange_timestamp_ns=556,
+        ))
+
+        updates = feed.poll_l2_updates(16)
+        trades = feed.poll_trades(16)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(len(trades), 1)
+
+        u = updates[0]
+        self.assertEqual(u.instrument_id, 7)
+        self.assertEqual(u.side, BookSide.ASK)
+        self.assertEqual(u.action, BookUpdateAction.NEW)
+        self.assertEqual(u.level, 2)
+        self.assertEqual(u.price_ticks, 101250)
+        self.assertEqual(u.quantity, 300)
+        self.assertEqual(u.sequence_number, 1)
+        self.assertEqual(u.exchange_timestamp_ns, 555)
+        self.assertGreater(u.timestamp_cycles, 0)  # stamped natively, not caller-supplied
+
+        t = trades[0]
+        self.assertEqual(t.instrument_id, 7)
+        self.assertEqual(t.trade_id, 42)
+        self.assertEqual(t.aggressor_side, TradeAggressor.BUYER)
+        self.assertEqual(t.price_ticks, 101250)
+        self.assertEqual(t.quantity, 50)
+        self.assertEqual(t.sequence_number, 2)
+        self.assertEqual(t.exchange_timestamp_ns, 556)
+        self.assertGreater(t.timestamp_cycles, 0)
+
+        # Both rings independently empty now.
+        self.assertEqual(feed.poll_l2_updates(4), [])
+        self.assertEqual(feed.poll_trades(4), [])
+        feed.close()
+
+    def test_capacities_round_up_to_power_of_two_independently(self):
+        feed = MarketDataFeed.create(l2_capacity=1000, trade_capacity=100)
+        self.assertEqual(feed.l2_capacity, 1024)
+        self.assertEqual(feed.trade_capacity, 128)
+        feed.close()
+
+    def test_l2_ring_full_returns_false_independently_of_trade_ring(self):
+        feed = MarketDataFeed.create(l2_capacity=4, trade_capacity=4)
+        for i in range(4):
+            self.assertTrue(feed.push_l2_update(1, BookSide.BID, BookUpdateAction.UPDATE, 0, 1, 1, i, i))
+        self.assertFalse(feed.push_l2_update(1, BookSide.BID, BookUpdateAction.UPDATE, 0, 1, 1, 99, 99))
+        # The trade ring is a separate ring -- a full L2 ring must not block trade pushes.
+        self.assertTrue(feed.push_trade(1, 1, TradeAggressor.BUYER, 1, 1, 0, 0))
+        feed.close()
+
+    def test_concurrent_multi_producer_multi_consumer_no_loss_no_duplication(self):
+        # The core "thread-safe" claim under test: animus::MarketDataFeed
+        # wraps the same Vyukov MPMC ring EngineImpl's own telemetry ring
+        # uses (LockFreeRingBuffer), so unlike SpscRingBuffer/
+        # SharedTelemetryChannel elsewhere in this file, multiple producer
+        # threads and multiple consumer threads may share one instance
+        # concurrently with no external locking. Drives real OS threads --
+        # not simulated -- and verifies every pushed record is drained
+        # exactly once, with no corruption of its fields.
+        num_producers = 6
+        per_producer = 2000
+        total = num_producers * per_producer
+        feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+        def producer(tid):
+            for i in range(per_producer):
+                seq = tid * per_producer + i
+                self.assertTrue(feed.push_l2_update(
+                    instrument_id=tid, side=BookSide.BID, action=BookUpdateAction.UPDATE,
+                    level=0, price_ticks=1, quantity=1, sequence_number=seq, exchange_timestamp_ns=seq,
+                ))
+
+        collected = []
+        collected_lock = threading.Lock()
+        stop_producing = threading.Event()
+
+        def consumer():
+            while True:
+                batch = feed.poll_l2_updates(256)
+                if batch:
+                    with collected_lock:
+                        collected.extend(batch)
+                elif stop_producing.is_set():
+                    break
+
+        producers = [threading.Thread(target=producer, args=(tid,)) for tid in range(num_producers)]
+        consumers = [threading.Thread(target=consumer) for _ in range(3)]
+        for c in consumers:
+            c.start()
+        for p in producers:
+            p.start()
+        for p in producers:
+            p.join()
+        stop_producing.set()
+        for c in consumers:
+            c.join()
+
+        self.assertEqual(len(collected), total)
+        seen_per_producer = {tid: set() for tid in range(num_producers)}
+        for u in collected:
+            seen_per_producer[u.instrument_id].add(u.sequence_number)
+        for tid in range(num_producers):
+            self.assertEqual(len(seen_per_producer[tid]), per_producer,
+                              msg=f"producer {tid}: expected {per_producer} unique sequences, got {len(seen_per_producer[tid])}")
+        feed.close()
 
 
 if __name__ == "__main__":
