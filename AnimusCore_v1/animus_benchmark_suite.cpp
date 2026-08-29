@@ -25,6 +25,7 @@
 //   g++ -std=c++17 -O2 -pthread animus_benchmark_suite.cpp -o animus_benchmark_suite.exe
 //   cl /EHsc /std:c++17 /O2 animus_benchmark_suite.cpp
 #include "animus.hpp"
+#include "../include/animus/thread_affinity.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -104,6 +105,19 @@ struct TickToTradeResult {
 };
 
 TickToTradeResult run_tick_to_trade_benchmark(size_t num_ticks) {
+    // Pin this (the calling/main) thread and raise its scheduling priority
+    // before the timed loop below: this benchmark measures a single
+    // sequential decision loop, so any OS migration to a different core
+    // (cache-cold on arrival) or scheduler preemption mid-loop shows up
+    // directly as tail-latency noise in p99/p99.9 -- exactly the numbers
+    // this benchmark exists to report honestly. Best-effort: a denied pin
+    // (e.g. run without the privileges set_thread_high_priority wants)
+    // still produces a valid measurement, just with more scheduler jitter.
+    if (!animus::sys::pin_current_thread_to_core(0)) {
+        std::fprintf(stderr, "[tick_to_trade] warning: could not pin benchmark thread to core 0 (continuing unpinned)\n");
+    }
+    animus::sys::set_thread_high_priority();
+
     auto engine = animus::Engine::Create(1 << 16);
     animus::LoopbackBrokerGateway gateway;
     animus::ExecutionClient client(*engine, gateway);
@@ -205,9 +219,19 @@ RingThroughputResult run_ring_throughput_benchmark(size_t num_producer_threads, 
     std::vector<std::thread> producers;
     producers.reserve(num_producer_threads);
 
+    // One distinct logical core per producer (cycling via modulo if
+    // num_producer_threads exceeds the machine's core count), so "real
+    // 8-thread concurrency" in this benchmark's own docstring means real
+    // simultaneous execution on 8 distinct cores contending on the ring's
+    // compare-exchange, not 8 threads the OS scheduler is free to time-slice
+    // onto fewer cores -- which would understate contention.
+    const unsigned cpu_count = std::max(1u, std::thread::hardware_concurrency());
+
     auto t0 = std::chrono::steady_clock::now();
     for (size_t t = 0; t < num_producer_threads; ++t) {
         producers.emplace_back([&, t]() {
+            animus::sys::pin_current_thread_to_core(t % cpu_count);
+            animus::sys::set_thread_high_priority();
             std::vector<double>& latencies = per_thread_latencies[t];
             for (size_t i = 0; i < pushes_per_producer; ++i) {
                 animus::TelemetryPayload payload{
@@ -360,9 +384,23 @@ struct PaddedCounters {
 template <typename Counters>
 double measure_increment_throughput(uint64_t iterations_per_thread) {
     Counters counters;
+    // Pin the two threads to distinct cores when the machine has at least
+    // two: the Unpadded case is only a genuine false-sharing demonstration
+    // if both increments really are landing on two different cores'
+    // caches -- an unpinned pair the scheduler happens to co-locate on one
+    // core would understate the effect this A/B test exists to measure.
+    const unsigned cpu_count = std::max(1u, std::thread::hardware_concurrency());
     auto t0 = std::chrono::steady_clock::now();
-    std::thread ta([&]() { for (uint64_t i = 0; i < iterations_per_thread; ++i) counters.a.fetch_add(1, std::memory_order_relaxed); });
-    std::thread tb([&]() { for (uint64_t i = 0; i < iterations_per_thread; ++i) counters.b.fetch_add(1, std::memory_order_relaxed); });
+    std::thread ta([&]() {
+        if (cpu_count >= 2) animus::sys::pin_current_thread_to_core(0);
+        animus::sys::set_thread_high_priority();
+        for (uint64_t i = 0; i < iterations_per_thread; ++i) counters.a.fetch_add(1, std::memory_order_relaxed);
+        });
+    std::thread tb([&]() {
+        if (cpu_count >= 2) animus::sys::pin_current_thread_to_core(1 % cpu_count);
+        animus::sys::set_thread_high_priority();
+        for (uint64_t i = 0; i < iterations_per_thread; ++i) counters.b.fetch_add(1, std::memory_order_relaxed);
+        });
     ta.join();
     tb.join();
     auto t1 = std::chrono::steady_clock::now();
