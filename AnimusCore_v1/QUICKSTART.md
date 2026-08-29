@@ -123,6 +123,48 @@ batch size for a latency-sensitive path, larger batches trade higher
 absolute latency for a *tighter* tail relative to their own median, not
 just higher throughput.
 
+**Going further: a lock-free SPSC ring + CPU pinning, for one dedicated
+hot-path thread.** `record_events_batch()` above targets the general-purpose
+MPMC ring (safe to call from multiple producer threads at once). If you
+have exactly one producer thread doing all your ingestion, a standalone
+single-producer/single-consumer channel plus pinning that thread to one
+CPU core is available too:
+
+```python
+core_count = engine.get_cpu_count()
+engine.pin_current_thread_to_core(core_count - 1)  # see the caveat below first
+engine.spsc_init(buffer_capacity=1_000_000)
+
+pushed = engine.spsc_record_events_batch(events)   # producer thread only
+records = engine.spsc_drain(max_count=1024)        # consumer thread only
+```
+
+Single-producer, single-consumer *only* -- calling `spsc_record_events_batch`
+from more than one thread concurrently is undefined behavior, not merely
+wrong, the same way it would be in the C++ template underneath
+(`animus::SpscRingBuffer`). These are native performance primitives with no
+pure-Python fallback: they raise `RuntimeError` if no compiled binary is
+loaded, rather than silently degrading to something that wouldn't measure
+the same thing.
+
+**The pinning caveat, stated plainly because the numbers don't round the
+way you'd expect:** don't just pin to `core_count - 1`. `benchmarks/
+fintech_tail_latency.py` did exactly that first and got tail latency up to
+34.5x *worse* -- on a hybrid CPU (P-cores + E-cores, common on recent
+laptops/desktops), the highest-numbered core is not reliably a fast one,
+and there's no portable way to ask the OS which is which. The benchmark now
+probes a handful of candidate cores with a cheap workload and picks
+whichever measures fastest before pinning for real -- do the same rather
+than hardcoding a core number. Even with a good core, measured across 5
+runs: throughput and p50/p90 latency improve consistently (real gains,
+every run), but **p99.99 tail latency does not reliably improve, and
+often gets worse** -- thread affinity alone doesn't reserve a core
+exclusively, so a pinned thread has nowhere to go on the rare occasion its
+one core is briefly needed elsewhere, while an unpinned thread can migrate
+away. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 14 section for the full
+numbers, including the exact ratio of runs where each percentile improved
+vs. got worse.
+
 **Instrumenting existing code with `@animus.trace`:**
 
 ```python
@@ -203,6 +245,71 @@ virtual-dispatch calls into `Engine` and is convenient when your data is
 already batched, but at this call site it isn't the ~2x/~7x win it is from
 Python; see `AnimusCore_v1/BENCHMARKS.md`'s Phase 11 section for where
 that number actually comes from.
+
+**A lock-free SPSC ring, header-only, no `Engine` involved:**
+`animus::SpscRingBuffer<T>` is a separate, fully inline template class --
+usable with zero DLL and zero linking, same as `Engine` itself -- for
+when you have exactly one producer thread and one consumer thread and
+want the simpler, faster primitive that constraint buys (a plain atomic
+load/store pair, no compare-exchange retry loop):
+
+```cpp
+animus::SpscRingBuffer<animus::TelemetryPayload> ring(1 << 16);
+
+// Producer thread only:
+ring.push(animus::TelemetryPayload{
+    animus::read_cycle_counter(), /*event_id=*/500, /*trace_id=*/1, /*metric_value=*/150});
+
+// Consumer thread only (a *different* thread than the producer is fine;
+// a second producer or a second consumer thread is not -- see the
+// class's own docstring in animus.hpp for why that isn't enforced at
+// runtime on this specific hot path):
+animus::TelemetryPayload out;
+if (ring.pop(out)) { /* ... */ }
+```
+
+**CPU pinning is not header-only, unlike everything else in this
+guide** -- `animus_pin_current_thread_to_core`/`animus_get_cpu_count`
+are declared in `animus.hpp` but only *defined* in `animus_engine.cpp`
+(the DLL shim), so calling them from a pure single-header build without
+linking that file is a link error, not a compile error. Pulling in the
+DLL shim just for two OS calls defeats guide 2's "zero DLL" premise, so
+call the platform API directly instead -- it's one line either way:
+
+```cpp
+// At file scope, near your other #includes -- windows.h in particular
+// contains extern "C" blocks that are a compile error if this #include
+// ends up inside a function body instead:
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
+#endif
+
+// Then, in whichever function pins the calling thread:
+#if defined(_WIN32)
+SetThreadAffinityMask(GetCurrentThread(), (DWORD_PTR)1 << core_id);
+#elif defined(__linux__)
+cpu_set_t cpuset; CPU_ZERO(&cpuset); CPU_SET(core_id, &cpuset);
+pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+#endif
+```
+
+**Before picking a `core_id`, read this:** don't just pin to the
+highest-numbered core. `benchmarks/fintech_tail_latency.py` did exactly
+that first and measured tail latency up to 34.5x *worse* -- on a hybrid
+CPU (P-cores + E-cores), the last core is not reliably a fast one, and
+there's no portable way to ask the OS which is which; that benchmark now
+probes several candidate cores with a cheap workload and pins to
+whichever measures fastest, rather than guessing. Even with a good core,
+throughput and p50/p90 latency improved consistently across 5 runs, but
+**p99.99 tail latency did not reliably improve, and often got worse** --
+thread affinity alone doesn't reserve a core exclusively, so a pinned
+thread has nowhere to go on the rare occasion its one core is briefly
+needed elsewhere. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 14 section
+for the full numbers before relying on pinning to fix a tail-latency
+problem specifically.
 
 ```bash
 # Portable core + RBAC layer (animus::, animus::security::) compiles with
