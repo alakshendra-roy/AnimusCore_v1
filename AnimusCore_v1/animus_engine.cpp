@@ -45,6 +45,7 @@
 // animus_set_thread_high_priority below are just the license-gated C-ABI
 // shim around it.
 #include "../include/animus/thread_affinity.hpp"
+#include "../include/animus/shm_ipc.hpp"
 
 // Only used by animus_verify_license (Windows-only, see its definition
 // below) -- kept out of animus.hpp's own includes for the same "portable
@@ -410,6 +411,60 @@ extern "C" {
     ANIMUS_API size_t animus_feed_poll_trades(void* feed, animus::TradeTick* out, size_t max_count) {
         if (!feed || !out) return 0;
         return static_cast<animus::MarketDataFeed*>(feed)->poll_trades(out, max_count);
+    }
+
+    ANIMUS_API void* animus_shm_ring_create(const char* name, size_t requested_capacity) {
+        if (!name) return nullptr;
+        return animus::sys::ipc::ShmRing<animus::RawEvent>::create(name, requested_capacity).release();
+    }
+
+    ANIMUS_API void* animus_shm_ring_open(const char* name) {
+        if (!name) return nullptr;
+        return animus::sys::ipc::ShmRing<animus::RawEvent>::open(name).release();
+    }
+
+    ANIMUS_API void animus_shm_ring_close(void* ring) {
+        delete static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+    }
+
+    ANIMUS_API bool animus_shm_ring_unlink(const char* name) {
+        if (!name) return false;
+        return animus::sys::ipc::ShmRing<animus::RawEvent>::unlink(name);
+    }
+
+    ANIMUS_API size_t animus_shm_ring_capacity(void* ring) {
+        if (!ring) return 0;
+        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->capacity();
+    }
+
+    ANIMUS_API bool animus_shm_ring_try_push(void* ring, const animus::RawEvent* event) {
+        if (!ring || !event) return false;
+        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_push(*event);
+    }
+
+    ANIMUS_API bool animus_shm_ring_try_pop(void* ring, animus::RawEvent* out) {
+        if (!ring || !out) return false;
+        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_pop(*out);
+    }
+
+    ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count) {
+        if (!ring || !events) return 0;
+        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+        size_t pushed = 0;
+        for (; pushed < count; ++pushed) {
+            if (!r->try_push(events[pushed])) break;
+        }
+        return pushed;
+    }
+
+    ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count) {
+        if (!ring || !out) return 0;
+        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+        size_t popped = 0;
+        for (; popped < max_count; ++popped) {
+            if (!r->try_pop(out[popped])) break;
+        }
+        return popped;
     }
 
     ANIMUS_API bool animus_verify_license(const char* license_path) {
