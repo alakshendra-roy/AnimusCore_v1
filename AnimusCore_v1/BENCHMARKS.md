@@ -407,3 +407,88 @@
 * **Key finding -- the relative tail shrinks as batch size grows, even though absolute latency grows:** using the representative run, p99.99/p50 is ~28.1x at batch=100, ~8.3x at batch=1,000, and ~1.4x at batch=10,000. Smaller batches are dominated by fixed per-call jitter (OS scheduling, Python-level GC, allocator stalls) that a 100-event batch's real work barely amortizes; a 10,000-event batch's real work is large enough that the same fixed jitter becomes a much smaller fraction of the call, tightening the tail relative to the median even as every absolute number (mean, p50, p99.99) grows with batch size.
 * **Throughput is essentially flat across batch sizes** (6.5-8.8M events/sec across all three, overlapping ranges) -- the native ring-buffer push itself is cheap enough (see Phase 11's ~2.5 ms measurement for 100,000 events) that batch size mostly trades off call-count against per-call tail risk, not raw throughput.
 * **Status:** Phase 13 Fintech Tail Latency Verified
+
+## Phase 14: Lock-Free SPSC Ring Buffer & CPU Core Pinning
+
+### `animus::SpscRingBuffer<T>` and the Standalone SPSC Channel
+
+* **Target System:** `animus::SpscRingBuffer<T>` (`animus.hpp`) -- a single-producer/single-consumer ring using a plain atomic load/store pair (no compare-exchange retry loop, unlike the existing MPMC `LockFreeRingBuffer`), backed by one contiguous pre-allocated `std::vector<T>`. Exposed as a standalone C-ABI channel (`animus_spsc_init` / `animus_spsc_record_events_batch` / `animus_spsc_drain`) fully independent of the existing `Engine` singleton and its MPMC ring -- additive, not a replacement.
+* **Method:** unit tests against both a fake native lib (`tests/test_bindings.py`'s `_FakeNativeLib`) and the real compiled binary (`RealNativeEngineIntegrationTests`) -- push a batch, drain it back, assert every field round-trips intact.
+
+| Check | Result |
+|---|---|
+| Push 50 events, drain 100 requested | 50 pushed, 50 drained, all fields match in order |
+| Push into an under-capacity ring (4 slots, 6 events) | 4 pushed, matching `record_batch`'s stop-at-first-failure contract |
+| Full test suite | 30/30 passing (7 new), against both `AnimusCore_v1.dll` (MSVC) and `AnimusNative.dll` (CMake) |
+
+* **A real bug found and fixed during development:** the first `SpscTelemetryRecord` ctypes struct (mirroring `animus::TelemetryPayload` for `animus_spsc_drain`'s output buffer) had the four real fields but not `TelemetryPayload`'s `alignas(64)` cache-line padding -- 24 bytes instead of 64. This does not raise an error: it silently reads every record in the array at the wrong offset, since the native side's per-element stride is still 64 bytes regardless of what the Python side assumes. A manual push/drain test surfaced it immediately as garbled field values (`event_id=2461703904`, `trace_id=32763`, ...) rather than the pushed data; fixed by padding `SpscTelemetryRecord` to the full 64 bytes and asserting `ctypes.sizeof(SpscTelemetryRecord) == 64` at import time, then re-verified with a clean round trip before it went into `bindings.py`.
+* **Status:** Phase 14 SPSC Ring Buffer Verified
+
+### CPU Core Pinning (`animus_pin_current_thread_to_core`)
+
+* **Target System:** `animus_pin_current_thread_to_core(core_id)` / `animus_get_cpu_count()` (`animus_engine.cpp`) -- Windows: `SetThreadAffinityMask`; Linux: `pthread_setaffinity_np` (requires `find_package(Threads)` + `Threads::Threads`, added to `CMakeLists.txt` for this); no portable hard-pinning API exists on other platforms, so the function returns `false` there rather than claiming a pin that didn't happen. Affects only the calling thread, not the whole process.
+* **Test machine:** Intel Core i7-14650HX -- a hybrid CPU, 16 cores / 24 logical threads (6 Performance-cores with Hyper-Threading + 10 Efficiency-cores), confirmed via `Get-CimInstance Win32_Processor`.
+* **A real, environment-driven finding, not a defect:** the first version of the fintech tail-latency benchmark (below) pinned to the highest-numbered logical core (`cpu_count - 1` = core 23), a common informal "avoid core 0" convention. On this hybrid CPU that silently picked an Efficiency core. Measured effect of pinning to core 23 vs. not pinning at all, same 1,000,000-event sweep:
+
+| Batch size | Unpinned baseline p99.99 | Pinned to core 23 (an E-core) p99.99 | Ratio |
+|---|---|---|---|
+| 100 | 581.01 us | 2,642.91 us | 4.55x worse |
+| 1,000 | 875.83 us | 30,201.11 us | 34.48x worse |
+| 10,000 | 2,522.45 us | 8,529.81 us | 3.38x worse |
+
+* **Why, and the fix:** there is no portable, vendor-neutral way to ask the OS "which logical cores are P-cores vs. E-cores" from C++ -- `animus_pin_current_thread_to_core` only pins, it has no opinion on where. Rather than hardcode a guess for one CPU vendor's numbering convention (fragile, and wrong on plenty of real hybrid layouts even for that vendor), the benchmark now *probes*: times a small, cheap workload pinned to each of 6 candidate cores spread across the logical range, and picks whichever measured the lowest p99 before running the real sweeps. See the next section for what that probe actually found on this machine, run after run.
+* **Status:** Phase 14 CPU Core Pinning Verified (platform coverage: Windows + Linux; correctly refuses to claim success on platforms with no real pinning API)
+
+### Fintech Tail Latency: Baseline vs. SPSC + Pinned (Probed Core)
+
+* **Target System:** `benchmarks/fintech_tail_latency.py`, extended from Phase 13 to add a second producer path (`animus_spsc_record_events_batch` against the SPSC ring, from a thread pinned via `find_best_core()`'s probe) alongside the unchanged Phase 13 baseline (`animus_record_events_batch` against the MPMC ring, unpinned) -- same 1,000,000 events per batch size (100 / 1,000 / 10,000), same call-by-call `perf_counter_ns` timing discipline, same subprocess-per-sweep isolation.
+* **Method:** 5 consecutive full runs, each independently re-probing for the best core (deliberately not cached between runs, to see whether the probe itself is reliable, not just the number it happens to land on once).
+
+**Core probe** (representative run; p99 of a small workload per candidate core, lower is better):
+
+| Core | p99 (representative run) | Selected how often (5 runs) |
+|---|---|---|
+| 0 | 60.16 us | 0/5 (range across runs: 50.32-93.43 us -- highest and noisiest of the low cores, consistent with OS/interrupt activity favoring core 0) |
+| 1 | 53.55 us | 0/5 |
+| 6 | 55.08 us | 4/5 |
+| 12 | 47.85 us | 1/5 |
+| 18 | 77.86 us | 0/5 |
+| 23 | 69.55 us | 0/5 |
+
+Every one of the 5 runs selected core 6 or 12 -- never 0, 18, or 23 -- consistent with a P-core/E-core split roughly along these lines on this CPU, though the probe never assumes that; it just measures.
+
+**Baseline -> SPSC + pinned, by batch size** (representative run's values; delta range and improvement rate across all 5 runs):
+
+Batch size = 100:
+
+| Metric | Baseline | SPSC + pinned | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| Throughput | 6,690,668 ev/s | 7,020,411 ev/s | +4.9% | +2.0% to +10.0% | 5/5 |
+| p50 | 14.50 us | 13.70 us | -5.5% | -9.9% to -5.5% | 5/5 |
+| p90 | 15.00 us | 14.40 us | -4.0% | -14.6% to -4.0% | 5/5 |
+| p99 | 24.60 us | 18.10 us | -26.4% | -26.4% to +13.9% | 3/5 |
+| p99.99 | 232.41 us | 746.17 us | +221.1% | +23.9% to +544.9% | 0/5 |
+
+Batch size = 1,000:
+
+| Metric | Baseline | SPSC + pinned | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| Throughput | 8,277,591 ev/s | 9,325,844 ev/s | +12.7% | +5.2% to +14.0% | 5/5 |
+| p50 | 116.00 us | 104.70 us | -9.7% | -12.2% to -9.7% | 5/5 |
+| p90 | 125.32 us | 112.40 us | -10.3% | -16.1% to -10.0% | 5/5 |
+| p99 | 217.04 us | 130.31 us | -40.0% | -40.0% to +17.1% | 4/5 |
+| p99.99 | 551.73 us | 343.41 us | -37.8% | -37.8% to +285.7% | 2/5 |
+
+Batch size = 10,000:
+
+| Metric | Baseline | SPSC + pinned | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| Throughput | 6,429,785 ev/s | 7,613,021 ev/s | +18.4% | +0.6% to +18.4% | 5/5 |
+| p50 | 1,533.45 us | 1,278.15 us | -16.6% | -16.6% to -3.3% | 5/5 |
+| p90 | 1,724.28 us | 1,394.08 us | -19.2% | -19.2% to -1.1% | 5/5 |
+| p99 | 2,123.27 us | 1,934.98 us | -8.9% | -8.9% to +78.7% | 2/5 |
+| p99.99 | 2,394.66 us | 2,452.37 us | +2.4% | -7.1% to +66.8% | 1/5 |
+
+* **Key finding, stated as measured, not as hoped for:** throughput and p50/p90 improve *every single time* (15/15 trials across all batch sizes and runs) once a good core is selected -- consistent, real gains from cache locality and the SPSC ring's simpler push path. p99 is a mixed bag (9/15 improved). **p99.99 gets worse more often than not (12/15 trials), sometimes by 5-6x**, and this did not go away with a properly probed, genuinely fast core -- it is not the same failure mode as the naive-core-selection finding above.
+* **Interpretation:** `SetThreadAffinityMask`/`pthread_setaffinity_np` pin a thread to a core; they do not reserve that core *exclusively*. Real OS-level isolation (Linux `isolcpus`/`nohz_full`, Windows CPU Sets in reserved-exclusive mode) is what that would take, and this benchmark deliberately doesn't set that up -- nor would a general-purpose development laptop, with its normal load of background OS/user processes, be a realistic target for it anyway. An unpinned thread that hits contention can migrate to any idle core; a pinned thread has nowhere to go until its one core frees up. That specifically inflates the rare, worst-case tail even as it improves the common case -- a real, repeatable, physically-explicable result, reported here exactly as measured rather than adjusted to match the "pinning reduces p99.99" outcome this phase originally set out to confirm.
+* **Status:** Phase 14 Fintech Tail Latency (SPSC + Pinned) Verified -- throughput and typical-case latency improvement confirmed and reproducible; p99.99 reduction NOT confirmed under thread-affinity-only pinning on this hardware/OS combination, and the benchmark says so in its own output, not just here
