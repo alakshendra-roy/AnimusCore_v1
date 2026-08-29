@@ -171,6 +171,86 @@ namespace animus {
         alignas(64) std::atomic<size_t> dequeue_pos_{ 0 };
     };
 
+    // Bounded lock-free single-producer/single-consumer ring buffer.
+    // Unlike LockFreeRingBuffer above (a general Vyukov MPMC ring, safe for
+    // multiple concurrent producer threads -- e.g. concurrent ctypes callers
+    // sharing one Engine), this SPSC variant assumes exactly one producer
+    // thread and exactly one consumer thread and nothing else, ever. That
+    // narrower contract buys real throughput/latency: push()/pop() need only
+    // a plain atomic load/store pair (a relaxed load of the caller's own
+    // last-written index, an acquire load of the other side's index, a
+    // release store to publish) -- no compare-exchange retry loop, so no
+    // contention between producer-side CAS attempts under concurrent load
+    // the way LockFreeRingBuffer can see with >1 producer. Backing storage
+    // is one contiguous, pre-allocated std::vector<T> -- a single memory
+    // pool, not per-cell padded like LockFreeRingBuffer's Cell, since SPSC
+    // needs no per-cell sequence number (there is only ever one writer and
+    // one reader for any given index, so nothing to arbitrate) -- sized to
+    // a power of two so index-to-slot wraparound is a single AND, not a
+    // modulo.
+    //
+    // This is the classic Le/Vyukov-style SPSC design. Its correctness
+    // depends entirely on the single-producer/single-consumer contract
+    // being honored by the caller -- it is NOT enforced at runtime (a
+    // debug-only thread-id check would cost real overhead on the exact hot
+    // path this class exists to make fast). The C-ABI surface built on top
+    // of this (animus_spsc_*, see the bottom of this file) inherits the
+    // same contract and documents it the same way: call
+    // animus_spsc_record_events_batch from more than one thread
+    // concurrently and the behavior is undefined, not merely wrong.
+    template <typename T>
+    class SpscRingBuffer {
+    public:
+        explicit SpscRingBuffer(size_t requested_capacity)
+            : capacity_(round_up_pow2(requested_capacity)),
+            mask_(capacity_ - 1),
+            cells_(capacity_) {
+        }
+
+        SpscRingBuffer(const SpscRingBuffer&) = delete;
+        SpscRingBuffer& operator=(const SpscRingBuffer&) = delete;
+
+        // Producer-thread-only. Never blocks; returns false if the ring is full.
+        bool push(const T& value) noexcept {
+            const size_t head = head_.load(std::memory_order_relaxed);
+            const size_t tail = tail_.load(std::memory_order_acquire);
+            if (head - tail >= capacity_) {
+                return false; // full
+            }
+            cells_[head & mask_] = value;
+            head_.store(head + 1, std::memory_order_release);
+            return true;
+        }
+
+        // Consumer-thread-only. Never blocks; returns false if the ring is empty.
+        bool pop(T& out) noexcept {
+            const size_t tail = tail_.load(std::memory_order_relaxed);
+            const size_t head = head_.load(std::memory_order_acquire);
+            if (tail == head) {
+                return false; // empty
+            }
+            out = cells_[tail & mask_];
+            tail_.store(tail + 1, std::memory_order_release);
+            return true;
+        }
+
+        size_t capacity() const noexcept { return capacity_; }
+
+    private:
+        static size_t round_up_pow2(size_t v) noexcept {
+            size_t p = 1;
+            while (p < v) p <<= 1;
+            return p;
+        }
+
+        size_t capacity_;
+        size_t mask_;
+        std::vector<T> cells_;
+
+        alignas(64) std::atomic<size_t> head_{ 0 }; // written only by the producer
+        alignas(64) std::atomic<size_t> tail_{ 0 }; // written only by the consumer
+    };
+
     class Engine {
     public:
         virtual ~Engine() = default;
@@ -584,4 +664,29 @@ extern "C" {
     ANIMUS_API void animus_stop_logging();
     ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity);
     ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count);
+
+    // Standalone SPSC ingestion channel (see animus::SpscRingBuffer above),
+    // fully independent of animus_init()'s Engine singleton -- its own
+    // buffer, its own lifetime, not touched by animus_start_logging/
+    // animus_add_rule/animus_poll_signals. Single-producer, single-consumer
+    // only: animus_spsc_record_events_batch must never be called from more
+    // than one thread concurrently, and neither must animus_spsc_drain
+    // (independently of each other -- one producer thread and one, possibly
+    // different, consumer thread is fine; two of either is not).
+    ANIMUS_API bool animus_spsc_init(size_t capacity);
+    ANIMUS_API size_t animus_spsc_record_events_batch(const animus::RawEvent* events, size_t count);
+    ANIMUS_API size_t animus_spsc_drain(animus::TelemetryPayload* out, size_t max_count);
+
+    // Pins the calling OS thread to logical CPU `core_id` (0-based). Returns
+    // false if core_id is out of range or the platform has no supported
+    // hard-pinning API (see animus_engine.cpp for the per-platform
+    // implementation and exactly which platforms that covers). Affects only
+    // the thread that calls it -- pin a producer thread before it starts
+    // pushing to reduce OS-scheduler-induced tail latency on that thread's
+    // calls, not process-wide affinity.
+    ANIMUS_API bool animus_pin_current_thread_to_core(int core_id);
+
+    // Logical CPU count on this machine, for sanity-checking a core_id
+    // before calling animus_pin_current_thread_to_core.
+    ANIMUS_API unsigned animus_get_cpu_count(void);
 }

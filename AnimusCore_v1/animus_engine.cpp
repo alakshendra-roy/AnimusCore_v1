@@ -14,9 +14,27 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <thread>
+
+// Platform-specific thread-pinning headers live here, not in animus.hpp --
+// keeping windows.h (a large header with a real macro-pollution footprint)
+// out of the portable, header-only core is the same reasoning animus.hpp's
+// own docstring gives for keeping animus_transport.hpp's Schannel includes
+// out of it. Everything above this point in the file needing pinning is
+// declared (not defined) in animus.hpp; the platform-specific bodies are
+// defined only here.
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__linux__)
+#include <pthread.h>
+#include <sched.h>
+#endif
 
 static std::unique_ptr<animus::Engine> g_engine = nullptr;
 static std::mutex g_init_mutex;
+
+static std::unique_ptr<animus::SpscRingBuffer<animus::TelemetryPayload>> g_spsc_ring = nullptr;
+static std::mutex g_spsc_init_mutex;
 
 extern "C" {
     // Cold path: guarded by a mutex since it runs once at startup. The hot
@@ -65,5 +83,76 @@ extern "C" {
         animus::Engine* engine = g_engine.get();
         if (!engine || !out) return 0;
         return engine->poll_signals(out, max_count);
+    }
+
+    // Cold path, same mutex-guarded lazy-init pattern as animus_init above --
+    // fully independent singleton, not the same ring as g_engine's.
+    ANIMUS_API bool animus_spsc_init(size_t capacity) {
+        std::lock_guard<std::mutex> lock(g_spsc_init_mutex);
+        if (!g_spsc_ring) {
+            g_spsc_ring = std::make_unique<animus::SpscRingBuffer<animus::TelemetryPayload>>(capacity);
+        }
+        return g_spsc_ring != nullptr;
+    }
+
+    // Hot path: producer-thread-only, per SpscRingBuffer's contract (see
+    // animus.hpp). Same batch semantics as animus_record_events_batch --
+    // stops at the first push that fails, returns the count actually pushed.
+    ANIMUS_API size_t animus_spsc_record_events_batch(const animus::RawEvent* events, size_t count) {
+        auto* ring = g_spsc_ring.get();
+        if (!ring || !events) return 0;
+        size_t pushed = 0;
+        for (size_t i = 0; i < count; ++i) {
+            animus::TelemetryPayload payload{
+                animus::read_cycle_counter(),
+                events[i].event_id,
+                events[i].trace_id,
+                events[i].metric_value
+            };
+            if (!ring->push(payload)) {
+                break; // full; no concurrent consumer will free space within this call
+            }
+            ++pushed;
+        }
+        return pushed;
+    }
+
+    // Consumer-thread-only, per SpscRingBuffer's contract.
+    ANIMUS_API size_t animus_spsc_drain(animus::TelemetryPayload* out, size_t max_count) {
+        auto* ring = g_spsc_ring.get();
+        if (!ring || !out) return 0;
+        size_t count = 0;
+        while (count < max_count && ring->pop(out[count])) {
+            ++count;
+        }
+        return count;
+    }
+
+    ANIMUS_API bool animus_pin_current_thread_to_core(int core_id) {
+        if (core_id < 0) return false;
+#if defined(_WIN32)
+        // SetThreadAffinityMask's mask is machine-word width (64 bits on
+        // x64); a core_id at or beyond that can never be expressed.
+        if (core_id >= 64) return false;
+        DWORD_PTR mask = (DWORD_PTR)1 << core_id;
+        return SetThreadAffinityMask(GetCurrentThread(), mask) != 0;
+#elif defined(__linux__)
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(core_id, &cpuset);
+        return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset) == 0;
+#else
+        // No portable hard-pinning API on this platform (e.g. macOS's
+        // thread_policy_set/THREAD_AFFINITY_POLICY is an affinity *hint*
+        // the scheduler is free to ignore, not a real pin -- claiming
+        // success here would be dishonest about what actually happened).
+        (void)core_id;
+        return false;
+#endif
+    }
+
+    ANIMUS_API unsigned animus_get_cpu_count(void) {
+        unsigned n = std::thread::hardware_concurrency();
+        return n > 0 ? n : 1;
     }
 }

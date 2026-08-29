@@ -154,6 +154,29 @@ _NATIVE_EVENT_FORMAT = "<IIQ"
 assert struct.calcsize(_NATIVE_EVENT_FORMAT) == ctypes.sizeof(NativeEvent)
 
 
+class SpscTelemetryRecord(ctypes.Structure):
+    """Mirrors animus::TelemetryPayload (animus.hpp) byte-for-byte, INCLUDING
+    its `alignas(64)` cache-line padding -- unlike _TelemetryRecord below
+    (which mirrors only the logical fields, for the pure-Python fallback's
+    in-memory use), this one crosses the real C-ABI via animus_spsc_drain's
+    caller-supplied buffer, so its size must match the native array's actual
+    per-element stride exactly. Getting this wrong doesn't raise an error --
+    it silently reads every record at the wrong offset, which is exactly
+    what happened (visibly garbled field values) before this padding was
+    added and verified against a real push/drain round trip.
+    """
+    _fields_ = [
+        ("timestamp_cycles", ctypes.c_uint64),
+        ("event_id", ctypes.c_uint32),
+        ("trace_id", ctypes.c_uint32),
+        ("metric_value", ctypes.c_uint64),
+        ("_reserved", ctypes.c_uint8 * (64 - 24)),  # pad 24 real bytes out to alignas(64)
+    ]
+
+
+assert ctypes.sizeof(SpscTelemetryRecord) == 64
+
+
 class _TelemetryRecord(NamedTuple):
     """Mirrors animus::TelemetryPayload's logical fields (animus.hpp),
     without its 64-byte cache-line padding -- see shm.py's identical
@@ -344,6 +367,7 @@ class AnimusBindings:
             )
             self._fallback = _PurePythonEngine()
         self._initialized = False
+        self._spsc_initialized = False
 
     @property
     def using_native_engine(self) -> bool:
@@ -388,6 +412,27 @@ class AnimusBindings:
             ctypes.c_size_t,
         ]
         self._lib.animus_poll_signals.restype = ctypes.c_size_t
+
+        self._lib.animus_spsc_init.argtypes = [ctypes.c_size_t]
+        self._lib.animus_spsc_init.restype = ctypes.c_bool
+
+        self._lib.animus_spsc_record_events_batch.argtypes = [
+            ctypes.POINTER(NativeEvent),
+            ctypes.c_size_t,
+        ]
+        self._lib.animus_spsc_record_events_batch.restype = ctypes.c_size_t
+
+        self._lib.animus_spsc_drain.argtypes = [
+            ctypes.POINTER(SpscTelemetryRecord),
+            ctypes.c_size_t,
+        ]
+        self._lib.animus_spsc_drain.restype = ctypes.c_size_t
+
+        self._lib.animus_pin_current_thread_to_core.argtypes = [ctypes.c_int]
+        self._lib.animus_pin_current_thread_to_core.restype = ctypes.c_bool
+
+        self._lib.animus_get_cpu_count.argtypes = []
+        self._lib.animus_get_cpu_count.restype = ctypes.c_uint
 
     def init(self, buffer_capacity: int = 65536) -> bool:
         """Initializes the engine (native singleton, or pure-Python fallback). Idempotent."""
@@ -507,3 +552,85 @@ class AnimusBindings:
             count = self._lib.animus_poll_signals(buf, ctypes.c_size_t(max_count))
             return list(buf[:count])
         return self._fallback.poll_signals(max_count)
+
+    def _require_native(self, what: str) -> None:
+        if not self.using_native_engine:
+            raise RuntimeError(
+                f"{what} has no pure-Python fallback -- it is a native "
+                "performance primitive (lock-free SPSC ring / OS thread "
+                "affinity), not something a Python-level reimplementation "
+                "could meaningfully provide. Build CMakeLists.txt or "
+                "AnimusCore_v1.slnx first."
+            )
+
+    def spsc_init(self, buffer_capacity: int = 65536) -> bool:
+        """Initializes the standalone single-producer/single-consumer ring
+        (animus::SpscRingBuffer, see animus.hpp), fully independent of
+        init()'s Engine singleton -- its own buffer, its own lifetime.
+        Idempotent, same as init(). Requires the native engine: there is no
+        pure-Python fallback (see _require_native).
+        """
+        self._require_native("spsc_init")
+        if self._spsc_initialized:
+            return True
+        self._spsc_initialized = bool(self._lib.animus_spsc_init(ctypes.c_size_t(buffer_capacity)))
+        return self._spsc_initialized
+
+    def spsc_record_events_batch(self, events: "list[tuple[int, int, int]]") -> int:
+        """Producer-side push into the SPSC ring. Same batch semantics and
+        wire format as record_events_batch() (struct.pack + memmove into a
+        NativeEvent array, one native call per batch) -- the only
+        difference is which ring it targets.
+
+        Single-producer contract: never call this from more than one
+        thread concurrently. Nothing in this binding enforces that (see
+        animus::SpscRingBuffer's docstring for why) -- it is the caller's
+        responsibility, same as it is in the C++ template underneath.
+        """
+        self._require_native("spsc_record_events_batch")
+        if not self._spsc_initialized:
+            raise RuntimeError("AnimusBindings.spsc_init() must succeed before recording events")
+        events = list(events)
+        if not events:
+            return 0
+        count = len(events)
+        packed = b"".join(
+            struct.pack(_NATIVE_EVENT_FORMAT, event_id, trace_id, metric_value)
+            for event_id, trace_id, metric_value in events
+        )
+        buf = (NativeEvent * count)()
+        ctypes.memmove(buf, packed, len(packed))
+        return int(self._lib.animus_spsc_record_events_batch(buf, ctypes.c_size_t(count)))
+
+    def spsc_drain(self, max_count: int = 1024) -> List[SpscTelemetryRecord]:
+        """Consumer-side drain from the SPSC ring. Zero-copy, same pattern
+        as poll_signals(). Single-consumer contract: never call this from
+        more than one thread concurrently (a different thread than the
+        producer is fine; more than one consumer thread is not).
+        """
+        self._require_native("spsc_drain")
+        if not self._spsc_initialized:
+            raise RuntimeError("AnimusBindings.spsc_init() must succeed before draining")
+        buf = (SpscTelemetryRecord * max_count)()
+        count = self._lib.animus_spsc_drain(buf, ctypes.c_size_t(max_count))
+        return list(buf[:count])
+
+    def pin_current_thread_to_core(self, core_id: int) -> bool:
+        """Pins the calling OS thread to logical CPU `core_id` (0-based).
+        Affects only the thread that calls it, not the whole process --
+        call this at the start of whichever thread will run your hot
+        ingestion loop. Returns False if core_id is out of range or the
+        current platform has no supported hard-pinning API (see
+        animus_pin_current_thread_to_core in animus_engine.cpp for exactly
+        which platforms that covers). No pure-Python fallback: OS thread
+        affinity is not something Python can provide portably on its own.
+        """
+        self._require_native("pin_current_thread_to_core")
+        return bool(self._lib.animus_pin_current_thread_to_core(ctypes.c_int(core_id)))
+
+    def get_cpu_count(self) -> int:
+        """Logical CPU count on this machine, for sanity-checking a core_id
+        before calling pin_current_thread_to_core.
+        """
+        self._require_native("get_cpu_count")
+        return int(self._lib.animus_get_cpu_count())
