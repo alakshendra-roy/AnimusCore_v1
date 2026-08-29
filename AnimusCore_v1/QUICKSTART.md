@@ -460,6 +460,14 @@ provide, so don't do that; if you need batched ingestion under RBAC, add
 a `record_batch(token, ...)` method to the gateway following the same
 `authorize_and_dispatch` pattern the other methods use.
 
+**Same gap for CEP rules:** `SecureTelemetryGateway` wraps `Engine::add_rule()`
+(`animus_security.hpp:142-146`) but not `add_cep_rule()` -- it predates
+the CEP engine. As with `record_batch()` above, don't call
+`registry.get_tenant(id)->add_cep_rule(...)` directly (skips RBAC and the
+audit trail); add an `add_cep_rule(token, ...)` method to the gateway,
+same `authorize_and_dispatch` pattern, if a tenant needs sliding-window
+rules under this guide's access control.
+
 Full working client + server: `AnimusCore_v1/secure_multitenancy_demo.cpp`
 (RBAC/tenancy only) and `AnimusCore_v1/secure_transport_demo.cpp` (adds real
 TLS 1.3 mutual auth over loopback TCP). Build/run:
@@ -518,6 +526,18 @@ node's `engine` above is the same `animus::Engine` from guide 2, so its
 `record_batch()` applies here identically and unconditionally: call it on
 your local `engine` the same way, no cluster-specific wrapping needed,
 since ingestion stays node-local by design.
+
+**CEP rules do not replicate across the cluster.** `AddRuleCommand` (and
+so `propose()`/consensus) only carries a plain `RuleThreshold` -- there is
+no `AddCepRuleCommand`, and `apply_committed_entries_locked()` never calls
+`add_cep_rule()` on anything. Calling `engine->add_cep_rule(...)` works --
+it's the same node-local `Engine` as guide 2 -- but only on the node you
+call it on; the other nodes in the cluster won't know about that rule
+unless you register it on each of them yourself. If every node needs the
+same sliding-window rule, that's a real gap to close (extend
+`animus_cluster.hpp`'s command set with an `AddCepRuleCommand`, mirroring
+`AddRuleCommand`'s existing replication path), not something this guide
+can currently paper over.
 
 ```powershell
 cl /std:c++17 /EHsc /O2 AnimusCore_v1/cluster_demo.cpp
