@@ -492,3 +492,45 @@ Batch size = 10,000:
 * **Key finding, stated as measured, not as hoped for:** throughput and p50/p90 improve *every single time* (15/15 trials across all batch sizes and runs) once a good core is selected -- consistent, real gains from cache locality and the SPSC ring's simpler push path. p99 is a mixed bag (9/15 improved). **p99.99 gets worse more often than not (12/15 trials), sometimes by 5-6x**, and this did not go away with a properly probed, genuinely fast core -- it is not the same failure mode as the naive-core-selection finding above.
 * **Interpretation:** `SetThreadAffinityMask`/`pthread_setaffinity_np` pin a thread to a core; they do not reserve that core *exclusively*. Real OS-level isolation (Linux `isolcpus`/`nohz_full`, Windows CPU Sets in reserved-exclusive mode) is what that would take, and this benchmark deliberately doesn't set that up -- nor would a general-purpose development laptop, with its normal load of background OS/user processes, be a realistic target for it anyway. An unpinned thread that hits contention can migrate to any idle core; a pinned thread has nowhere to go until its one core frees up. That specifically inflates the rare, worst-case tail even as it improves the common case -- a real, repeatable, physically-explicable result, reported here exactly as measured rather than adjusted to match the "pinning reduces p99.99" outcome this phase originally set out to confirm.
 * **Status:** Phase 14 Fintech Tail Latency (SPSC + Pinned) Verified -- throughput and typical-case latency improvement confirmed and reproducible; p99.99 reduction NOT confirmed under thread-affinity-only pinning on this hardware/OS combination, and the benchmark says so in its own output, not just here
+
+## Phase 15: Complex Event Processing (CEP) -- Sliding-Window Aggregation Rules
+
+### Design Verification (Before Integration, Not After)
+
+* **Target System:** `animus::CepRuleState` (`animus.hpp`) -- sliding-window SUM/AVG/MIN/MAX over count-based or time-based windows, evaluated per matching event. SUM/AVG maintain an O(1)-amortized running total; MIN/MAX use the standard monotonic-deque sliding-window-minimum/maximum algorithm (O(1) amortized), not a per-event full rescan.
+* **Method:** before this design went anywhere near `animus.hpp`, a standalone program exercised the exact same window/eviction/aggregation logic against a naive brute-force reference (rescan every event still logically inside the window, from scratch, on every step) -- 8 hand-picked deterministic sequences (covering both window types and all four aggregations, including a window-size-1 edge case) plus 200 randomized trials per aggregation per window type (1,600 randomized trials total: 200 x 4 aggregations x 2 window types), each a 50-event sequence with random values and random window sizes/time gaps.
+
+| Check | Result |
+|---|---|
+| 8 hand-picked deterministic sequences (both window types, all 4 aggregations, incl. window-size-1) | All matched the naive reference at every step |
+| 1,600 randomized trials (200 x 4 aggregations x 2 window types, 50 events each) | All matched the naive reference at every step |
+
+* **Status:** Phase 15 CEP Design Verification Passed (0 discrepancies across 1,608 total trial sequences)
+
+### Correctness: Real Engine Round Trips
+
+* **Target System:** `animus_add_cep_rule` end-to-end through both engines the SDK can run on -- the real compiled binary (`AnimusBindings`, native path) and `_PurePythonEngine` (the fallback used when no binary is compiled) -- via `tests/test_bindings.py`.
+* **Method:** the same count-window SUM case (window=3, threshold `SUM > 50`, events `[10, 20, 30, 5, 1, 100]`) run against both engines independently; expected matches at trace_id 2 (sum=60), 3 (sum=55), and 5 (sum=106) computed by hand before either engine ran.
+
+| Check | Native engine | Pure-Python fallback |
+|---|---|---|
+| Matches at trace_id 2, 3, 5 with aggregated values 60, 55, 106 | Pass | Pass |
+
+* **A design choice verified, not just implemented -- AVG's exact-integer comparison:** `CepRuleState::on_event` checks `sum COMPARATOR threshold * count` rather than dividing and comparing a float, so the comparison stays exact integer arithmetic (no floating point anywhere in the CEP hot path). A dedicated test proves this isn't cosmetic: window `[10, 10, 11]`, rule `AVG > 10`. Exact average is 10.333..., so the rule should match -- and the cross-multiplication check confirms it (`31 > 10*3` = `31 > 30` = true). A naive "floor the average, then compare" implementation would get this wrong: `floor(31/3) = 10`, and `10 > 10` is false -- silently missing a real match at the exact boundary. Verified against the real native engine; passed.
+* **Full suite:** 35/35 tests passing (7 new for this phase: CEP marshalling, native round trip, pure-Python round trip, AVG cross-multiplication, and rejection of an unrecognized window type/aggregation/comparator).
+* **Status:** Phase 15 Correctness Verified (native and pure-Python engines agree; the AVG exact-arithmetic design is regression-tested, not just documented)
+
+### Native Hot-Path Evaluation Overhead
+
+* **Target System:** cost of `evaluate_cep_rules` itself, isolated from disk I/O and signal-ring push cost -- every registered CEP rule's `threshold` is set unreachably high (`1 << 62`) so no rule ever matches, meaning every run does the same amount of *evaluation* work (window push + eviction + aggregate check) but never touches the signal ring.
+* **Method:** 300,000 events pushed via `record_events_batch` with the persistence worker active (`start_logging` -> push -> `stop_logging`, which blocks until fully drained and evaluated -- the same full-pipeline timing convention as Phase 11-13), at 0 / 1 / 10 / 50 concurrently registered CEP count-window SUM rules (window=100). Each rule-count configuration runs in its own subprocess (rules can only accumulate within a native engine process -- `add_cep_rule` has no remove -- so reusing one process across configurations would silently test "N rules plus every rule from every earlier configuration," not N rules; caught by an obviously-wrong monotonically-increasing elapsed-time trend across configurations before this was fixed and rerun cleanly). 5 consecutive full runs.
+
+| CEP rules registered | Representative run (elapsed / throughput) | Range across 5 runs (elapsed) | Range across 5 runs (throughput) |
+|---|---|---|---|
+| 0 (baseline) | 80.23 ms / 3,739,180 ev/s | 80.23 - 90.57 ms | 3,312,245 - 3,739,180 ev/s |
+| 1 | 85.36 ms / 3,514,374 ev/s | 85.36 - 89.20 ms | 3,363,138 - 3,514,374 ev/s |
+| 10 | 89.17 ms / 3,364,364 ev/s | 85.86 - 94.30 ms | 3,181,390 - 3,494,211 ev/s |
+| 50 | 139.56 ms / 2,149,676 ev/s | 125.76 - 139.56 ms | 2,149,676 - 2,385,407 ev/s |
+
+* **Finding:** 1 and 10 rules are statistically indistinguishable from the 0-rule baseline -- their ranges overlap almost entirely, consistent with each rule's O(1)-amortized per-event cost (one `deque::push_back`, an eviction check, one integer comparison) being small enough that disk I/O and batch-marshalling overhead dominate at low rule counts. 50 rules is a real, consistently reproducible effect across all 5 runs: throughput drops by roughly 30-40% (never overlapping the baseline's range in any run). Computing the marginal per-rule, per-event cost directly from each run's own baseline (`(elapsed@50 - elapsed@0) / events / 50`) gives 2.43-3.96 ns/rule/event across the 5 runs (mean 3.02 ns) -- consistent with a small, roughly constant per-rule cost that only becomes visible once enough rules are summed to rise above the persistence pipeline's other costs, the same shape Phase 4 found for plain `RuleThreshold` evaluation (linear in rule count, `evaluate_rules`/`evaluate_cep_rules` both iterate every registered rule per matching event).
+* **Status:** Phase 15 Hot-Path Overhead Verified -- negligible at typical rule counts (0-10), small and linear at higher counts (measured at 50), consistent with the O(rules)-per-event iteration this design always implied
