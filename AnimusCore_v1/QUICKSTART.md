@@ -222,6 +222,18 @@ identity_map.add(L"animus-client-tenant-42", animus::security::AccessToken{42, /
 // then dispatch each received WireFrame through `gateway.record(token, ...)`.
 ```
 
+**No batched ingestion here yet:** `SecureTelemetryGateway` only wraps
+`Engine::record()`, not `record_batch()` (`animus_security.hpp:136-140`) --
+every call is individually RBAC-checked and separately audited by design,
+so a batch would need its own gateway method (checking the token once,
+then dispatching the whole batch to the resolved tenant `Engine`) rather
+than just forwarding to `record_batch()` under an existing single-event
+method name. Calling `registry.get_tenant(id)->record_batch(...)` directly
+would skip both the RBAC check and the audit trail this guide exists to
+provide, so don't do that; if you need batched ingestion under RBAC, add
+a `record_batch(token, ...)` method to the gateway following the same
+`authorize_and_dispatch` pattern the other methods use.
+
 Full working client + server: `AnimusCore_v1/secure_multitenancy_demo.cpp`
 (RBAC/tenancy only) and `AnimusCore_v1/secure_transport_demo.cpp` (adds real
 TLS 1.3 mutual auth over loopback TCP). Build/run:
@@ -272,6 +284,14 @@ if (node.propose(cmd, &leader_hint) == ProposeResult::Ok) {
 accepted locally) -- see `AnimusCore_v1/BENCHMARKS.md`'s Phase 10 section
 for measured write-latency and full-cluster convergence numbers. Full
 3-node PoC with real failover: `AnimusCore_v1/cluster_demo.cpp`.
+
+Only rule commands (`AddRuleCommand`) go through `propose()`/consensus --
+`RaftNode` never wraps telemetry ingestion (`animus_cluster.hpp` calls
+`engine_.add_rule()` on commit and nothing else against `engine_`). Each
+node's `engine` above is the same `animus::Engine` from guide 2, so its
+`record_batch()` applies here identically and unconditionally: call it on
+your local `engine` the same way, no cluster-specific wrapping needed,
+since ingestion stays node-local by design.
 
 ```powershell
 cl /std:c++17 /EHsc /O2 AnimusCore_v1/cluster_demo.cpp
