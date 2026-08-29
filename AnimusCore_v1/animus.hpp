@@ -40,6 +40,17 @@ namespace animus {
         uint32_t severity;
     };
 
+    // Plain input record for batched ingestion (animus_record_events_batch):
+    // just the caller-supplied fields, no timestamp -- record_batch() stamps
+    // each one with read_cycle_counter() itself, same as record(). 16 bytes,
+    // naturally aligned (no padding), so it mirrors a ctypes Structure with
+    // matching field order directly.
+    struct RawEvent {
+        uint32_t event_id;
+        uint32_t trace_id;
+        uint64_t metric_value;
+    };
+
     // Comparator applied between an event's metric_value and a rule's threshold.
     enum class RuleComparator : uint8_t {
         GreaterThan = 0,
@@ -164,6 +175,16 @@ namespace animus {
     public:
         virtual ~Engine() = default;
         virtual bool record(uint32_t event_id, uint32_t trace_id, uint64_t value) const noexcept = 0;
+
+        // Pushes a contiguous batch of events in one call, amortizing the
+        // per-call ctypes/C-ABI marshalling cost across the whole batch
+        // instead of paying it per event. Stops at the first push that
+        // fails (ring buffer full, since there is no concurrent consumer
+        // freeing space mid-call) rather than skipping ahead, so the
+        // return value also tells the caller exactly how many of `events`,
+        // in order, were actually ingested. Returns the number pushed.
+        virtual size_t record_batch(const RawEvent* events, size_t count) const noexcept = 0;
+
         virtual bool is_guard_active() const noexcept = 0;
         virtual void start_persistence(const std::string& log_filepath) = 0;
         virtual void stop_persistence() = 0;
@@ -347,6 +368,24 @@ namespace animus {
                 value
             };
             return ring_.push(payload);
+        }
+
+        size_t record_batch(const RawEvent* events, size_t count) const noexcept override {
+            if (!events) return 0;
+            size_t pushed = 0;
+            for (size_t i = 0; i < count; ++i) {
+                TelemetryPayload payload{
+                    read_cycle_counter(),
+                    events[i].event_id,
+                    events[i].trace_id,
+                    events[i].metric_value
+                };
+                if (!ring_.push(payload)) {
+                    break; // full; no concurrent consumer will free space within this call
+                }
+                ++pushed;
+            }
+            return pushed;
         }
 
         bool is_guard_active() const noexcept override {
@@ -540,6 +579,7 @@ namespace animus {
 extern "C" {
     ANIMUS_API bool animus_init(size_t buffer_capacity);
     ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value);
+    ANIMUS_API size_t animus_record_events_batch(const animus::RawEvent* events, size_t count);
     ANIMUS_API void animus_start_logging(const char* filepath);
     ANIMUS_API void animus_stop_logging();
     ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity);

@@ -35,6 +35,12 @@ extern "C" {
         return engine->record(event_id, trace_id, metric_value);
     }
 
+    ANIMUS_API size_t animus_record_events_batch(const animus::RawEvent* events, size_t count) {
+        animus::Engine* engine = g_engine.get();
+        if (!engine || !events) return 0;
+        return engine->record_batch(events, count);
+    }
+
     ANIMUS_API void animus_start_logging(const char* filepath) {
         animus::Engine* engine = g_engine.get();
         if (engine && filepath) {
