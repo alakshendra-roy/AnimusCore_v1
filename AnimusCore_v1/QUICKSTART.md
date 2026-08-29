@@ -1,6 +1,6 @@
 # Animus Core v1.0 -- Client Quickstart Guides
 
-Six proof-of-concept quickstarts, one per way of consuming Animus Core.
+Seven proof-of-concept quickstarts, one per way of consuming Animus Core.
 Pick the one that matches your integration:
 
 | Guide | For | Platform |
@@ -11,8 +11,9 @@ Pick the one that matches your integration:
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
 | [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
 | [6. Market data feed adapters](#6-market-data-feed-adapters-l2l3-book--trade-ticks) | Live L2/L3 order book + trade tick ingestion (`proprietary-edition` branch only) | Any (Windows/Linux/macOS) |
+| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes (no Python interop) | Windows + MSVC (verified); POSIX path implemented, not yet build-verified in this repo |
 
-All six PoCs below are real, runnable code paths already exercised in this
+All seven PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
@@ -914,6 +915,120 @@ guarantee as the Python methods above.
 
 ---
 
+## 7. Generic Shared-Memory IPC (`ShmRing<T>`)
+
+**A different tradeoff from guide 1/2's `SharedTelemetryChannel`/
+`SharedTelemetryRing`, not a replacement for them.** Those two are
+deliberately wire-compatible with each other (identical byte layout, so a
+C++ process and a Python process can produce/consume interchangeably) and
+therefore deliberately *not* cache-line-padded, to preserve that
+compatibility. `animus::sys::ipc::ShmRing<T>` (`include/animus/shm_ipc.hpp`)
+drops the interop constraint entirely -- it's a generic template for any
+trivially-copyable `T` you define, with its header explicitly padded so
+the producer's `head` cursor and the consumer's `tail` cursor each get
+their own cache line, eliminating false sharing between them. Reach for
+this when the two ends are both native C++ processes and raw latency
+matters more than being able to swap in a Python producer or consumer.
+
+**No Python binding today.** Unlike every other shared-memory primitive in
+this document, `ShmRing<T>` has no C-ABI export and no ctypes wrapper --
+it's currently C++-only. If you need a Python-reachable cross-process
+channel, guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` is what
+you want instead.
+
+**Standalone, not part of `animus.hpp`:** `shm_ipc.hpp` has no dependency
+on `animus.hpp` or `animus_release.hpp` -- it only includes
+`include/animus/thread_affinity.hpp` (for `ANIMUS_CACHE_LINE_SIZE` and
+`animus::cpu_relax()`, guide 2's CPU-pinning module), so it can be dropped
+into a project that wants nothing else from this repo.
+
+```cpp
+#include "include/animus/shm_ipc.hpp"   // pulls in thread_affinity.hpp
+
+using namespace animus::sys::ipc;
+
+struct Tick {
+    uint64_t sequence;
+    uint64_t price_ticks;
+};
+static_assert(std::is_trivially_copyable<Tick>::value, "");  // enforced by ShmRing<T> itself too
+
+// Process A: owns the ring's lifecycle (create it first, unlink it last).
+auto ring = ShmRing<Tick>::create("my-ring", /*requested_capacity=*/4096);
+if (!ring) { /* name collision, or the OS refused the mapping */ }
+
+ring->push_spin(Tick{1, 101250});   // spin-polls with animus::cpu_relax()
+                                     // until there's room, or max_spins attempts pass
+bool pushed = ring->try_push(Tick{2, 101300});  // never blocks; false if full, no spinning
+
+// Process B, on the same machine, any time after Process A's create() returns:
+auto ring2 = ShmRing<Tick>::open("my-ring");
+Tick out{};
+if (ring2->try_pop(out)) { /* ... */ }           // never blocks; false if empty
+ring2->pop_spin(out);                            // spin-polls until something arrives
+
+// Whichever process should own teardown, once both sides are done:
+ShmRing<Tick>::unlink("my-ring");
+```
+
+`create()`/`open()` return `nullptr` (never throw -- every entry point in
+this header is `noexcept`) on failure: a name collision, a segment that
+doesn't exist yet, or a header whose claimed capacity doesn't fit the
+mapped region. Requested capacity is rounded up to a power of two, same
+convention as `animus.hpp`'s `LockFreeRingBuffer`/`SpscRingBuffer`.
+
+**Single-producer/single-consumer, same contract as guide 2's
+`SpscRingBuffer`:** don't share one `ShmRing<T>` across more than one
+producer process or more than one consumer process -- it isn't enforced
+at runtime, for the same reason it isn't in `SpscRingBuffer`.
+
+**An unpaced burst can still build a backlog -- this primitive doesn't
+prevent that, your usage of it does.** `push_spin()` only blocks once the
+ring is actually full; if your producer is faster than your consumer, a
+backlog accumulates inside the ring first, and messages sitting in that
+backlog experience real queueing delay before your consumer ever touches
+them -- indistinguishable, from the consumer's side, from the transport
+itself being slow. This is exactly the mistake the ring's own benchmark
+made on its first attempt (see below) before being fixed; if your
+end-to-end latency matters, measure it the way that benchmark now does
+(paced/lockstep), not with an unpaced burst.
+
+**Measured, not assumed:** `AnimusCore_v1/shm_ipc_bench.cpp` is a
+standalone two-process benchmark -- real cross-process, TSC-timestamped,
+lockstep (an ack ring keeps at most one message in flight, so the number
+reported is genuine transit latency, not queueing delay). Build and run it
+as two separate processes, consumer first:
+
+```powershell
+cl /std:c++17 /EHsc /O2 AnimusCore_v1/shm_ipc_bench.cpp /Fe:shm_ipc_bench.exe
+
+# Terminal 1 -- owns the ring's creation/unlink, start this first:
+shm_ipc_bench.exe --consumer my-ring 500000
+
+# Terminal 2:
+shm_ipc_bench.exe --producer my-ring 500000
+```
+
+Across 5 consecutive runs, 500,000 round trips each: p50 = 23.6-37.6 ns,
+p99 = 43.4-51.3 ns -- both genuinely sub-50ns in every run. p99.9 was
+*not*: it landed at 51-57 ns in all 5 runs, consistently just over the
+target rather than around it -- reported as measured, not rounded down to
+fit. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 20 section for the full
+numbers, including the producer-faster-than-consumer backlog bug found
+and fixed while building this benchmark (the same failure family already
+documented in the Phase 16 and Phase 19 sections).
+
+**Platform coverage, stated precisely:** the Windows path
+(`CreateFileMappingA`/`MapViewOfFile`/`OpenFileMappingA`) is what every
+number above was measured against. The POSIX path (`shm_open`/`mmap`)
+follows the identical approach already verified in `animus.hpp`'s
+`SharedMemorySegment` (guide 1/2), but this specific header has not yet
+been build-verified on Linux/macOS in this repo -- treat it as
+implemented-but-unverified there until a real POSIX build confirms it,
+the same honesty bar guide 5 applies to its own Windows-only limitation.
+
+---
+
 ## Which guide should I start with?
 
 - Building a Python-based SOAR/orchestration pipeline, or just scripting
@@ -930,3 +1045,8 @@ guarantee as the Python methods above.
 - Ingesting a live L2/L3 order book or trade tick feed, possibly from
   multiple venue connections at once? **Guide 6** (`proprietary-edition`
   branch only for now; portable and independent of Guide 5's licensing).
+- Need the lowest-latency cross-process transport between two native C++
+  processes, and don't need Python interop? **Guide 7** (a different
+  tradeoff than Guide 1/2's `SharedTelemetryChannel`/`SharedTelemetryRing`
+  -- no wire-compatibility constraint, so it cache-line-pads the
+  producer/consumer cursors instead).
