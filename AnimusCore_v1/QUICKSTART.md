@@ -555,6 +555,23 @@ audit trail); add an `add_cep_rule(token, ...)` method to the gateway,
 same `authorize_and_dispatch` pattern, if a tenant needs sliding-window
 rules under this guide's access control.
 
+**`SharedTelemetryChannel` is a bigger problem than a gap here -- it's a
+real bypass, not just a missing wrapper.** `animus_security.hpp` doesn't
+reference shared memory at all, and structurally can't wrap it the way
+it wraps `record()`/`add_rule()`: `SharedTelemetryChannel` isn't an
+`Engine` method routed through a tenant's isolated instance, it's a
+standalone named-OS-object primitive with no concept of a tenant, a
+role, or a permission -- `create()`/`attach()` take nothing but a name
+and a capacity. Any process on the same machine that knows (or guesses)
+that name can attach and read or write raw telemetry directly, with no
+RBAC check, no audit entry, and no tenant boundary -- completely
+bypassing everything `SecureTelemetryGateway` exists to enforce. If a
+deployment using this guide's RBAC/tenancy layer also uses
+`SharedTelemetryChannel` anywhere, treat the segment name like a secret
+and the OS's own file-mapping/shared-memory permissions as the only
+access control actually in effect for it -- this guide's RBAC has no
+reach into it at all.
+
 Full working client + server: `AnimusCore_v1/secure_multitenancy_demo.cpp`
 (RBAC/tenancy only) and `AnimusCore_v1/secure_transport_demo.cpp` (adds real
 TLS 1.3 mutual auth over loopback TCP). Build/run:
@@ -625,6 +642,19 @@ same sliding-window rule, that's a real gap to close (extend
 `animus_cluster.hpp`'s command set with an `AddCepRuleCommand`, mirroring
 `AddRuleCommand`'s existing replication path), not something this guide
 can currently paper over.
+
+**`SharedTelemetryChannel` is node-local too, and for a more basic
+reason: nothing in this cluster layer knows it exists.**
+`animus_cluster.hpp` doesn't reference shared memory at all -- there's
+no `WireFrame`/`SecureChannel` message for it, and `RaftNode` has no
+opinion on how telemetry reaches a node's local `engine` in the first
+place, only on how `AddRuleCommand`s replicate once they're there. If
+you feed one node's ingestion via a shared-memory segment (guide 2's
+`SharedTelemetryChannel` section) with a separate co-located collector
+process, that's exactly as valid as feeding it via `engine->record()`
+directly -- but it's local to that one node's machine, same as every
+other ingestion path in this guide; nothing about it crosses to the
+other nodes, and consensus never touches it.
 
 ```powershell
 cl /std:c++17 /EHsc /O2 AnimusCore_v1/cluster_demo.cpp
