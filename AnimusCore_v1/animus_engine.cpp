@@ -368,6 +368,48 @@ extern "C" {
         return static_cast<animus::SharedTelemetryChannel*>(channel)->pop(*out);
     }
 
+    ANIMUS_API void* animus_feed_create(size_t l2_capacity, size_t trade_capacity) {
+        return animus::MarketDataFeed::create(l2_capacity, trade_capacity).release();
+    }
+
+    ANIMUS_API void animus_feed_close(void* feed) {
+        delete static_cast<animus::MarketDataFeed*>(feed);
+    }
+
+    ANIMUS_API size_t animus_feed_l2_capacity(void* feed) {
+        if (!feed) return 0;
+        return static_cast<animus::MarketDataFeed*>(feed)->l2_capacity();
+    }
+
+    ANIMUS_API size_t animus_feed_trade_capacity(void* feed) {
+        if (!feed) return 0;
+        return static_cast<animus::MarketDataFeed*>(feed)->trade_capacity();
+    }
+
+    ANIMUS_API bool animus_feed_push_l2_update(void* feed, uint32_t instrument_id, uint8_t side, uint8_t action,
+        uint32_t level, uint64_t price_ticks, uint64_t quantity, uint64_t sequence_number, uint64_t exchange_timestamp_ns) {
+        if (!feed) return false;
+        return static_cast<animus::MarketDataFeed*>(feed)->push_l2_update(
+            instrument_id, side, action, level, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+    }
+
+    ANIMUS_API bool animus_feed_push_trade(void* feed, uint32_t instrument_id, uint64_t trade_id, uint8_t aggressor_side,
+        uint64_t price_ticks, uint64_t quantity, uint64_t sequence_number, uint64_t exchange_timestamp_ns) {
+        if (!feed) return false;
+        return static_cast<animus::MarketDataFeed*>(feed)->push_trade(
+            instrument_id, trade_id, aggressor_side, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+    }
+
+    ANIMUS_API size_t animus_feed_poll_l2_updates(void* feed, animus::L2Update* out, size_t max_count) {
+        if (!feed || !out) return 0;
+        return static_cast<animus::MarketDataFeed*>(feed)->poll_l2_updates(out, max_count);
+    }
+
+    ANIMUS_API size_t animus_feed_poll_trades(void* feed, animus::TradeTick* out, size_t max_count) {
+        if (!feed || !out) return 0;
+        return static_cast<animus::MarketDataFeed*>(feed)->poll_trades(out, max_count);
+    }
+
     ANIMUS_API bool animus_verify_license(const char* license_path) {
 #if defined(_WIN32)
         if (!license_path) return false;
