@@ -12,6 +12,7 @@ from .bindings import (
     TradeAggressor,
     L2Update,
     TradeTick,
+    ShmRingChannel,
 )
 from .decorators import trace
 from .shm import SharedTelemetryRing, TelemetryRecordView
@@ -34,4 +35,5 @@ __all__ = [
     'TradeAggressor',
     'L2Update',
     'TradeTick',
+    'ShmRingChannel',
 ]

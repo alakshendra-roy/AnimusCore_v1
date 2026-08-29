@@ -1642,4 +1642,47 @@ extern "C" {
     // Drains up to max_count pending trade ticks, same contract as
     // animus_feed_poll_l2_updates.
     ANIMUS_API size_t animus_feed_poll_trades(void* feed, animus::TradeTick* out, size_t max_count);
+
+    // animus::sys::ipc::ShmRing<RawEvent> (include/animus/shm_ipc.hpp), the
+    // generic cross-process ring, instantiated here for animus::RawEvent
+    // specifically -- the same 16-byte record animus_record_events_batch
+    // already takes, chosen so a batch popped off this ring is exactly the
+    // array record_batch() wants, with no translation step. A different
+    // C++ caller (or a future C-ABI export) is free to instantiate
+    // ShmRing<T> for some other T directly; this is the one concrete
+    // instantiation exposed across the ctypes boundary, not a claim that
+    // it's the only one that exists.
+    //
+    // Handle-based, same pattern as animus_shm_create/animus_feed_create --
+    // not a singleton, so a caller can open as many independent rings as
+    // it needs. Deliberately NOT license-gated: like SharedMemorySegment
+    // and MarketDataFeed above (and unlike animus_pin_current_thread_to_core/
+    // animus_spsc_init), this is a data-transport primitive, not a
+    // hardware-entitlement one.
+    //
+    // No spin-blocking variant is exposed here on purpose. ShmRing<T>'s own
+    // push_spin()/pop_spin() can legitimately block for low seconds waiting
+    // for a peer (bounded by max_spins, not infinite, but still long for a
+    // single call) -- fine for a native C++ caller, but a ctypes call that
+    // blocks that long holds the GIL released for its whole duration and
+    // cannot be interrupted with Ctrl+C from Python. A caller that wants
+    // "wait for the next item" implements a bounded retry loop in Python
+    // instead (same shape as ingest_engine.py's own signal-poller loop),
+    // which stays interruptible at every iteration.
+    ANIMUS_API void* animus_shm_ring_create(const char* name, size_t requested_capacity);
+    ANIMUS_API void* animus_shm_ring_open(const char* name);
+    ANIMUS_API void animus_shm_ring_close(void* ring);
+    ANIMUS_API bool animus_shm_ring_unlink(const char* name);
+    ANIMUS_API size_t animus_shm_ring_capacity(void* ring);
+
+    // Never blocks; false if the ring is full/empty or `ring` is null.
+    ANIMUS_API bool animus_shm_ring_try_push(void* ring, const animus::RawEvent* event);
+    ANIMUS_API bool animus_shm_ring_try_pop(void* ring, animus::RawEvent* out);
+
+    // Same "stop at the first push that fails, return how many actually
+    // transferred" contract as animus_record_events_batch/
+    // animus_spsc_record_events_batch -- never blocks, never partially
+    // corrupts state, just tells the caller how far it got.
+    ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count);
+    ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count);
 }
