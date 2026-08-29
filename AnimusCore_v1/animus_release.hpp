@@ -867,6 +867,23 @@ namespace animus {
     constexpr size_t kLicenseSignatureSize = 256;  // RSA-2048 signature size in bytes
     constexpr size_t kLicenseFileSize = sizeof(LicensePayload) + kLicenseSignatureSize; // 320
 
+    // Structured outcome of animus_check_license_status, for a caller that
+    // wants to know (and log) exactly *why* a license failed rather than
+    // just that it did. animus_verify_license (the original, boolean entry
+    // point every existing caller already uses) is unchanged and remains
+    // backward compatible -- it is now defined in terms of this same check
+    // collapsing to `== LicenseStatus::Valid`, not a second, parallel
+    // implementation that could drift from it.
+    enum class LicenseStatus : uint8_t {
+        Valid = 0,
+        Missing = 1,              // file not found / could not be opened
+        Malformed = 2,             // wrong size, or wrong magic -- not a license file this build understands
+        BadSignature = 3,          // signature doesn't verify: tampered payload, or signed by a different key
+        Expired = 4,
+        WrongMachine = 5,          // validly signed, but issued for a different machine's fingerprint
+        UnsupportedPlatform = 6,   // this build has no license verification implementation (non-Windows, for now)
+    };
+
     class Engine {
     public:
         virtual ~Engine() = default;
@@ -1632,6 +1649,15 @@ extern "C" {
     // The verified license's entitled core count, or 0 if unlicensed.
     ANIMUS_API uint32_t animus_licensed_max_cores(void);
 
+    // Same check as animus_verify_license above, but returns the specific
+    // reason for failure (animus::LicenseStatus) instead of collapsing it
+    // to a bool -- meant for a host application's own startup: log the
+    // exact status (expired vs. wrong machine vs. no file deployed yet are
+    // very different operational situations) before deciding whether to
+    // proceed. Has the identical side effect as animus_verify_license on
+    // success: is_licensed()/licensed_max_cores() reflect it afterwards.
+    ANIMUS_API animus::LicenseStatus animus_check_license_status(const char* license_path);
+
     // Market data feed adapters (animus::MarketDataFeed). Handle-based,
     // same pattern as animus_shm_create/attach/close above -- not a
     // singleton like g_engine, so a caller can create as many independent
@@ -1751,6 +1777,7 @@ extern "C" {
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 
 namespace animus {
 namespace security {
@@ -1997,8 +2024,25 @@ namespace security {
             return ok;
         }
 
+        // Opt-in, OFF by default: when enabled, submit() below additionally
+        // requires a verified offline license (animus_is_licensed(), see
+        // animus_verify_license/animus_check_license_status in
+        // animus_engine.cpp) before routing an otherwise-authorized order.
+        // Defaulting to OFF is deliberate, not an oversight -- this feature
+        // shipped (v1.1.0-rc1) and was tested with no license concept
+        // attached to it at all; flipping the default here would silently
+        // break every existing caller (and every existing test) that never
+        // verifies a license today. A deployment that wants execution
+        // itself gated on a valid license calls this once at startup;
+        // everyone else sees identical behavior to before this existed.
+        void set_execution_license_required(bool required) noexcept {
+            require_license_.store(required, std::memory_order_release);
+        }
+
         // Routes one order through the token's own tenant ExecutionClient.
-        // Requires SubmitOrder. Returns false for BOTH a denied token and a
+        // Requires SubmitOrder, and (only if set_execution_license_required
+        // has been called with true) a verified license. Returns false for
+        // a denied token, an unlicensed process when required, and a
         // broker-rejected order -- same flat-bool convention as
         // SecureTelemetryGateway::record() above; poll_execution_audit_log()
         // is how a caller distinguishes "not authorized" from "the tenant's
@@ -2006,6 +2050,9 @@ namespace security {
         // not the return value of this call.
         bool submit(const AccessToken& token, const OrderRequest& request, ExecutionReport& out) {
             bool allowed = RbacPolicy::is_allowed(token.role, Permission::SubmitOrder);
+            if (allowed && require_license_.load(std::memory_order_acquire) && !animus_is_licensed()) {
+                allowed = false;
+            }
             ExecutionClient* client = nullptr;
             if (allowed) {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -2044,6 +2091,7 @@ namespace security {
         std::unordered_map<uint32_t, TenantExecution> tenants_;
         std::mutex audit_mutex_;
         std::deque<AuditEvent> audit_log_;
+        std::atomic<bool> require_license_{ false };
     };
 
 } // namespace security
@@ -2092,6 +2140,11 @@ extern "C" {
     // SecureTelemetryGateway's poll_audit_log, auditing the audit log is
     // intentionally not part of this lattice.
     ANIMUS_API size_t animus_security_poll_execution_audit_log(void* ctx, animus::security::AuditEvent* out, size_t max_count);
+
+    // Opt-in, OFF by default -- see SecureExecutionGateway::set_execution_license_required's
+    // own docstring for why the default must stay OFF. Toggling this affects
+    // every subsequent animus_security_submit_order call for this context.
+    ANIMUS_API void animus_security_set_execution_license_required(void* ctx, bool required);
 }
 
 // -------------------------------------------------------------------------

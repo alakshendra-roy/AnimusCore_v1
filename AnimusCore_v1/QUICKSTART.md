@@ -807,6 +807,61 @@ SHA-256 -- no OpenSSL, no external crypto dependency) rather than faking
 a pass. A Linux/macOS build of this branch cannot verify a license at
 all yet; that's a documented gap, not an oversight.
 
+**Knowing *why* a license failed, not just that it did:**
+`AnimusBindings.check_license_status(path)` runs the identical check as
+`verify_license()` but returns `LicenseStatus` (`VALID`, `MISSING`,
+`MALFORMED`, `BAD_SIGNATURE`, `EXPIRED`, `WRONG_MACHINE`,
+`UNSUPPORTED_PLATFORM`) instead of collapsing every failure to `False` --
+useful for a deployment that wants to log or alert differently on
+"expired" vs. "issued for a different machine" vs. "no license file
+deployed yet." `AnimusBindings.require_license(path)` is the "block
+execution if invalid" convenience for a host application's own startup:
+it raises `LicenseError` (with the specific status attached as
+`.status`) unless the license is `VALID`.
+
+```python
+from animus.bindings import AnimusBindings, LicenseError
+
+try:
+    AnimusBindings().require_license("customer.lic")
+except LicenseError as exc:
+    raise SystemExit(f"cannot start: license {exc.status.name}")
+```
+
+**An opt-in license gate on order execution itself**
+(`SecureExecutionGateway.set_execution_license_required`, guide 3's RBAC
+layer) -- **OFF by default**, so existing callers see no behavior change.
+A deployment that wants `SecurityContext.submit_order()` itself to
+require a valid license (not just `spsc_init`/`pin_current_thread_to_core`
+above) opts in explicitly:
+
+```python
+ctx = SecurityContext.create()
+ctx.set_execution_license_required(True)   # off by default -- opt in explicitly
+# submit_order() now additionally requires AnimusBindings().verify_license(...)
+# to have succeeded in this process; denied otherwise, audited as any RBAC denial is.
+```
+
+**Generating and checking licenses without touching PowerShell directly**
+-- `scripts/generate_license.py` is a zero-dependency Python CLI wrapping
+`generate_license_keypair.ps1`/`sign_license.ps1` above (it does not
+reimplement the RSA-2048 keygen/signing itself -- see the script's own
+docstring for why: this SDK's zero-third-party-dependency rule rules out
+`cryptography`/`pycryptodome`, and the PowerShell tool already does this
+correctly), plus one genuinely new capability, `status`, which calls
+straight into `check_license_status()`:
+
+```powershell
+python scripts/generate_license.py keypair
+python scripts/generate_license.py sign --out customer.lic --max-cores 4 --expires-in-days 365
+python scripts/generate_license.py status customer.lic   # prints e.g. "customer.lic: VALID", exit 0 only if VALID
+```
+
+See `tests/test_licensing.cpp` for a native (non-Python) exercise of all
+of the above against a real compiled DLL -- this repo's first C++ test
+file, hand-rolled asserts in the same style as `release_header_smoke_test.cpp`
+rather than a pulled-in test framework.
+
 ---
 
 ## 6. Market Data Feed Adapters (L2/L3 Book + Trade Ticks)
