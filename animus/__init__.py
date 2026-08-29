@@ -25,6 +25,8 @@ from .bindings import (
     AuditEvent,
     ShmOrderRingChannel,
     SecurityContext,
+    LicenseStatus,
+    LicenseError,
 )
 from .decorators import trace
 from .shm import SharedTelemetryRing, TelemetryRecordView
@@ -60,4 +62,6 @@ __all__ = [
     'AuditEvent',
     'ShmOrderRingChannel',
     'SecurityContext',
+    'LicenseStatus',
+    'LicenseError',
 ]

@@ -16,6 +16,7 @@
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+#include <atomic>
 
 namespace animus {
 namespace security {
@@ -262,8 +263,25 @@ namespace security {
             return ok;
         }
 
+        // Opt-in, OFF by default: when enabled, submit() below additionally
+        // requires a verified offline license (animus_is_licensed(), see
+        // animus_verify_license/animus_check_license_status in
+        // animus_engine.cpp) before routing an otherwise-authorized order.
+        // Defaulting to OFF is deliberate, not an oversight -- this feature
+        // shipped (v1.1.0-rc1) and was tested with no license concept
+        // attached to it at all; flipping the default here would silently
+        // break every existing caller (and every existing test) that never
+        // verifies a license today. A deployment that wants execution
+        // itself gated on a valid license calls this once at startup;
+        // everyone else sees identical behavior to before this existed.
+        void set_execution_license_required(bool required) noexcept {
+            require_license_.store(required, std::memory_order_release);
+        }
+
         // Routes one order through the token's own tenant ExecutionClient.
-        // Requires SubmitOrder. Returns false for BOTH a denied token and a
+        // Requires SubmitOrder, and (only if set_execution_license_required
+        // has been called with true) a verified license. Returns false for
+        // a denied token, an unlicensed process when required, and a
         // broker-rejected order -- same flat-bool convention as
         // SecureTelemetryGateway::record() above; poll_execution_audit_log()
         // is how a caller distinguishes "not authorized" from "the tenant's
@@ -271,6 +289,9 @@ namespace security {
         // not the return value of this call.
         bool submit(const AccessToken& token, const OrderRequest& request, ExecutionReport& out) {
             bool allowed = RbacPolicy::is_allowed(token.role, Permission::SubmitOrder);
+            if (allowed && require_license_.load(std::memory_order_acquire) && !animus_is_licensed()) {
+                allowed = false;
+            }
             ExecutionClient* client = nullptr;
             if (allowed) {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -309,6 +330,7 @@ namespace security {
         std::unordered_map<uint32_t, TenantExecution> tenants_;
         std::mutex audit_mutex_;
         std::deque<AuditEvent> audit_log_;
+        std::atomic<bool> require_license_{ false };
     };
 
 } // namespace security
@@ -357,4 +379,9 @@ extern "C" {
     // SecureTelemetryGateway's poll_audit_log, auditing the audit log is
     // intentionally not part of this lattice.
     ANIMUS_API size_t animus_security_poll_execution_audit_log(void* ctx, animus::security::AuditEvent* out, size_t max_count);
+
+    // Opt-in, OFF by default -- see SecureExecutionGateway::set_execution_license_required's
+    // own docstring for why the default must stay OFF. Toggling this affects
+    // every subsequent animus_security_submit_order call for this context.
+    ANIMUS_API void animus_security_set_execution_license_required(void* ctx, bool required);
 }

@@ -336,6 +336,32 @@ class AuditOutcome(IntEnum):
     DENIED = 1
 
 
+class LicenseStatus(IntEnum):
+    """Mirrors animus::LicenseStatus (animus.hpp) -- values must stay in
+    sync. Returned by AnimusBindings.check_license_status() for a caller
+    that wants the specific reason a license failed, not just a bool.
+    """
+    VALID = 0
+    MISSING = 1
+    MALFORMED = 2
+    BAD_SIGNATURE = 3
+    EXPIRED = 4
+    WRONG_MACHINE = 5
+    UNSUPPORTED_PLATFORM = 6
+
+
+class LicenseError(Exception):
+    """Raised by AnimusBindings.require_license() when a license fails to
+    verify. Carries the specific LicenseStatus so a caller that wants to
+    handle e.g. EXPIRED differently from WRONG_MACHINE can inspect
+    `.status` instead of parsing the message.
+    """
+
+    def __init__(self, status: "LicenseStatus") -> None:
+        self.status = status
+        super().__init__(f"license verification failed: {status.name}")
+
+
 class OrderRequest(ctypes.Structure):
     """Mirrors animus::OrderRequest (animus.hpp) byte-for-byte, INCLUDING its
     2 bytes of internal alignment padding between `type` and `price_ticks`
@@ -828,6 +854,9 @@ class AnimusBindings:
         self._lib.animus_licensed_max_cores.argtypes = []
         self._lib.animus_licensed_max_cores.restype = ctypes.c_uint32
 
+        self._lib.animus_check_license_status.argtypes = [ctypes.c_char_p]
+        self._lib.animus_check_license_status.restype = ctypes.c_uint8
+
     def init(self, buffer_capacity: int = 65536) -> bool:
         """Initializes the engine (native singleton, or pure-Python fallback). Idempotent."""
         if self._initialized:
@@ -1116,6 +1145,29 @@ class AnimusBindings:
         """The verified license's entitled core count, or 0 if unlicensed."""
         self._require_native("licensed_max_cores")
         return int(self._lib.animus_licensed_max_cores())
+
+    def check_license_status(self, license_path: str) -> LicenseStatus:
+        """Same check as verify_license() above, but returns the specific
+        reason for failure (LicenseStatus) instead of collapsing it to a
+        bool -- e.g. distinguishing EXPIRED from WRONG_MACHINE from no
+        license file deployed yet (MISSING). Has the identical side effect
+        as verify_license() on success: is_licensed()/licensed_max_cores()
+        reflect it afterwards.
+        """
+        self._require_native("check_license_status")
+        return LicenseStatus(self._lib.animus_check_license_status(license_path.encode("utf-8")))
+
+    def require_license(self, license_path: str) -> None:
+        """Convenience for a host application's own startup: raises
+        LicenseError unless license_path verifies as LicenseStatus.VALID.
+        Call this once before doing anything license-gated; a caller that
+        wants to keep running (e.g. to log the reason and degrade
+        gracefully) instead of raising should call check_license_status()
+        directly.
+        """
+        status = self.check_license_status(license_path)
+        if status != LicenseStatus.VALID:
+            raise LicenseError(status)
 
 
 def _configure_shm_signatures(lib: ctypes.CDLL) -> None:
@@ -1703,6 +1755,8 @@ def _configure_security_signatures(lib: ctypes.CDLL) -> None:
     lib.animus_security_submit_order.restype = ctypes.c_bool
     lib.animus_security_poll_execution_audit_log.argtypes = [ctypes.c_void_p, ctypes.POINTER(AuditEvent), ctypes.c_size_t]
     lib.animus_security_poll_execution_audit_log.restype = ctypes.c_size_t
+    lib.animus_security_set_execution_license_required.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+    lib.animus_security_set_execution_license_required.restype = None
 
 
 class SecurityContext:
@@ -1777,6 +1831,18 @@ class SecurityContext:
             self._handle, ctypes.byref(token), ctypes.byref(request), ctypes.byref(report),
         )
         return report if ok else None
+
+    def set_execution_license_required(self, required: bool) -> None:
+        """Opt-in, OFF by default: when enabled, submit_order() below
+        additionally requires a verified offline license (see
+        AnimusBindings.verify_license/require_license) before routing an
+        otherwise-authorized order -- denied calls still show up in
+        poll_execution_audit_log() as AuditOutcome.DENIED, same as any
+        other RBAC denial. Defaults to OFF so existing callers that never
+        verify a license see no behavior change; call this once at startup
+        for a deployment that wants order execution itself license-gated.
+        """
+        self._lib.animus_security_set_execution_license_required(self._handle, ctypes.c_bool(required))
 
     def poll_execution_audit_log(self, max_count: int = 1024) -> List[AuditEvent]:
         """Drains up to max_count pending execution RBAC decisions (allowed

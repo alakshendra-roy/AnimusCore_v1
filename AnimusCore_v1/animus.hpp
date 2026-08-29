@@ -841,6 +841,23 @@ namespace animus {
     constexpr size_t kLicenseSignatureSize = 256;  // RSA-2048 signature size in bytes
     constexpr size_t kLicenseFileSize = sizeof(LicensePayload) + kLicenseSignatureSize; // 320
 
+    // Structured outcome of animus_check_license_status, for a caller that
+    // wants to know (and log) exactly *why* a license failed rather than
+    // just that it did. animus_verify_license (the original, boolean entry
+    // point every existing caller already uses) is unchanged and remains
+    // backward compatible -- it is now defined in terms of this same check
+    // collapsing to `== LicenseStatus::Valid`, not a second, parallel
+    // implementation that could drift from it.
+    enum class LicenseStatus : uint8_t {
+        Valid = 0,
+        Missing = 1,              // file not found / could not be opened
+        Malformed = 2,             // wrong size, or wrong magic -- not a license file this build understands
+        BadSignature = 3,          // signature doesn't verify: tampered payload, or signed by a different key
+        Expired = 4,
+        WrongMachine = 5,          // validly signed, but issued for a different machine's fingerprint
+        UnsupportedPlatform = 6,   // this build has no license verification implementation (non-Windows, for now)
+    };
+
     class Engine {
     public:
         virtual ~Engine() = default;
@@ -1605,6 +1622,15 @@ extern "C" {
 
     // The verified license's entitled core count, or 0 if unlicensed.
     ANIMUS_API uint32_t animus_licensed_max_cores(void);
+
+    // Same check as animus_verify_license above, but returns the specific
+    // reason for failure (animus::LicenseStatus) instead of collapsing it
+    // to a bool -- meant for a host application's own startup: log the
+    // exact status (expired vs. wrong machine vs. no file deployed yet are
+    // very different operational situations) before deciding whether to
+    // proceed. Has the identical side effect as animus_verify_license on
+    // success: is_licensed()/licensed_max_cores() reflect it afterwards.
+    ANIMUS_API animus::LicenseStatus animus_check_license_status(const char* license_path);
 
     // Market data feed adapters (animus::MarketDataFeed). Handle-based,
     // same pattern as animus_shm_create/attach/close above -- not a
