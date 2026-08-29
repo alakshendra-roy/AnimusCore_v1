@@ -25,6 +25,7 @@ from animus.bindings import (  # noqa: E402
     AnimusBindings,
     NativeEvent,
     RuleComparator,
+    SpscTelemetryRecord,
     ThreatSignal,
     find_native_library,
     load_native_library,
@@ -195,6 +196,43 @@ class _FakeNativeLib:
             return n
         self.animus_poll_signals = animus_poll_signals
 
+        def animus_spsc_init(capacity):
+            self.state["spsc_initialized"] = True
+            self.state["spsc_capacity"] = _unwrap(capacity)
+            return True
+        self.animus_spsc_init = animus_spsc_init
+
+        def animus_spsc_record_events_batch(buf, count):
+            n = _unwrap(count)
+            self.state.setdefault("spsc_events", [])
+            for i in range(n):
+                self.state["spsc_events"].append((buf[i].event_id, buf[i].trace_id, buf[i].metric_value))
+            return n
+        self.animus_spsc_record_events_batch = animus_spsc_record_events_batch
+
+        def animus_spsc_drain(buf, max_count):
+            pending = self.state.get("spsc_events", [])
+            n = min(len(pending), _unwrap(max_count))
+            for i in range(n):
+                event_id, trace_id, metric_value = pending[i]
+                buf[i].timestamp_cycles = 777
+                buf[i].event_id = event_id
+                buf[i].trace_id = trace_id
+                buf[i].metric_value = metric_value
+            self.state["spsc_events"] = pending[n:]
+            return n
+        self.animus_spsc_drain = animus_spsc_drain
+
+        def animus_pin_current_thread_to_core(core_id):
+            core_id = _unwrap(core_id)
+            self.state["pinned_to"] = core_id
+            return core_id in (0, 1, 2, 3)  # fake: pretend only cores 0-3 exist
+        self.animus_pin_current_thread_to_core = animus_pin_current_thread_to_core
+
+        def animus_get_cpu_count():
+            return 4
+        self.animus_get_cpu_count = animus_get_cpu_count
+
 
 class ZeroCopyPollSignalsTests(unittest.TestCase):
     """Verifies AnimusBindings.poll_signals()'s zero-copy contract: the
@@ -252,6 +290,33 @@ class ZeroCopyPollSignalsTests(unittest.TestCase):
         self.assertEqual(self.bindings.record_events_batch([]), 0)
         self.assertEqual(self.fake_lib.state["events"], [])
 
+    def test_spsc_push_and_drain_round_trip(self):
+        self.assertTrue(self.bindings.spsc_init(1024))
+        events = [(7, i, i * 100) for i in range(5)]
+        pushed = self.bindings.spsc_record_events_batch(events)
+        self.assertEqual(pushed, 5)
+
+        records = self.bindings.spsc_drain(max_count=10)
+        self.assertEqual(len(records), 5)
+        self.assertEqual(
+            [(r.event_id, r.trace_id, r.metric_value) for r in records],
+            events,
+        )
+        # A second drain with nothing left pending must return empty, not error.
+        self.assertEqual(self.bindings.spsc_drain(max_count=10), [])
+
+    def test_spsc_drain_before_init_raises(self):
+        with self.assertRaises(RuntimeError):
+            self.bindings.spsc_drain()
+
+    def test_pin_current_thread_to_core(self):
+        self.assertTrue(self.bindings.pin_current_thread_to_core(0))
+        self.assertEqual(self.fake_lib.state["pinned_to"], 0)
+        self.assertFalse(self.bindings.pin_current_thread_to_core(9999))
+
+    def test_get_cpu_count(self):
+        self.assertEqual(self.bindings.get_cpu_count(), 4)
+
     def test_start_stop_logging_delegate_to_native(self):
         self.bindings.start_logging("telemetry.log")
         self.assertTrue(self.fake_lib.state["logging"])
@@ -282,6 +347,22 @@ class PurePythonFallbackTests(unittest.TestCase):
 
     def test_reports_pure_python_backend(self):
         self.assertFalse(self.bindings.using_native_engine)
+
+    def test_spsc_and_pinning_have_no_fallback_and_raise(self):
+        # These are native performance primitives (lock-free SPSC ring, OS
+        # thread affinity) with no meaningful pure-Python reimplementation
+        # -- unlike record_event/add_rule/poll_signals, which all degrade to
+        # _PurePythonEngine, these must raise clearly instead of silently
+        # no-op-ing or behaving differently than the native path would.
+        for method, args in [
+            (self.bindings.spsc_init, ()),
+            (self.bindings.spsc_record_events_batch, ([(1, 1, 1)],)),
+            (self.bindings.spsc_drain, ()),
+            (self.bindings.pin_current_thread_to_core, (0,)),
+            (self.bindings.get_cpu_count, ()),
+        ]:
+            with self.assertRaises(RuntimeError):
+                method(*args)
 
     def test_init_is_idempotent(self):
         self.assertTrue(self.bindings.init(64))
@@ -382,6 +463,37 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(signals[0].metric_value, 5000)
             self.assertTrue(os.path.exists(log_path))
             self.assertGreater(os.path.getsize(log_path), 0)
+
+    def test_spsc_push_and_drain_round_trip_against_real_binary(self):
+        # Real end-to-end check that SpscTelemetryRecord's alignas(64)
+        # padding (bindings.py) actually matches the native
+        # animus::TelemetryPayload's real layout -- a size mismatch here
+        # doesn't raise, it silently reads every record at the wrong
+        # offset (reproduced and fixed during development; see
+        # SpscTelemetryRecord's docstring).
+        bindings = AnimusBindings()
+        self.assertTrue(bindings.using_native_engine)
+        self.assertTrue(bindings.spsc_init(buffer_capacity=1024))
+
+        events = [(9, i, i * 100) for i in range(50)]
+        pushed = bindings.spsc_record_events_batch(events)
+        self.assertEqual(pushed, 50)
+
+        records = bindings.spsc_drain(max_count=100)
+        self.assertEqual(len(records), 50)
+        self.assertEqual(
+            [(r.event_id, r.trace_id, r.metric_value) for r in records],
+            events,
+        )
+
+    def test_pin_current_thread_to_core_against_real_binary(self):
+        bindings = AnimusBindings()
+        cpu_count = bindings.get_cpu_count()
+        self.assertGreaterEqual(cpu_count, 1)
+        # Core 0 exists on every real machine this can run on.
+        self.assertTrue(bindings.pin_current_thread_to_core(0))
+        # An out-of-range core must fail, not silently pin somewhere else.
+        self.assertFalse(bindings.pin_current_thread_to_core(cpu_count + 1000))
 
 
 if __name__ == "__main__":

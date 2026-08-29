@@ -24,6 +24,15 @@ target_include_directories(animus_native PRIVATE
 
 target_compile_definitions(animus_native PRIVATE ANIMUS_EXPORTS)
 
+# Needed for pthread_setaffinity_np (animus_pin_current_thread_to_core's
+# Linux implementation, animus_engine.cpp) -- std::thread's own use in
+# EngineImpl already implies pthread, but that's an implicit dependency of
+# whichever glibc/libstdc++ this builds against, not a guarantee; linking
+# it explicitly via the portable CMake mechanism (works whether pthread is
+# a separate library or merged into libc) doesn't rely on that holding.
+find_package(Threads REQUIRED)
+target_link_libraries(animus_native PRIVATE Threads::Threads)
+
 if(NOT MSVC)
     target_compile_options(animus_native PRIVATE -fvisibility=hidden)
     # Statically link the GCC/MinGW runtime (libstdc++/libgcc/winpthread) so
