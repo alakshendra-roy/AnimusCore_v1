@@ -1,5 +1,18 @@
 from .core import EventEngine
-from .bindings import AnimusBindings, RuleComparator, WindowType, AggregationFunction, ThreatSignal, SharedTelemetryChannel
+from .bindings import (
+    AnimusBindings,
+    RuleComparator,
+    WindowType,
+    AggregationFunction,
+    ThreatSignal,
+    SharedTelemetryChannel,
+    MarketDataFeed,
+    BookSide,
+    BookUpdateAction,
+    TradeAggressor,
+    L2Update,
+    TradeTick,
+)
 from .decorators import trace
 from .shm import SharedTelemetryRing, TelemetryRecordView
 
@@ -15,4 +28,10 @@ __all__ = [
     'SharedTelemetryRing',
     'SharedTelemetryChannel',
     'TelemetryRecordView',
+    'MarketDataFeed',
+    'BookSide',
+    'BookUpdateAction',
+    'TradeAggressor',
+    'L2Update',
+    'TradeTick',
 ]

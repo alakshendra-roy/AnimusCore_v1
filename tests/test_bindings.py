@@ -17,6 +17,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest import mock
@@ -26,17 +27,35 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from animus.bindings import (  # noqa: E402
     AggregationFunction,
     AnimusBindings,
+    BookSide,
+    BookUpdateAction,
+    MarketDataFeed,
     NativeEvent,
     RuleComparator,
     SharedRecord,
     SharedTelemetryChannel,
     SpscTelemetryRecord,
     ThreatSignal,
+    TradeAggressor,
     WindowType,
     find_native_library,
     load_native_library,
 )
 from animus.shm import SharedTelemetryRing  # noqa: E402
+
+_LICENSE_TOOLS_DIR = os.path.join(os.path.dirname(__file__), "..", "AnimusCore_v1", "license_tools")
+# Committed test fixture, safe to publish: validly signed by the real
+# private key, but for an all-zero fingerprint that can never match a
+# real machine -- verifying it (and correctly rejecting it) needs only
+# the public key baked into the build, so it works on any machine,
+# including CI, unlike a license for a specific dev machine.
+_WRONG_MACHINE_LICENSE = os.path.join(_LICENSE_TOOLS_DIR, "test_fixtures", "wrong_machine_test_license.lic")
+# Local-only (gitignored -- see .gitignore), regenerated per-machine via
+# license_tools/sign_license.ps1. Tests requiring an actually-valid
+# license are skipped, not failed, when this doesn't exist (e.g. in CI,
+# where minting one would require the private key CI intentionally
+# doesn't have).
+_LOCAL_TEST_LICENSE = os.path.join(_LICENSE_TOOLS_DIR, "private", "test_license_for_this_machine.lic")
 
 
 class ThreatSignalLayoutTests(unittest.TestCase):
@@ -275,6 +294,29 @@ class _FakeNativeLib:
             return 4
         self.animus_get_cpu_count = animus_get_cpu_count
 
+        self.state["licensed"] = False
+        self.state["licensed_max_cores"] = 0
+
+        def animus_verify_license(path):
+            # Fake: a path literally equal to b"good.lic" "verifies" with
+            # max_cores=4; anything else fails, same shape as the real
+            # function's file-not-found/signature-mismatch/fingerprint-
+            # mismatch paths without needing real crypto in the fake.
+            if path == b"good.lic":
+                self.state["licensed"] = True
+                self.state["licensed_max_cores"] = 4
+                return True
+            return False
+        self.animus_verify_license = animus_verify_license
+
+        def animus_is_licensed():
+            return self.state["licensed"]
+        self.animus_is_licensed = animus_is_licensed
+
+        def animus_licensed_max_cores():
+            return self.state["licensed_max_cores"] if self.state["licensed"] else 0
+        self.animus_licensed_max_cores = animus_licensed_max_cores
+
 
 class ZeroCopyPollSignalsTests(unittest.TestCase):
     """Verifies AnimusBindings.poll_signals()'s zero-copy contract: the
@@ -366,6 +408,17 @@ class ZeroCopyPollSignalsTests(unittest.TestCase):
     def test_get_cpu_count(self):
         self.assertEqual(self.bindings.get_cpu_count(), 4)
 
+    def test_verify_license_marshals_through_to_native(self):
+        self.assertFalse(self.bindings.is_licensed())
+        self.assertEqual(self.bindings.licensed_max_cores(), 0)
+
+        self.assertFalse(self.bindings.verify_license("bad.lic"))
+        self.assertFalse(self.bindings.is_licensed())
+
+        self.assertTrue(self.bindings.verify_license("good.lic"))
+        self.assertTrue(self.bindings.is_licensed())
+        self.assertEqual(self.bindings.licensed_max_cores(), 4)
+
     def test_start_stop_logging_delegate_to_native(self):
         self.bindings.start_logging("telemetry.log")
         self.assertTrue(self.fake_lib.state["logging"])
@@ -409,6 +462,9 @@ class PurePythonFallbackTests(unittest.TestCase):
             (self.bindings.spsc_drain, ()),
             (self.bindings.pin_current_thread_to_core, (0,)),
             (self.bindings.get_cpu_count, ()),
+            (self.bindings.verify_license, ("anything.lic",)),
+            (self.bindings.is_licensed, ()),
+            (self.bindings.licensed_max_cores, ()),
         ]:
             with self.assertRaises(RuntimeError):
                 method(*args)
@@ -522,6 +578,18 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
     animus_poll_signals pointer marshalling, not a fake.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        # License state is a process-wide singleton (like g_engine) --
+        # once verified, it stays verified for the rest of this test
+        # process. Verifying once here (if a local test license exists
+        # for this machine) unlocks every spsc_init/pin_current_thread_to_core
+        # test below without repeating the call in each one. If no local
+        # license exists, this is a no-op and those specific tests skip
+        # themselves instead of failing -- see _LOCAL_TEST_LICENSE's docs.
+        if os.path.exists(_LOCAL_TEST_LICENSE):
+            AnimusBindings().verify_license(_LOCAL_TEST_LICENSE)
+
     def test_record_persist_and_poll_round_trip(self):
         bindings = AnimusBindings()
         self.assertTrue(bindings.using_native_engine)
@@ -624,6 +692,8 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
         self.assertEqual(signals[0].trace_id, 2)
         self.assertEqual(signals[0].metric_value, 10)  # floor(31/3) -- reported value only, not the comparison
 
+    @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
+                          "no local test license for this machine -- run license_tools/sign_license.ps1")
     def test_spsc_push_and_drain_round_trip_against_real_binary(self):
         # Real end-to-end check that SpscTelemetryRecord's alignas(64)
         # padding (bindings.py) actually matches the native
@@ -646,14 +716,101 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
             events,
         )
 
+    @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
+                          "no local test license for this machine -- run license_tools/sign_license.ps1")
     def test_pin_current_thread_to_core_against_real_binary(self):
         bindings = AnimusBindings()
         cpu_count = bindings.get_cpu_count()
         self.assertGreaterEqual(cpu_count, 1)
-        # Core 0 exists on every real machine this can run on.
+        # Core 0 exists on every real machine this can run on, and the
+        # local test license (see setUpClass) grants max_cores=8.
         self.assertTrue(bindings.pin_current_thread_to_core(0))
         # An out-of-range core must fail, not silently pin somewhere else.
         self.assertFalse(bindings.pin_current_thread_to_core(cpu_count + 1000))
+
+    @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
+                          "no local test license for this machine -- run license_tools/sign_license.ps1")
+    def test_pin_current_thread_to_core_gated_by_license_entitlement(self):
+        # Distinct from the cpu-count check above: this specifically tests
+        # the *license* boundary, not the hardware one -- the local test
+        # license (see setUpClass) grants exactly max_cores=8, so core 7
+        # must be pinnable and core 8 must not be, regardless of how many
+        # real CPUs this machine actually has.
+        bindings = AnimusBindings()
+        self.assertTrue(bindings.is_licensed())
+        self.assertEqual(bindings.licensed_max_cores(), 8)
+        self.assertTrue(bindings.pin_current_thread_to_core(7))
+        self.assertFalse(bindings.pin_current_thread_to_core(8))
+
+    def test_verify_license_rejects_wrong_machine_fixture(self):
+        # Validly signed by the real private key, but for a fingerprint
+        # (all zeros) that can never match a real machine -- a real
+        # signature-verifies-but-fingerprint-doesn't-match rejection, not
+        # a signature failure. Runs everywhere (CI included): verifying
+        # this only needs the public key baked into the build, not this
+        # specific machine's fingerprint or the private key.
+        bindings = AnimusBindings()
+        self.assertFalse(bindings.verify_license(_WRONG_MACHINE_LICENSE))
+
+    def test_verify_license_rejects_tampered_file(self):
+        with open(_WRONG_MACHINE_LICENSE, "rb") as fh:
+            data = bytearray(fh.read())
+        data[24] ^= 0xFF  # flip a byte inside the signed payload (max_cores field)
+        with tempfile.NamedTemporaryFile(suffix=".lic", delete=False) as tmp:
+            tmp.write(data)
+            tampered_path = tmp.name
+        try:
+            bindings = AnimusBindings()
+            self.assertFalse(bindings.verify_license(tampered_path))
+        finally:
+            os.unlink(tampered_path)
+
+    def test_verify_license_rejects_missing_file(self):
+        bindings = AnimusBindings()
+        self.assertFalse(bindings.verify_license("this_license_file_does_not_exist.lic"))
+
+    @unittest.skipUnless(os.path.exists(_LOCAL_TEST_LICENSE),
+                          "no local test license for this machine -- run license_tools/sign_license.ps1")
+    def test_verify_license_accepts_valid_license_for_this_machine(self):
+        # setUpClass already verified this once for the whole class: this
+        # test just confirms the resulting state directly, and that
+        # verifying an already-valid license again is harmless (not that
+        # it should be re-verified routinely -- it isn't -- just that
+        # doing so doesn't corrupt existing state).
+        bindings = AnimusBindings()
+        self.assertTrue(bindings.is_licensed())
+        self.assertEqual(bindings.licensed_max_cores(), 8)
+        self.assertTrue(bindings.verify_license(_LOCAL_TEST_LICENSE))
+        self.assertEqual(bindings.licensed_max_cores(), 8)
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class UnlicensedGatingTests(unittest.TestCase):
+    """Verifies spsc_init()/pin_current_thread_to_core() fail closed
+    before any license has been verified -- run in a fresh, isolated
+    subprocess (never in-process here) since license state is a
+    process-wide singleton: RealNativeEngineIntegrationTests' setUpClass
+    may already have verified a license earlier in this same test run,
+    and there is no way to un-verify one to test the "before" state
+    in-process once that has happened.
+    """
+
+    def test_spsc_init_and_pinning_fail_before_any_license_verified(self):
+        script = (
+            "import sys; sys.path.insert(0, '.'); "
+            "from animus.bindings import AnimusBindings; "
+            "b = AnimusBindings(); "
+            "assert b.using_native_engine, 'expected the native engine to be loaded'; "
+            "assert not b.is_licensed(); "
+            "assert b.licensed_max_cores() == 0; "
+            "assert b.spsc_init(1024) is False; "
+            "assert b.pin_current_thread_to_core(0) is False; "
+            "print('OK')"
+        )
+        proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True,
+                               cwd=os.path.join(os.path.dirname(__file__), ".."), timeout=30)
+        self.assertEqual(proc.returncode, 0, msg=f"stdout={proc.stdout!r} stderr={proc.stderr!r}")
+        self.assertIn("OK", proc.stdout)
 
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
@@ -835,6 +992,129 @@ class SharedTelemetryChannelIntegrationTests(unittest.TestCase):
 
         self.assertEqual([tuple(r) for r in results], events)
         producer.close()
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class MarketDataFeedIntegrationTests(unittest.TestCase):
+    """End-to-end tests for the native market-data feed adapters
+    (animus::MarketDataFeed / animus_feed_*) against the real compiled
+    binary -- there is no pure-Python fallback for this class (a native
+    concurrency primitive, same reasoning as SpscRingBuffer/
+    SharedTelemetryChannel elsewhere in this file).
+    """
+
+    def test_l2_update_and_trade_round_trip(self):
+        feed = MarketDataFeed.create(l2_capacity=64, trade_capacity=64)
+        self.assertTrue(feed.push_l2_update(
+            instrument_id=7, side=BookSide.ASK, action=BookUpdateAction.NEW, level=2,
+            price_ticks=101250, quantity=300, sequence_number=1, exchange_timestamp_ns=555,
+        ))
+        self.assertTrue(feed.push_trade(
+            instrument_id=7, trade_id=42, aggressor_side=TradeAggressor.BUYER,
+            price_ticks=101250, quantity=50, sequence_number=2, exchange_timestamp_ns=556,
+        ))
+
+        updates = feed.poll_l2_updates(16)
+        trades = feed.poll_trades(16)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(len(trades), 1)
+
+        u = updates[0]
+        self.assertEqual(u.instrument_id, 7)
+        self.assertEqual(u.side, BookSide.ASK)
+        self.assertEqual(u.action, BookUpdateAction.NEW)
+        self.assertEqual(u.level, 2)
+        self.assertEqual(u.price_ticks, 101250)
+        self.assertEqual(u.quantity, 300)
+        self.assertEqual(u.sequence_number, 1)
+        self.assertEqual(u.exchange_timestamp_ns, 555)
+        self.assertGreater(u.timestamp_cycles, 0)  # stamped natively, not caller-supplied
+
+        t = trades[0]
+        self.assertEqual(t.instrument_id, 7)
+        self.assertEqual(t.trade_id, 42)
+        self.assertEqual(t.aggressor_side, TradeAggressor.BUYER)
+        self.assertEqual(t.price_ticks, 101250)
+        self.assertEqual(t.quantity, 50)
+        self.assertEqual(t.sequence_number, 2)
+        self.assertEqual(t.exchange_timestamp_ns, 556)
+        self.assertGreater(t.timestamp_cycles, 0)
+
+        # Both rings independently empty now.
+        self.assertEqual(feed.poll_l2_updates(4), [])
+        self.assertEqual(feed.poll_trades(4), [])
+        feed.close()
+
+    def test_capacities_round_up_to_power_of_two_independently(self):
+        feed = MarketDataFeed.create(l2_capacity=1000, trade_capacity=100)
+        self.assertEqual(feed.l2_capacity, 1024)
+        self.assertEqual(feed.trade_capacity, 128)
+        feed.close()
+
+    def test_l2_ring_full_returns_false_independently_of_trade_ring(self):
+        feed = MarketDataFeed.create(l2_capacity=4, trade_capacity=4)
+        for i in range(4):
+            self.assertTrue(feed.push_l2_update(1, BookSide.BID, BookUpdateAction.UPDATE, 0, 1, 1, i, i))
+        self.assertFalse(feed.push_l2_update(1, BookSide.BID, BookUpdateAction.UPDATE, 0, 1, 1, 99, 99))
+        # The trade ring is a separate ring -- a full L2 ring must not block trade pushes.
+        self.assertTrue(feed.push_trade(1, 1, TradeAggressor.BUYER, 1, 1, 0, 0))
+        feed.close()
+
+    def test_concurrent_multi_producer_multi_consumer_no_loss_no_duplication(self):
+        # The core "thread-safe" claim under test: animus::MarketDataFeed
+        # wraps the same Vyukov MPMC ring EngineImpl's own telemetry ring
+        # uses (LockFreeRingBuffer), so unlike SpscRingBuffer/
+        # SharedTelemetryChannel elsewhere in this file, multiple producer
+        # threads and multiple consumer threads may share one instance
+        # concurrently with no external locking. Drives real OS threads --
+        # not simulated -- and verifies every pushed record is drained
+        # exactly once, with no corruption of its fields.
+        num_producers = 6
+        per_producer = 2000
+        total = num_producers * per_producer
+        feed = MarketDataFeed.create(l2_capacity=1 << 16, trade_capacity=1 << 16)
+
+        def producer(tid):
+            for i in range(per_producer):
+                seq = tid * per_producer + i
+                self.assertTrue(feed.push_l2_update(
+                    instrument_id=tid, side=BookSide.BID, action=BookUpdateAction.UPDATE,
+                    level=0, price_ticks=1, quantity=1, sequence_number=seq, exchange_timestamp_ns=seq,
+                ))
+
+        collected = []
+        collected_lock = threading.Lock()
+        stop_producing = threading.Event()
+
+        def consumer():
+            while True:
+                batch = feed.poll_l2_updates(256)
+                if batch:
+                    with collected_lock:
+                        collected.extend(batch)
+                elif stop_producing.is_set():
+                    break
+
+        producers = [threading.Thread(target=producer, args=(tid,)) for tid in range(num_producers)]
+        consumers = [threading.Thread(target=consumer) for _ in range(3)]
+        for c in consumers:
+            c.start()
+        for p in producers:
+            p.start()
+        for p in producers:
+            p.join()
+        stop_producing.set()
+        for c in consumers:
+            c.join()
+
+        self.assertEqual(len(collected), total)
+        seen_per_producer = {tid: set() for tid in range(num_producers)}
+        for u in collected:
+            seen_per_producer[u.instrument_id].add(u.sequence_number)
+        for tid in range(num_producers):
+            self.assertEqual(len(seen_per_producer[tid]), per_producer,
+                              msg=f"producer {tid}: expected {per_producer} unique sequences, got {len(seen_per_producer[tid])}")
+        feed.close()
 
 
 if __name__ == "__main__":
