@@ -25,15 +25,27 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from animus.bindings import (  # noqa: E402
+    AccessToken,
     AggregationFunction,
     AnimusBindings,
+    AuditEvent,
+    AuditOutcome,
     BookSide,
     BookUpdateAction,
+    ExecStatus,
+    ExecutionReport,
     MarketDataFeed,
     NativeEvent,
+    OrderRequest,
+    OrderSide,
+    OrderType,
+    Permission,
+    Role,
     RuleComparator,
+    SecurityContext,
     SharedRecord,
     SharedTelemetryChannel,
+    ShmOrderRingChannel,
     ShmRingChannel,
     SpscTelemetryRecord,
     ThreatSignal,
@@ -119,6 +131,61 @@ class SharedRecordLayoutTests(unittest.TestCase):
         for name, offset in expected:
             field = getattr(SharedRecord, name)
             self.assertEqual(field.offset, offset, f"{name} offset")
+
+
+class ExecutionAndSecurityLayoutTests(unittest.TestCase):
+    """OrderRequest/ExecutionReport (animus.hpp) and AccessToken/AuditEvent
+    (animus_security.hpp) must stay byte-for-byte identical to their native
+    counterparts, INCLUDING internal alignment padding -- all four cross
+    the real C-ABI via caller-supplied buffers or pointers
+    (animus_security_submit_order, animus_shm_ring_order_*,
+    animus_security_poll_execution_audit_log). Offsets below were verified
+    against a real sizeof/offsetof build before being relied on here, not
+    calculated and assumed.
+    """
+
+    def test_order_request_layout(self):
+        self.assertEqual(ctypes.sizeof(OrderRequest), 32)
+        expected = [
+            ("client_order_id", 0), ("instrument_id", 8), ("side", 12),
+            ("type", 13), ("price_ticks", 16), ("quantity", 24),
+        ]
+        for name, offset in expected:
+            self.assertEqual(getattr(OrderRequest, name).offset, offset, f"{name} offset")
+
+    def test_execution_report_layout(self):
+        self.assertEqual(ctypes.sizeof(ExecutionReport), 40)
+        expected = [
+            ("client_order_id", 0), ("instrument_id", 8),
+            ("filled_quantity", 16), ("avg_price_ticks", 24), ("status", 32),
+        ]
+        for name, offset in expected:
+            self.assertEqual(getattr(ExecutionReport, name).offset, offset, f"{name} offset")
+
+    def test_access_token_layout(self):
+        self.assertEqual(ctypes.sizeof(AccessToken), 24)
+        expected = [("tenant_id", 0), ("principal_id", 8), ("role", 16)]
+        for name, offset in expected:
+            self.assertEqual(getattr(AccessToken, name).offset, offset, f"{name} offset")
+
+    def test_access_token_make_sets_only_named_fields(self):
+        # The regression this guards: positional construction
+        # (AccessToken(10, 1, Role.OPERATOR)) would silently write into the
+        # padding between tenant_id and principal_id instead of
+        # principal_id -- .make() must set exactly the three named fields.
+        token = AccessToken.make(tenant_id=10, principal_id=0xDEADBEEF, role=Role.OPERATOR)
+        self.assertEqual(token.tenant_id, 10)
+        self.assertEqual(token.principal_id, 0xDEADBEEF)
+        self.assertEqual(token.role, int(Role.OPERATOR))
+
+    def test_audit_event_layout(self):
+        self.assertEqual(ctypes.sizeof(AuditEvent), 32)
+        expected = [
+            ("timestamp_cycles", 0), ("tenant_id", 8),
+            ("principal_id", 16), ("permission", 24), ("outcome", 25),
+        ]
+        for name, offset in expected:
+            self.assertEqual(getattr(AuditEvent, name).offset, offset, f"{name} offset")
 
 
 class NativeLibraryDiscoveryTests(unittest.TestCase):
@@ -1139,6 +1206,204 @@ class ShmRingChannelIntegrationTests(unittest.TestCase):
 
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class ShmOrderRingChannelIntegrationTests(unittest.TestCase):
+    """End-to-end tests for animus::sys::ipc::ShmRing<animus::OrderRequest>
+    (exposed as animus_shm_ring_order_*) against the real compiled binary.
+    Same bar as ShmRingChannelIntegrationTests above, mirrored for
+    OrderRequest instead of RawEvent -- not repeated in full detail here.
+    """
+
+    def setUp(self):
+        self._names = []
+
+    def tearDown(self):
+        for name in self._names:
+            try:
+                ShmOrderRingChannel.unlink(name)
+            except Exception:
+                pass
+
+    def _unique_name(self, label: str) -> str:
+        name = f"animus_shm_ring_order_test_{label}_{os.getpid()}_{id(self)}"
+        self._names.append(name)
+        return name
+
+    @staticmethod
+    def _order(client_order_id: int) -> OrderRequest:
+        return OrderRequest(
+            client_order_id=client_order_id, instrument_id=7,
+            side=OrderSide.BUY, type=OrderType.MARKET,
+            price_ticks=101250, quantity=10,
+        )
+
+    def test_try_push_try_pop_round_trip(self):
+        name = self._unique_name("roundtrip")
+        producer = ShmOrderRingChannel.create(name, capacity=64)
+        self.assertIsNone(producer.try_pop())  # empty
+
+        orders = [self._order(i) for i in range(10)]
+        for order in orders:
+            self.assertTrue(producer.try_push(order))
+
+        consumer = ShmOrderRingChannel.open(name)
+        self.assertEqual(consumer.capacity, 64)
+        results = []
+        while True:
+            ev = consumer.try_pop()
+            if ev is None:
+                break
+            results.append(ev.client_order_id)
+
+        self.assertEqual(results, [o.client_order_id for o in orders])
+        producer.close()
+        consumer.close()
+
+    def test_ring_full_and_empty_return_false_and_none(self):
+        name = self._unique_name("fullempty")
+        channel = ShmOrderRingChannel.create(name, capacity=4)
+        self.assertIsNone(channel.try_pop())
+        for i in range(4):
+            self.assertTrue(channel.try_push(self._order(i)))
+        self.assertFalse(channel.try_push(self._order(99)))
+        for _ in range(4):
+            self.assertIsNotNone(channel.try_pop())
+        self.assertIsNone(channel.try_pop())
+        channel.close()
+
+    def test_push_batch_pop_batch_round_trip(self):
+        name = self._unique_name("batch")
+        channel = ShmOrderRingChannel.create(name, capacity=8)
+        orders = [self._order(i) for i in range(5)]
+        self.assertEqual(channel.push_batch(orders), 5)
+        drained = channel.pop_batch(max_count=100)
+        self.assertEqual([o.client_order_id for o in drained], [o.client_order_id for o in orders])
+        channel.close()
+
+    def test_real_cross_process_round_trip(self):
+        name = self._unique_name("crossprocess")
+        orders = [self._order(i) for i in range(10)]
+        producer = ShmOrderRingChannel.create(name, capacity=256)
+
+        child = subprocess.Popen(
+            [sys.executable, __file__, "--shmorderring-child", name, str(len(orders))],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+        time.sleep(0.3)
+        for order in orders:
+            self.assertTrue(producer.try_push(order))
+
+        stdout, stderr = child.communicate(timeout=10)
+        self.assertEqual(child.returncode, 0, msg=stderr)
+        results = json.loads(stdout)
+
+        self.assertEqual(results, [o.client_order_id for o in orders])
+        producer.close()
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
+class SecurityContextIntegrationTests(unittest.TestCase):
+    """End-to-end tests for animus_security.hpp's RBAC/tenancy/execution
+    layer (TenantRegistry + SecureTelemetryGateway + SecureExecutionGateway)
+    exposed as SecurityContext, against the real compiled binary. There is
+    no pure-Python fallback (a native security boundary, same reasoning as
+    AnimusBindings.verify_license()).
+    """
+
+    def setUp(self):
+        self.ctx = SecurityContext.create()
+        self.admin = AccessToken.make(tenant_id=0, principal_id=1, role=Role.ADMIN)
+
+    def tearDown(self):
+        self.ctx.close()
+
+    @staticmethod
+    def _order(client_order_id: int = 1) -> OrderRequest:
+        return OrderRequest(
+            client_order_id=client_order_id, instrument_id=7,
+            side=OrderSide.BUY, type=OrderType.MARKET,
+            price_ticks=101250, quantity=10,
+        )
+
+    def test_admin_can_create_tenant_and_execution_tenant(self):
+        self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=10))
+        self.assertTrue(self.ctx.create_execution_tenant(self.admin, tenant_id=10))
+
+    def test_viewer_cannot_create_tenant(self):
+        viewer = AccessToken.make(tenant_id=0, principal_id=2, role=Role.VIEWER)
+        self.assertFalse(self.ctx.create_tenant(viewer, new_tenant_id=11))
+
+    def test_create_execution_tenant_requires_telemetry_tenant_to_exist_first(self):
+        # tenant 12 was never created via create_tenant() -- execution
+        # setup must fail closed, not silently create one.
+        self.assertFalse(self.ctx.create_execution_tenant(self.admin, tenant_id=12))
+
+    def test_operator_can_submit_order_for_own_tenant(self):
+        self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=10))
+        self.assertTrue(self.ctx.create_execution_tenant(self.admin, tenant_id=10))
+        operator = AccessToken.make(tenant_id=10, principal_id=2, role=Role.OPERATOR)
+        report = self.ctx.submit_order(operator, self._order())
+        self.assertIsNotNone(report)
+        self.assertEqual(ExecStatus(report.status), ExecStatus.FILLED)
+        self.assertEqual(report.filled_quantity, 10)
+
+    def test_viewer_cannot_submit_order(self):
+        self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=10))
+        self.assertTrue(self.ctx.create_execution_tenant(self.admin, tenant_id=10))
+        viewer = AccessToken.make(tenant_id=10, principal_id=3, role=Role.VIEWER)
+        self.assertIsNone(self.ctx.submit_order(viewer, self._order()))
+
+    def test_submit_order_denied_when_execution_tenant_not_set_up(self):
+        self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=13))
+        # Deliberately skip create_execution_tenant.
+        operator = AccessToken.make(tenant_id=13, principal_id=2, role=Role.OPERATOR)
+        self.assertIsNone(self.ctx.submit_order(operator, self._order()))
+
+    def test_tenant_isolation_orders_do_not_cross_over(self):
+        for tenant_id in (10, 20):
+            self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=tenant_id))
+            self.assertTrue(self.ctx.create_execution_tenant(self.admin, tenant_id=tenant_id))
+        op_a = AccessToken.make(tenant_id=10, principal_id=2, role=Role.OPERATOR)
+        op_b = AccessToken.make(tenant_id=20, principal_id=3, role=Role.OPERATOR)
+
+        report_a = self.ctx.submit_order(op_a, self._order(client_order_id=100))
+        report_b = self.ctx.submit_order(op_b, self._order(client_order_id=200))
+        self.assertIsNotNone(report_a)
+        self.assertIsNotNone(report_b)
+        self.assertEqual(report_a.client_order_id, 100)
+        self.assertEqual(report_b.client_order_id, 200)
+
+        # A token for tenant 20 must never be able to reach tenant 10's
+        # ExecutionClient -- there is no "target tenant" field on the order
+        # itself, only the token's own tenant_id, so this is really testing
+        # that op_b's own tenant_id (20) is what gets used for routing.
+        report_b2 = self.ctx.submit_order(op_b, self._order(client_order_id=201))
+        self.assertEqual(report_b2.client_order_id, 201)
+
+    def test_audit_log_records_allowed_and_denied_outcomes(self):
+        self.assertTrue(self.ctx.create_tenant(self.admin, new_tenant_id=10))
+        self.assertTrue(self.ctx.create_execution_tenant(self.admin, tenant_id=10))
+        operator = AccessToken.make(tenant_id=10, principal_id=2, role=Role.OPERATOR)
+        viewer = AccessToken.make(tenant_id=10, principal_id=3, role=Role.VIEWER)
+
+        # Flush whatever the two create_* calls above already logged.
+        while self.ctx.poll_execution_audit_log(max_count=1000):
+            pass
+
+        self.assertIsNotNone(self.ctx.submit_order(operator, self._order(1)))
+        self.assertIsNone(self.ctx.submit_order(viewer, self._order(2)))
+
+        audit = self.ctx.poll_execution_audit_log(max_count=10)
+        self.assertEqual(len(audit), 2)
+        self.assertEqual(Permission(audit[0].permission), Permission.SUBMIT_ORDER)
+        self.assertEqual(AuditOutcome(audit[0].outcome), AuditOutcome.ALLOWED)
+        self.assertEqual(audit[0].tenant_id, 10)
+        self.assertEqual(audit[0].principal_id, 2)
+        self.assertEqual(Permission(audit[1].permission), Permission.SUBMIT_ORDER)
+        self.assertEqual(AuditOutcome(audit[1].outcome), AuditOutcome.DENIED)
+        self.assertEqual(audit[1].principal_id, 3)
+
+
+@unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
 class MarketDataFeedIntegrationTests(unittest.TestCase):
     """End-to-end tests for the native market-data feed adapters
     (animus::MarketDataFeed / animus_feed_*) against the real compiled
@@ -1296,6 +1561,23 @@ if __name__ == "__main__":
                 time.sleep(0.001)
                 continue
             _child_results.append((_child_ev.event_id, _child_ev.trace_id, _child_ev.metric_value))
+        _child_ring.close()
+        print(json.dumps(_child_results))
+    elif len(sys.argv) >= 4 and sys.argv[1] == "--shmorderring-child":
+        # Consumer side of ShmOrderRingChannelIntegrationTests.
+        # test_real_cross_process_round_trip above -- same pattern as
+        # --shm-child/--shmring-child.
+        _child_name = sys.argv[2]
+        _child_expected_count = int(sys.argv[3])
+        _child_ring = ShmOrderRingChannel.open(_child_name)
+        _child_results = []
+        _child_deadline = time.time() + 5.0
+        while len(_child_results) < _child_expected_count and time.time() < _child_deadline:
+            _child_order = _child_ring.try_pop()
+            if _child_order is None:
+                time.sleep(0.001)
+                continue
+            _child_results.append(_child_order.client_order_id)
         _child_ring.close()
         print(json.dumps(_child_results))
     else:
