@@ -79,6 +79,13 @@ extern "C" {
         return engine->add_rule(rule_id, event_id, threshold, comparator, severity);
     }
 
+    ANIMUS_API bool animus_add_cep_rule(uint32_t rule_id, uint32_t event_id, uint8_t window_type, uint64_t window_size,
+        uint8_t aggregation, uint8_t comparator, uint64_t threshold, uint32_t severity) {
+        animus::Engine* engine = g_engine.get();
+        if (!engine) return false;
+        return engine->add_cep_rule(rule_id, event_id, window_type, window_size, aggregation, comparator, threshold, severity);
+    }
+
     ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count) {
         animus::Engine* engine = g_engine.get();
         if (!engine || !out) return 0;

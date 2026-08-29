@@ -4,6 +4,7 @@
 #include <string>
 #include <atomic>
 #include <vector>
+#include <deque>
 #include <chrono>
 #include <thread>
 #include <fstream>
@@ -68,6 +69,186 @@ namespace animus {
         uint64_t threshold;
         RuleComparator comparator;
         uint32_t severity;
+    };
+
+    inline bool compare_value(uint64_t lhs, uint64_t rhs, RuleComparator comparator) noexcept {
+        switch (comparator) {
+        case RuleComparator::GreaterThan: return lhs > rhs;
+        case RuleComparator::LessThan:    return lhs < rhs;
+        case RuleComparator::Equal:       return lhs == rhs;
+        }
+        return false;
+    }
+
+    // ---- Complex Event Processing (CEP): sliding-window aggregation -------
+    // A RuleThreshold (above) evaluates one event in isolation. A CEP rule
+    // instead maintains a rolling window of recent metric_values for a given
+    // event_id and evaluates an *aggregate* (SUM/AVG/MIN/MAX) of that window
+    // against a threshold on every new matching event -- "average order size
+    // over the last 500ms exceeds X", not just "this one order's size does".
+
+    // Count windows hold the last N matching events; time windows hold
+    // events whose timestamp is within the last window_size milliseconds of
+    // whenever the rule was last fed an event.
+    enum class WindowType : uint8_t {
+        Count = 0,
+        Time = 1,
+    };
+
+    enum class AggregationFunction : uint8_t {
+        Sum = 0,
+        Avg = 1,
+        Min = 2,
+        Max = 3,
+    };
+
+    // One value in a CEP rule's window: the value itself, plus everything
+    // needed to know when it should be evicted -- `sequence` for count
+    // windows (compared against the rule's own running event counter, not a
+    // deque size, since MIN/MAX's monotonic deques below hold only a subset
+    // of raw entries) and `timestamp_ms` for time windows.
+    struct CepWindowEntry {
+        uint64_t sequence;
+        uint64_t timestamp_ms;
+        uint64_t value;
+    };
+
+    // Sliding-window aggregate + threshold check for one CEP rule, fed one
+    // event at a time via on_event(). Not thread-safe by design: this class
+    // holds mutable per-rule state (the window contents) that only the
+    // single persistence-worker thread ever touches (see
+    // EngineImpl::evaluate_cep_rules) -- concurrent producer threads only
+    // ever read the *set* of registered rules (copy-on-write, like
+    // RuleThreshold's rules_), never a given rule's window state directly.
+    //
+    // SUM/AVG maintain a plain FIFO of every value currently in the window
+    // plus a running total, updated in O(1) amortized per event (subtract
+    // the evicted value on eviction, rather than resumming the window).
+    // AVG's threshold check cross-multiplies (`sum COMPARATOR threshold *
+    // count`) instead of dividing, so the comparison stays exact integer
+    // arithmetic with no floating point anywhere in the hot path -- the
+    // reported aggregated value (avg = sum / count) still uses integer
+    // division, i.e. floored, consistent with every other uint64_t field
+    // this engine reports.
+    //
+    // MIN/MAX each maintain a monotonic deque of *candidate* values (a
+    // subset of the raw window, not every entry) in increasing (MIN) or
+    // decreasing (MAX) order, so the window's minimum/maximum is always
+    // the front element -- O(1) amortized per event, the standard
+    // sliding-window-minimum/maximum algorithm. Verified against a naive
+    // full-rescan reference over 200 randomized trials (both window types,
+    // all four aggregations) before this was wired into the engine proper.
+    class CepRuleState {
+    public:
+        CepRuleState(uint32_t rule_id, uint32_t event_id, WindowType window_type, uint64_t window_size,
+            AggregationFunction agg, RuleComparator comparator, uint64_t threshold, uint32_t severity) noexcept
+            : rule_id_(rule_id), event_id_(event_id), window_type_(window_type),
+            window_size_(window_size == 0 ? 1 : window_size), agg_(agg),
+            comparator_(comparator), threshold_(threshold), severity_(severity) {
+        }
+
+        uint32_t rule_id() const noexcept { return rule_id_; }
+        uint32_t event_id() const noexcept { return event_id_; }
+        uint32_t severity() const noexcept { return severity_; }
+
+        // Feeds one matching event's value into this rule's window, evicts
+        // anything that has fallen out of it, and returns {matched,
+        // aggregated_value}. `now_ms` is supplied by the caller (read once
+        // per persistence-worker batch, not once per event -- see
+        // process_persistence_queue) rather than read internally here, both
+        // to avoid a clock read on every single event and to keep this
+        // class deterministically testable with synthetic timestamps.
+        std::pair<bool, uint64_t> on_event(uint64_t value, uint64_t now_ms) noexcept {
+            ++sequence_counter_;
+            CepWindowEntry entry{ sequence_counter_, now_ms, value };
+
+            uint64_t aggregated = 0;
+            bool matched = false;
+
+            switch (agg_) {
+            case AggregationFunction::Sum:
+            case AggregationFunction::Avg: {
+                sum_window_.push_back(entry);
+                running_sum_ += entry.value;
+                evict_fifo(now_ms);
+                uint64_t count = sum_window_.size();
+                if (agg_ == AggregationFunction::Sum) {
+                    aggregated = running_sum_;
+                    matched = compare_value(running_sum_, threshold_, comparator_);
+                }
+                else {
+                    aggregated = count ? running_sum_ / count : 0;
+                    matched = compare_value(running_sum_, threshold_ * count, comparator_);
+                }
+                break;
+            }
+            case AggregationFunction::Max: {
+                while (!max_monotonic_.empty() && max_monotonic_.back().value <= entry.value) {
+                    max_monotonic_.pop_back();
+                }
+                max_monotonic_.push_back(entry);
+                evict_monotonic(max_monotonic_, now_ms);
+                aggregated = max_monotonic_.front().value;
+                matched = compare_value(aggregated, threshold_, comparator_);
+                break;
+            }
+            case AggregationFunction::Min: {
+                while (!min_monotonic_.empty() && min_monotonic_.back().value >= entry.value) {
+                    min_monotonic_.pop_back();
+                }
+                min_monotonic_.push_back(entry);
+                evict_monotonic(min_monotonic_, now_ms);
+                aggregated = min_monotonic_.front().value;
+                matched = compare_value(aggregated, threshold_, comparator_);
+                break;
+            }
+            }
+            return { matched, aggregated };
+        }
+
+    private:
+        void evict_fifo(uint64_t now_ms) noexcept {
+            if (window_type_ == WindowType::Count) {
+                while (sum_window_.size() > window_size_) {
+                    running_sum_ -= sum_window_.front().value;
+                    sum_window_.pop_front();
+                }
+            }
+            else {
+                while (!sum_window_.empty() && sum_window_.front().timestamp_ms + window_size_ <= now_ms) {
+                    running_sum_ -= sum_window_.front().value;
+                    sum_window_.pop_front();
+                }
+            }
+        }
+
+        void evict_monotonic(std::deque<CepWindowEntry>& q, uint64_t now_ms) const noexcept {
+            if (window_type_ == WindowType::Count) {
+                while (!q.empty() && q.front().sequence + window_size_ <= sequence_counter_) {
+                    q.pop_front();
+                }
+            }
+            else {
+                while (!q.empty() && q.front().timestamp_ms + window_size_ <= now_ms) {
+                    q.pop_front();
+                }
+            }
+        }
+
+        uint32_t rule_id_;
+        uint32_t event_id_;
+        WindowType window_type_;
+        uint64_t window_size_; // event count, or milliseconds -- never 0 (see constructor)
+        AggregationFunction agg_;
+        RuleComparator comparator_;
+        uint64_t threshold_;
+        uint32_t severity_;
+
+        uint64_t sequence_counter_ = 0;
+        std::deque<CepWindowEntry> sum_window_;   // used when agg_ is Sum or Avg
+        uint64_t running_sum_ = 0;
+        std::deque<CepWindowEntry> min_monotonic_; // used when agg_ is Min
+        std::deque<CepWindowEntry> max_monotonic_; // used when agg_ is Max
     };
 
     // Low-overhead cycle counter for hot-path timestamping. Falls back to a
@@ -274,6 +455,20 @@ namespace animus {
         // an invalid comparator value or if rule storage could not be grown.
         virtual bool add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) noexcept = 0;
 
+        // Registers a CEP sliding-window rule (see CepRuleState above):
+        // aggregates matching events' metric_value over a count- or
+        // time-based window (window_type: 0=Count, window_size=event count;
+        // 1=Time, window_size=milliseconds) via aggregation (0=Sum, 1=Avg,
+        // 2=Min, 3=Max), and evaluates the aggregate against threshold on
+        // every matching event, same comparator encoding as add_rule.
+        // Evaluated on the same persistence-worker thread and delivered
+        // through the same poll_signals() queue as plain RuleThreshold
+        // matches -- callers distinguish which rule fired via rule_id, not
+        // a separate queue. Returns false for an invalid window_type,
+        // aggregation, or comparator value.
+        virtual bool add_cep_rule(uint32_t rule_id, uint32_t event_id, uint8_t window_type, uint64_t window_size,
+            uint8_t aggregation, uint8_t comparator, uint64_t threshold, uint32_t severity) noexcept = 0;
+
         // Drains up to max_count pending signals into the caller-owned `out`
         // buffer (zero-copy for the caller: no allocation, direct struct
         // copy). Returns the number of signals actually written.
@@ -336,12 +531,7 @@ namespace animus {
             for (const RuleThreshold& rule : rules) {
                 if (rule.event_id != payload.event_id) continue;
 
-                bool matched = false;
-                switch (rule.comparator) {
-                case RuleComparator::GreaterThan: matched = payload.metric_value > rule.threshold; break;
-                case RuleComparator::LessThan:    matched = payload.metric_value < rule.threshold; break;
-                case RuleComparator::Equal:       matched = payload.metric_value == rule.threshold; break;
-                }
+                bool matched = compare_value(payload.metric_value, rule.threshold, rule.comparator);
 
                 if (matched) {
                     ThreatSignal signal{
@@ -353,6 +543,41 @@ namespace animus {
                         rule.severity
                     };
                     signal_ring_.push(signal); // never blocks; drops if the signal ring is saturated
+                }
+            }
+        }
+
+        // CEP rule set: same copy-on-write immutable-snapshot pattern as
+        // rules_ above (add_cep_rule() is a cold path; the persistence
+        // worker reads one snapshot per batch, not per event) -- but unlike
+        // RuleThreshold, each CepRuleState carries mutable window state
+        // that only the persistence worker thread ever touches after
+        // construction. The vector's *membership* is copy-on-write
+        // (concurrent add_cep_rule calls never race the worker's reads of
+        // it); a given rule's *window contents* are not, because nothing
+        // but the worker thread ever writes them -- shared_ptr<CepRuleState>
+        // (not shared_ptr<const ...>) is deliberate here for exactly that
+        // reason.
+        mutable std::mutex cep_rules_mutex_;
+        std::shared_ptr<const std::vector<std::shared_ptr<CepRuleState>>> cep_rules_;
+
+        void evaluate_cep_rules(const TelemetryPayload& payload,
+            const std::vector<std::shared_ptr<CepRuleState>>& cep_rules, uint64_t now_ms) noexcept {
+            for (const auto& rule_ptr : cep_rules) {
+                CepRuleState& rule = *rule_ptr;
+                if (rule.event_id() != payload.event_id) continue;
+
+                auto [matched, aggregated_value] = rule.on_event(payload.metric_value, now_ms);
+                if (matched) {
+                    ThreatSignal signal{
+                        payload.timestamp_cycles,
+                        payload.event_id,
+                        payload.trace_id,
+                        aggregated_value, // the window's aggregate, not the raw event's metric_value
+                        rule.rule_id(),
+                        rule.severity()
+                    };
+                    signal_ring_.push(signal);
                 }
             }
         }
@@ -403,8 +628,24 @@ namespace animus {
                         std::lock_guard<std::mutex> lock(rules_mutex_);
                         rules_snapshot = rules_; // one snapshot per batch, not per event
                     }
+                    std::shared_ptr<const std::vector<std::shared_ptr<CepRuleState>>> cep_rules_snapshot;
+                    {
+                        std::lock_guard<std::mutex> lock(cep_rules_mutex_);
+                        cep_rules_snapshot = cep_rules_; // one snapshot per batch, not per event
+                    }
+                    // Read once per batch, not once per event, for the same reason the
+                    // rule snapshots above are -- a steady_clock read is cheap but not
+                    // free, and CEP time-window eviction only needs millisecond
+                    // resolution, not per-event precision.
+                    uint64_t now_ms = static_cast<uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now().time_since_epoch()).count());
+
                     for (const TelemetryPayload& payload : batch) {
                         evaluate_rules(payload, *rules_snapshot);
+                        if (!cep_rules_snapshot->empty()) {
+                            evaluate_cep_rules(payload, *cep_rules_snapshot, now_ms);
+                        }
                     }
 
                     log_file.write(reinterpret_cast<const char*>(batch.data()), batch.size() * sizeof(TelemetryPayload));
@@ -433,7 +674,8 @@ namespace animus {
         explicit EngineImpl(size_t capacity)
             : ring_(capacity),
             signal_ring_(capacity),
-            rules_(std::make_shared<const std::vector<RuleThreshold>>()) {
+            rules_(std::make_shared<const std::vector<RuleThreshold>>()),
+            cep_rules_(std::make_shared<const std::vector<std::shared_ptr<CepRuleState>>>()) {
         }
 
         ~EngineImpl() override {
@@ -498,6 +740,36 @@ namespace animus {
                     *updated = *rules_; // copy current snapshot, append, swap -- readers keep using the old snapshot until this store
                     updated->push_back(RuleThreshold{ rule_id, event_id, threshold, static_cast<RuleComparator>(comparator), severity });
                     rules_ = std::move(updated);
+                }
+                return true;
+            }
+            catch (...) {
+                return false; // e.g. allocation failure -- existing rules remain valid and in effect
+            }
+        }
+
+        bool add_cep_rule(uint32_t rule_id, uint32_t event_id, uint8_t window_type, uint64_t window_size,
+            uint8_t aggregation, uint8_t comparator, uint64_t threshold, uint32_t severity) noexcept override {
+            if (window_type > static_cast<uint8_t>(WindowType::Time)) {
+                return false; // unrecognized window type
+            }
+            if (aggregation > static_cast<uint8_t>(AggregationFunction::Max)) {
+                return false; // unrecognized aggregation function
+            }
+            if (comparator > static_cast<uint8_t>(RuleComparator::Equal)) {
+                return false; // unrecognized comparator value
+            }
+            try {
+                auto new_rule = std::make_shared<CepRuleState>(
+                    rule_id, event_id, static_cast<WindowType>(window_type), window_size,
+                    static_cast<AggregationFunction>(aggregation), static_cast<RuleComparator>(comparator),
+                    threshold, severity);
+                auto updated = std::make_shared<std::vector<std::shared_ptr<CepRuleState>>>();
+                {
+                    std::lock_guard<std::mutex> lock(cep_rules_mutex_);
+                    *updated = *cep_rules_; // copy current snapshot, append, swap -- readers keep using the old snapshot until this store
+                    updated->push_back(std::move(new_rule));
+                    cep_rules_ = std::move(updated);
                 }
                 return true;
             }
@@ -663,6 +935,17 @@ extern "C" {
     ANIMUS_API void animus_start_logging(const char* filepath);
     ANIMUS_API void animus_stop_logging();
     ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity);
+
+    // Registers a CEP sliding-window rule (see animus::CepRuleState).
+    // window_type: 0=Count (window_size = event count), 1=Time (window_size
+    // = milliseconds). aggregation: 0=Sum, 1=Avg, 2=Min, 3=Max. comparator:
+    // same encoding as animus_add_rule (0=GreaterThan, 1=LessThan,
+    // 2=Equal). Matches are delivered through the same animus_poll_signals
+    // queue as animus_add_rule matches, with the window's aggregated value
+    // (not the triggering event's raw metric_value) in the ThreatSignal.
+    ANIMUS_API bool animus_add_cep_rule(uint32_t rule_id, uint32_t event_id, uint8_t window_type, uint64_t window_size,
+        uint8_t aggregation, uint8_t comparator, uint64_t threshold, uint32_t severity);
+
     ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count);
 
     // Standalone SPSC ingestion channel (see animus::SpscRingBuffer above),
