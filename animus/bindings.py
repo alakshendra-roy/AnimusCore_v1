@@ -110,6 +110,23 @@ class RuleComparator(IntEnum):
     EQUAL = 2
 
 
+class WindowType(IntEnum):
+    """Mirrors animus::WindowType (animus.hpp) -- values must stay in sync.
+    COUNT: window_size is an event count (the last N matching events).
+    TIME: window_size is milliseconds (events within the last N ms).
+    """
+    COUNT = 0
+    TIME = 1
+
+
+class AggregationFunction(IntEnum):
+    """Mirrors animus::AggregationFunction (animus.hpp) -- values must stay in sync."""
+    SUM = 0
+    AVG = 1
+    MIN = 2
+    MAX = 3
+
+
 class ThreatSignal(ctypes.Structure):
     """Mirrors animus::ThreatSignal (animus.hpp) byte-for-byte.
 
@@ -196,6 +213,76 @@ class _RuleThreshold(NamedTuple):
     severity: int
 
 
+def _compare_value(lhs: int, rhs: int, comparator: int) -> bool:
+    """Mirrors animus::compare_value (animus.hpp). Shared by
+    _PurePythonEngine's plain-threshold and CEP rule evaluation, same as
+    the native engine shares one compare_value between RuleThreshold and
+    CepRuleState.
+    """
+    if comparator == RuleComparator.GREATER_THAN:
+        return lhs > rhs
+    if comparator == RuleComparator.LESS_THAN:
+        return lhs < rhs
+    return lhs == rhs
+
+
+class _CepRuleState:
+    """Pure-Python sliding-window aggregator, one per registered CEP rule.
+
+    Recomputes the aggregate by scanning the whole window on every event
+    rather than the native engine's O(1)-amortized running-sum/monotonic-
+    deque approach (see animus::CepRuleState in animus.hpp) -- correctness,
+    not throughput, is this fallback's goal (see _PurePythonEngine's own
+    docstring). AVG's threshold check still cross-multiplies rather than
+    dividing (`sum COMPARATOR threshold * count`), matching the native
+    engine's exact-integer-arithmetic behavior so a rule doesn't fire
+    differently depending on which engine evaluated it.
+    """
+
+    def __init__(self, rule_id: int, event_id: int, window_type: int, window_size: int,
+                 aggregation: int, comparator: int, threshold: int, severity: int) -> None:
+        self.rule_id = rule_id
+        self.event_id = event_id
+        self.window_type = window_type
+        self.window_size = max(1, window_size)
+        self.aggregation = aggregation
+        self.comparator = comparator
+        self.threshold = threshold
+        self.severity = severity
+        self._window: Deque = collections.deque()  # each item: (sequence, timestamp_ms, value)
+        self._sequence = 0
+
+    def on_event(self, value: int, now_ms: int) -> "tuple[bool, int]":
+        self._sequence += 1
+        self._window.append((self._sequence, now_ms, value))
+
+        if self.window_type == WindowType.COUNT:
+            while len(self._window) > self.window_size:
+                self._window.popleft()
+        else:
+            while self._window and self._window[0][1] + self.window_size <= now_ms:
+                self._window.popleft()
+
+        values = [v for _, _, v in self._window]
+        count = len(values)
+
+        if self.aggregation == AggregationFunction.SUM:
+            aggregated = sum(values)
+            matched = _compare_value(aggregated, self.threshold, self.comparator)
+        elif self.aggregation == AggregationFunction.AVG:
+            total = sum(values)
+            aggregated = total // count if count else 0
+            matched = _compare_value(total, self.threshold * count, self.comparator)
+        elif self.aggregation == AggregationFunction.MIN:
+            aggregated = min(values)
+            matched = _compare_value(aggregated, self.threshold, self.comparator)
+        else:  # AggregationFunction.MAX
+            aggregated = max(values)
+            matched = _compare_value(aggregated, self.threshold, self.comparator)
+
+        return matched, aggregated
+
+
 class _BoundedQueue:
     """Lock-guarded, fixed-capacity FIFO used by _PurePythonEngine in place
     of animus::LockFreeRingBuffer. push() never blocks and returns False
@@ -247,6 +334,8 @@ class _PurePythonEngine:
         self._signals: Optional[_BoundedQueue] = None
         self._rules: List[_RuleThreshold] = []
         self._rules_lock = threading.Lock()
+        self._cep_rules: List[_CepRuleState] = []
+        self._cep_rules_lock = threading.Lock()
         self._running = False
         self._worker: Optional[threading.Thread] = None
         self._log_path: Optional[str] = None
@@ -280,18 +369,34 @@ class _PurePythonEngine:
             self._rules.append(_RuleThreshold(rule_id, event_id, threshold, comparator, severity))
         return True
 
-    def _evaluate(self, record: _TelemetryRecord) -> None:
+    def add_cep_rule(self, rule_id: int, event_id: int, window_type: int, window_size: int,
+                      aggregation: int, comparator: int, threshold: int, severity: int) -> bool:
+        if window_type not in (WindowType.COUNT, WindowType.TIME):
+            return False
+        if aggregation not in (
+            AggregationFunction.SUM, AggregationFunction.AVG,
+            AggregationFunction.MIN, AggregationFunction.MAX,
+        ):
+            return False
+        if comparator not in (
+            RuleComparator.GREATER_THAN,
+            RuleComparator.LESS_THAN,
+            RuleComparator.EQUAL,
+        ):
+            return False
+        with self._cep_rules_lock:
+            self._cep_rules.append(_CepRuleState(
+                rule_id, event_id, window_type, window_size, aggregation, comparator, threshold, severity,
+            ))
+        return True
+
+    def _evaluate(self, record: _TelemetryRecord, now_ms: int) -> None:
         with self._rules_lock:
             rules_snapshot = list(self._rules)
         for rule in rules_snapshot:
             if rule.event_id != record.event_id:
                 continue
-            if rule.comparator == RuleComparator.GREATER_THAN:
-                matched = record.metric_value > rule.threshold
-            elif rule.comparator == RuleComparator.LESS_THAN:
-                matched = record.metric_value < rule.threshold
-            else:
-                matched = record.metric_value == rule.threshold
+            matched = _compare_value(record.metric_value, rule.threshold, rule.comparator)
             if matched:
                 self._signals.push(ThreatSignal(
                     timestamp_cycles=record.timestamp_cycles,
@@ -300,6 +405,22 @@ class _PurePythonEngine:
                     metric_value=record.metric_value,
                     rule_id=rule.rule_id,
                     severity=rule.severity,
+                ))
+
+        with self._cep_rules_lock:
+            cep_rules_snapshot = list(self._cep_rules)
+        for cep_rule in cep_rules_snapshot:
+            if cep_rule.event_id != record.event_id:
+                continue
+            matched, aggregated_value = cep_rule.on_event(record.metric_value, now_ms)
+            if matched:
+                self._signals.push(ThreatSignal(
+                    timestamp_cycles=record.timestamp_cycles,
+                    event_id=record.event_id,
+                    trace_id=record.trace_id,
+                    metric_value=aggregated_value,  # the window's aggregate, not the raw event's value
+                    rule_id=cep_rule.rule_id,
+                    severity=cep_rule.severity,
                 ))
 
     def start_logging(self, filepath: str) -> None:
@@ -314,8 +435,13 @@ class _PurePythonEngine:
         with open(self._log_path, "ab") as fh:
             while True:
                 batch = self._ring.pop_batch(1024)
+                # Read once per batch, not once per record, for the same reason
+                # the native engine's process_persistence_queue does (see
+                # animus.hpp): cheap but not free, and CEP time-window eviction
+                # only needs millisecond resolution.
+                now_ms = int(time.monotonic() * 1000)
                 for record in batch:
-                    self._evaluate(record)
+                    self._evaluate(record, now_ms)
                     fh.write(struct.pack("<QIIQ", *record))
                 if batch:
                     fh.flush()
@@ -406,6 +532,18 @@ class AnimusBindings:
             ctypes.c_uint32,
         ]
         self._lib.animus_add_rule.restype = ctypes.c_bool
+
+        self._lib.animus_add_cep_rule.argtypes = [
+            ctypes.c_uint32,
+            ctypes.c_uint32,
+            ctypes.c_uint8,
+            ctypes.c_uint64,
+            ctypes.c_uint8,
+            ctypes.c_uint8,
+            ctypes.c_uint64,
+            ctypes.c_uint32,
+        ]
+        self._lib.animus_add_cep_rule.restype = ctypes.c_bool
 
         self._lib.animus_poll_signals.argtypes = [
             ctypes.POINTER(ThreatSignal),
@@ -532,6 +670,51 @@ class AnimusBindings:
                 ctypes.c_uint32(severity),
             ))
         return self._fallback.add_rule(rule_id, event_id, threshold, int(comparator), severity)
+
+    def add_cep_rule(
+        self,
+        rule_id: int,
+        event_id: int,
+        window_type: "WindowType | int",
+        window_size: int,
+        aggregation: "AggregationFunction | int",
+        comparator: "RuleComparator | int",
+        threshold: int,
+        severity: int,
+    ) -> bool:
+        """Registers a Complex Event Processing (CEP) sliding-window rule:
+        aggregates matching events' metric_value over a count- or
+        time-based window (see animus::CepRuleState, animus.hpp) and
+        evaluates the aggregate against `threshold` on every matching
+        event -- "SUM of the last 100 events exceeds X", "AVG over the
+        last 5000ms is below Y", not just one event's raw value.
+
+        window_type: WindowType.COUNT (window_size = number of events) or
+        WindowType.TIME (window_size = milliseconds). aggregation:
+        AggregationFunction.SUM/AVG/MIN/MAX. Matches are delivered through
+        the same poll_signals() queue as add_rule() matches -- the
+        ThreatSignal's metric_value field carries the window's aggregated
+        value (floored to an integer for AVG), not the triggering event's
+        raw metric_value; rule_id tells you which rule (plain or CEP)
+        fired. Returns False for an unrecognized window_type, aggregation,
+        or comparator value.
+        """
+        if not self._initialized:
+            raise RuntimeError("AnimusBindings.init() must succeed before adding rules")
+        if self.using_native_engine:
+            return bool(self._lib.animus_add_cep_rule(
+                ctypes.c_uint32(rule_id),
+                ctypes.c_uint32(event_id),
+                ctypes.c_uint8(int(window_type)),
+                ctypes.c_uint64(window_size),
+                ctypes.c_uint8(int(aggregation)),
+                ctypes.c_uint8(int(comparator)),
+                ctypes.c_uint64(threshold),
+                ctypes.c_uint32(severity),
+            ))
+        return self._fallback.add_cep_rule(
+            rule_id, event_id, int(window_type), window_size, int(aggregation), int(comparator), threshold, severity,
+        )
 
     def poll_signals(self, max_count: int = 1024) -> List[ThreatSignal]:
         """Drains up to max_count pending rule matches from the signal ring.

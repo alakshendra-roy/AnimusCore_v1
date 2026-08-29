@@ -22,11 +22,13 @@ from unittest import mock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from animus.bindings import (  # noqa: E402
+    AggregationFunction,
     AnimusBindings,
     NativeEvent,
     RuleComparator,
     SpscTelemetryRecord,
     ThreatSignal,
+    WindowType,
     find_native_library,
     load_native_library,
 )
@@ -181,6 +183,14 @@ class _FakeNativeLib:
             return True
         self.animus_add_rule = animus_add_rule
 
+        def animus_add_cep_rule(rule_id, event_id, window_type, window_size, aggregation, comparator, threshold, severity):
+            self.state.setdefault("cep_rules", []).append((
+                _unwrap(rule_id), _unwrap(event_id), _unwrap(window_type), _unwrap(window_size),
+                _unwrap(aggregation), _unwrap(comparator), _unwrap(threshold), _unwrap(severity),
+            ))
+            return True
+        self.animus_add_cep_rule = animus_add_cep_rule
+
         def animus_poll_signals(buf, max_count):
             # `buf` here is the *exact* (ThreatSignal * N)() ctypes array
             # AnimusBindings.poll_signals() constructed -- record its
@@ -278,6 +288,13 @@ class ZeroCopyPollSignalsTests(unittest.TestCase):
 
         self.assertEqual(self.fake_lib.state["rules"], [(1, 42, 100, 0, 5)])
         self.assertEqual(self.fake_lib.state["events"], [(42, 7, 250)])
+
+    def test_add_cep_rule_marshals_through_to_native(self):
+        ok = self.bindings.add_cep_rule(
+            1, 42, WindowType.COUNT, 100, AggregationFunction.SUM, RuleComparator.GREATER_THAN, 500, 7,
+        )
+        self.assertTrue(ok)
+        self.assertEqual(self.fake_lib.state["cep_rules"], [(1, 42, 0, 100, 0, 0, 500, 7)])
 
     def test_record_events_batch_marshals_through_to_native_in_one_call(self):
         events = [(42, i, i * 10) for i in range(5)]
@@ -424,6 +441,46 @@ class PurePythonFallbackTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             self.bindings.record_event(1, 1, 1)
 
+    def test_cep_count_window_sum_matches_hand_verified_values(self):
+        # Same case verified against the native engine and a naive
+        # brute-force reference (see AnimusCore_v1/BENCHMARKS.md's CEP
+        # phase): window of the last 3 events, SUM > 50.
+        # Running sums: [10]=10 [10,20]=30 [10,20,30]=60(match)
+        # [20,30,5]=55(match) [30,5,1]=36 [5,1,100]=106(match)
+        self.bindings.init(buffer_capacity=256)
+        self.bindings.add_cep_rule(
+            rule_id=1, event_id=42, window_type=WindowType.COUNT, window_size=3,
+            aggregation=AggregationFunction.SUM, comparator=RuleComparator.GREATER_THAN,
+            threshold=50, severity=5,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "cep_telemetry.log")
+            self.bindings.start_logging(log_path)
+            try:
+                for i, value in enumerate([10, 20, 30, 5, 1, 100]):
+                    self.bindings.record_event(event_id=42, trace_id=i, metric_value=value)
+
+                deadline = time.time() + 2.0
+                signals = []
+                while time.time() < deadline and len(signals) < 3:
+                    signals += self.bindings.poll_signals(max_count=32)
+                    if not signals:
+                        time.sleep(0.01)
+            finally:
+                self.bindings.stop_logging()
+
+        got = sorted((s.trace_id, s.metric_value) for s in signals)
+        self.assertEqual(got, [(2, 60), (3, 55), (5, 106)])
+
+    def test_cep_rejects_unknown_window_type_aggregation_or_comparator(self):
+        self.bindings.init(64)
+        self.assertFalse(self.bindings.add_cep_rule(1, 1, window_type=99, window_size=1,
+                                                      aggregation=0, comparator=0, threshold=1, severity=1))
+        self.assertFalse(self.bindings.add_cep_rule(1, 1, window_type=0, window_size=1,
+                                                      aggregation=99, comparator=0, threshold=1, severity=1))
+        self.assertFalse(self.bindings.add_cep_rule(1, 1, window_type=0, window_size=1,
+                                                      aggregation=0, comparator=99, threshold=1, severity=1))
+
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
 class RealNativeEngineIntegrationTests(unittest.TestCase):
@@ -463,6 +520,77 @@ class RealNativeEngineIntegrationTests(unittest.TestCase):
             self.assertEqual(signals[0].metric_value, 5000)
             self.assertTrue(os.path.exists(log_path))
             self.assertGreater(os.path.getsize(log_path), 0)
+
+    def test_cep_count_window_sum_against_real_binary(self):
+        # Same case as PurePythonFallbackTests' equivalent test and the
+        # standalone 200-trial randomized verification this design was
+        # checked against before being wired into animus.hpp -- both
+        # engines must agree, not just each pass independently.
+        bindings = AnimusBindings()
+        self.assertTrue(bindings.using_native_engine)
+        self.assertTrue(bindings.init(buffer_capacity=4096))
+        self.assertTrue(bindings.add_cep_rule(
+            rule_id=1, event_id=42, window_type=WindowType.COUNT, window_size=3,
+            aggregation=AggregationFunction.SUM, comparator=RuleComparator.GREATER_THAN,
+            threshold=50, severity=5,
+        ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "cep_native.log")
+            bindings.start_logging(log_path)
+            try:
+                for i, value in enumerate([10, 20, 30, 5, 1, 100]):
+                    bindings.record_event(event_id=42, trace_id=i, metric_value=value)
+
+                deadline = time.time() + 2.0
+                signals = []
+                while time.time() < deadline and len(signals) < 3:
+                    signals += bindings.poll_signals(max_count=32)
+                    if not signals:
+                        time.sleep(0.01)
+            finally:
+                bindings.stop_logging()
+
+        got = sorted((s.trace_id, s.metric_value) for s in signals)
+        self.assertEqual(got, [(2, 60), (3, 55), (5, 106)])
+
+    def test_cep_avg_uses_exact_cross_multiplication_not_float(self):
+        # AVG threshold checks compare sum against threshold*count rather
+        # than dividing (see CepRuleState::on_event in animus.hpp) so the
+        # comparison stays exact integer arithmetic. This specifically
+        # exercises a boundary the naive "compute avg then compare" way
+        # would get wrong via truncation: window [10, 10, 11] has an exact
+        # average of 10.33, average > 10 is true, but floor(31/3) == 10
+        # would wrongly compare 10 > 10 as false if truncation happened
+        # before the comparison instead of after.
+        bindings = AnimusBindings()
+        self.assertTrue(bindings.using_native_engine)
+        self.assertTrue(bindings.init(buffer_capacity=4096))
+        self.assertTrue(bindings.add_cep_rule(
+            rule_id=2, event_id=43, window_type=WindowType.COUNT, window_size=3,
+            aggregation=AggregationFunction.AVG, comparator=RuleComparator.GREATER_THAN,
+            threshold=10, severity=1,
+        ))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            log_path = os.path.join(tmp, "cep_avg_native.log")
+            bindings.start_logging(log_path)
+            try:
+                for i, value in enumerate([10, 10, 11]):
+                    bindings.record_event(event_id=43, trace_id=i, metric_value=value)
+
+                deadline = time.time() + 2.0
+                signals = []
+                while time.time() < deadline and not signals:
+                    signals = bindings.poll_signals(max_count=32)
+                    if not signals:
+                        time.sleep(0.01)
+            finally:
+                bindings.stop_logging()
+
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(signals[0].trace_id, 2)
+        self.assertEqual(signals[0].metric_value, 10)  # floor(31/3) -- reported value only, not the comparison
 
     def test_spsc_push_and_drain_round_trip_against_real_binary(self):
         # Real end-to-end check that SpscTelemetryRecord's alignas(64)
