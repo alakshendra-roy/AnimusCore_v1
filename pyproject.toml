@@ -8,7 +8,7 @@ version = "1.0.1"
 description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine"
 readme = "README.md"
 requires-python = ">=3.8"
-license = { text = "MIT" }
+license = { text = "Proprietary" }
 authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
 keywords = [
     "telemetry",
@@ -25,7 +25,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: C++",
-    "License :: OSI Approved :: MIT License",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Intended Audience :: Developers",
     "Intended Audience :: System Administrators",

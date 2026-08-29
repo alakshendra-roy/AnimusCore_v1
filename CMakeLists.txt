@@ -43,6 +43,16 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(animus_native PRIVATE rt)
 endif()
 
+# Needed for animus_verify_license's Windows implementation (animus_engine.cpp):
+# bcrypt (RSA signature verification + SHA-256), iphlpapi (MAC address
+# enumeration), ws2_32 (winsock2.h/ws2tcpip.h, required by iphlpapi.h's own
+# declarations). MSVC picks these up automatically via #pragma comment(lib,
+# ...) in the source; MinGW/g++ does not honor that pragma, so this is the
+# only thing that actually links them for a CMake+MinGW build on Windows.
+if(WIN32)
+    target_link_libraries(animus_native PRIVATE bcrypt iphlpapi ws2_32)
+endif()
+
 if(NOT MSVC)
     target_compile_options(animus_native PRIVATE -fvisibility=hidden)
     # Statically link the GCC/MinGW runtime (libstdc++/libgcc/winpthread) so

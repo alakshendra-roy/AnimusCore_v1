@@ -9,8 +9,9 @@ Pick the one that matches your integration:
 | [2. C++ single header](#2-c-single-header-embedded--in-process) | Embedding directly in a C++17 service, ultra-low-latency execution paths | Any (portable subset); Windows + MSVC for the full feature set |
 | [3. Secure multi-tenant + mTLS](#3-secure-multi-tenant--mtls-transport) | Multiple isolated tenants, encrypted remote ingestion | Windows + MSVC |
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
+| [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
 
-All four PoCs below are real, runnable code paths already exercised in this
+All five PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
@@ -663,6 +664,112 @@ cluster_demo.exe
 
 ---
 
+## 5. Enterprise Edition: Offline RSA-Signed Hardware Licensing
+
+**`proprietary-edition` branch only** -- not part of the MIT `master`
+tree, for the same reason a node-lock and open source don't mix: anyone
+with the source can delete a check baked into it. This branch replaces
+`LICENSE` with a placeholder "All Rights Reserved" notice (not reviewed
+by counsel -- don't ship it to a customer as-is) specifically to carry
+this feature.
+
+`animus_verify_license(path)` validates a signed license file entirely
+offline -- no license server, no network call -- and gates two existing
+primitives from guide 1/2 (`spsc_init`/`animus_spsc_init` and
+`pin_current_thread_to_core`/`animus_pin_current_thread_to_core`) behind
+it: neither succeeds until a valid license has been verified in-process,
+and pinning additionally rejects any core at or beyond the license's
+`max_cores`, independent of the machine's real core count.
+
+**1. Generate a signing keypair (once, on the machine that issues licenses):**
+
+```powershell
+powershell -File AnimusCore_v1/license_tools/generate_license_keypair.ps1
+```
+
+Writes the private key to `license_tools/private/license_private.blob`
+(gitignored -- never commit it; anyone with this file can mint a license
+for any machine) and the public key as a generated C++ header,
+`AnimusCore_v1/animus_license_pubkey.hpp` (safe to commit -- it's baked
+into every shipped binary so `animus_verify_license` can check signatures
+without ever calling home). Regenerating the keypair invalidates every
+license issued against the old one.
+
+**2. Issue a license for a customer's machine:**
+
+```powershell
+# Local testing -- licenses THIS machine (auto-computes its fingerprint):
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 -OutFile test.lic -MaxCores 8
+
+# A real customer license -- their fingerprint, their core entitlement,
+# an optional expiry:
+powershell -File AnimusCore_v1/license_tools/sign_license.ps1 `
+    -OutFile customer.lic -MaxCores 4 `
+    -FingerprintHex <64 hex chars from the customer's machine> `
+    -ExpiresInDays 365
+```
+
+The fingerprint is SHA-256(`MachineGuid` + primary MAC address) -- not a
+literal CPU serial number, since modern CPUs don't expose one via CPUID
+for privacy reasons. `MachineGuid` comes from
+`HKLM\SOFTWARE\Microsoft\Cryptography`; the MAC is the smallest
+candidate among the machine's genuine, manufacturer-assigned addresses
+(filtered via the IEEE "locally administered address" bit to exclude
+Windows' own virtual/randomized MACs -- a real dev machine surfaced three
+different Wi-Fi MACs from virtual roles alone before this filter was
+added, so "first adapter" is not a safe rule). `sign_license.ps1`
+computes this identically to `animus_verify_license`'s C++ side -- cross-
+verified byte-for-byte before either was relied on.
+
+**3. Verify the license and use the entitlement it grants:**
+
+```python
+from animus.bindings import AnimusBindings
+
+bindings = AnimusBindings()
+if not bindings.verify_license("customer.lic"):
+    raise SystemExit("license invalid, expired, or issued for a different machine")
+
+assert bindings.is_licensed()
+core_budget = bindings.licensed_max_cores()   # e.g. 4
+
+bindings.spsc_init(buffer_capacity=1_000_000)          # fails closed until verified above
+bindings.pin_current_thread_to_core(core_budget - 1)   # fails if >= core_budget
+```
+
+`verify_license()`/`is_licensed()`/`licensed_max_cores()` have no
+pure-Python fallback, same as `spsc_init`/`pin_current_thread_to_core`
+themselves -- they raise `RuntimeError` without a compiled native binary
+loaded, rather than silently granting an entitlement nothing actually
+checked. License state is a process-wide singleton: once
+`verify_license()` succeeds, it stays succeeded for the rest of the
+process (there's no way to "un-verify"), and it does not persist across
+process restarts -- call it again at startup every time.
+
+**Fails closed, checked directly against the real DLL, not just
+asserted:** a validly-signed license for a *different* machine's
+fingerprint is rejected; a byte-tampered license (even one bit flipped
+in an otherwise correctly-signed file) is rejected; a nonexistent file
+path is rejected; and a fresh process that hasn't called
+`verify_license()` at all fails closed on both `spsc_init()` and
+`pin_current_thread_to_core()` -- confirmed via a subprocess-isolated
+test, since license state can't be reset within a single process once
+set. See `tests/test_bindings.py`'s `RealNativeEngineIntegrationTests`
+license tests and `UnlicensedGatingTests` for the full suite, and
+`AnimusCore_v1/license_tools/test_fixtures/wrong_machine_test_license.lic`
+for a real, validly-signed license fixture safe to commit and test
+against on any machine (including CI) precisely because it's signed for
+a fingerprint that can never match real hardware.
+
+**Windows-only, explicitly, not silently:** `animus_verify_license`
+returns `false` immediately on non-Windows builds (RSA verification uses
+Windows CNG/BCrypt directly, `BCryptVerifySignature` with PKCS1 padding +
+SHA-256 -- no OpenSSL, no external crypto dependency) rather than faking
+a pass. A Linux/macOS build of this branch cannot verify a license at
+all yet; that's a documented gap, not an oversight.
+
+---
+
 ## Which guide should I start with?
 
 - Building a Python-based SOAR/orchestration pipeline, or just scripting
@@ -673,3 +780,6 @@ cluster_demo.exe
   (layers on top of Guide 2's engine).
 - Need the rule set to survive a node failure? **Guide 4** (layers on top
   of Guide 3's transport).
+- Shipping a commercial, node-locked build to customers? **Guide 5**
+  (`proprietary-edition` branch only, layers on top of Guide 1/2's
+  `spsc_init`/pinning primitives).

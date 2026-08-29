@@ -593,6 +593,15 @@ class AnimusBindings:
         self._lib.animus_get_cpu_count.argtypes = []
         self._lib.animus_get_cpu_count.restype = ctypes.c_uint
 
+        self._lib.animus_verify_license.argtypes = [ctypes.c_char_p]
+        self._lib.animus_verify_license.restype = ctypes.c_bool
+
+        self._lib.animus_is_licensed.argtypes = []
+        self._lib.animus_is_licensed.restype = ctypes.c_bool
+
+        self._lib.animus_licensed_max_cores.argtypes = []
+        self._lib.animus_licensed_max_cores.restype = ctypes.c_uint32
+
     def init(self, buffer_capacity: int = 65536) -> bool:
         """Initializes the engine (native singleton, or pure-Python fallback). Idempotent."""
         if self._initialized:
@@ -838,6 +847,35 @@ class AnimusBindings:
         """
         self._require_native("get_cpu_count")
         return int(self._lib.animus_get_cpu_count())
+
+    def verify_license(self, license_path: str) -> bool:
+        """Verifies an RSA-signed offline license file (see
+        animus::LicensePayload, animus.hpp) against the public key baked
+        into this build and this machine's hardware fingerprint. Entirely
+        offline -- no network call is made. On success, gates
+        pin_current_thread_to_core()/spsc_init() to the license's entitled
+        core count; both fail closed until this has succeeded once in this
+        process. Returns False for a missing/wrong-size file, a bad magic
+        number, a signature that doesn't verify (tampered file, or signed
+        by a different key), a fingerprint for a different machine, or an
+        expired license. Windows-only: returns False on other platforms
+        rather than faking success (see animus_verify_license's definition
+        in animus_engine.cpp for why). No pure-Python fallback -- this is
+        a native security boundary, not something a Python reimplementation
+        could meaningfully provide.
+        """
+        self._require_native("verify_license")
+        return bool(self._lib.animus_verify_license(license_path.encode("utf-8")))
+
+    def is_licensed(self) -> bool:
+        """True once verify_license() has succeeded in this process."""
+        self._require_native("is_licensed")
+        return bool(self._lib.animus_is_licensed())
+
+    def licensed_max_cores(self) -> int:
+        """The verified license's entitled core count, or 0 if unlicensed."""
+        self._require_native("licensed_max_cores")
+        return int(self._lib.animus_licensed_max_cores())
 
 
 def _configure_shm_signatures(lib: ctypes.CDLL) -> None:

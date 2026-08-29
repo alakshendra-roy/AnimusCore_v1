@@ -39,3 +39,14 @@ animus/*.dylib
 # AnimusCore_v1/generate_demo_certs.ps1 for secure_transport_demo.cpp --
 # never commit private key material, even a demo-only one.
 AnimusCore_v1/demo_certs/
+
+# Proprietary-edition licensing: the RSA private key that signs license
+# files (license_tools/generate_license_keypair.ps1) must never be
+# committed -- anyone with it can mint a license for any machine. The
+# public key (animus_license_pubkey.hpp) is generated alongside it and
+# IS meant to be committed; only this directory is excluded. NOT a
+# blanket "*.lic" pattern -- license_tools/test_fixtures/*.lic are
+# committed test fixtures (signed for a fingerprint that can never match
+# a real machine, so publishing them reveals nothing usable), and a
+# blanket pattern would silently exclude those too.
+AnimusCore_v1/license_tools/private/

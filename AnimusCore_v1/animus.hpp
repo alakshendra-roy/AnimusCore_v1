@@ -795,6 +795,52 @@ namespace animus {
         SharedTelemetryRecord* records_ = nullptr;
     };
 
+    // ---- Offline license verification (proprietary-edition only) --------
+    // Validates this machine against an RSA-2048-signed license file at
+    // startup, entirely offline (no network call, ever), and gates
+    // animus_pin_current_thread_to_core / animus_spsc_init to the
+    // license's entitled core count -- see animus_verify_license and the
+    // two gated functions in animus_engine.cpp, the only place any of
+    // this is actually implemented (Windows-only: BCrypt/CNG for RSA
+    // verification and SHA-256, the registry for a stable per-install
+    // machine identifier, iphlpapi for a MAC address -- same "heavy
+    // platform API stays in the .cpp shim, not this portable header"
+    // split animus_pin_current_thread_to_core already established).
+    //
+    // "CPU GUID": modern x86 CPUs do not expose a true unique-per-chip
+    // serial number via CPUID for privacy reasons (Intel deprecated the
+    // Pentium III PSN two decades ago). The honestly-labeled stand-in
+    // every real license-locking tool on Windows actually uses instead
+    // -- and what this implementation reads -- is the OS-assigned
+    // MachineGuid (HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid), a
+    // GUID generated once at Windows setup and stable for the life of
+    // that install. Combined with a real network adapter's burned-in MAC
+    // address (see animus_engine.cpp for why "first enumerated adapter"
+    // is not a safe way to pick one -- multiple legitimate MACs can
+    // exist on one machine) and SHA-256 hashed, this is the fingerprint
+    // a license is issued against.
+    //
+    // 64 bytes on disk: this struct's natural layout (60 real bytes) plus
+    // 4 bytes of trailing alignment padding the uint64_t members force,
+    // read directly off the license file -- confirmed via a real
+    // sizeof()/offsetof() build (60 logical bytes -> 64 actual) before
+    // this was relied on anywhere, not assumed from the field list.
+    // On disk: [this 64-byte struct][256-byte RSA-2048/PKCS1/SHA-256
+    // signature over exactly those 64 bytes] = 320 bytes total.
+    struct LicensePayload {
+        uint32_t magic;              // kLicenseMagic -- sanity-checks the file before touching the signature
+        uint32_t version;
+        uint64_t issued_at_unix;     // informational only, not enforced
+        uint64_t expires_at_unix;    // 0 = no expiry
+        uint32_t max_cores;          // entitled core count
+        uint8_t  fingerprint_sha256[32]; // SHA-256(MachineGuid UTF-8 bytes || 6 raw MAC address bytes)
+    };
+    static_assert(sizeof(LicensePayload) == 64, "LicensePayload's on-disk size changed -- update license_tools/sign_license.ps1 to match");
+
+    constexpr uint32_t kLicenseMagic = 0x434C4E41; // 'ANLC', matches sign_license.ps1's $magic
+    constexpr size_t kLicenseSignatureSize = 256;  // RSA-2048 signature size in bytes
+    constexpr size_t kLicenseFileSize = sizeof(LicensePayload) + kLicenseSignatureSize; // 320
+
     class Engine {
     public:
         virtual ~Engine() = default;
@@ -1357,4 +1403,25 @@ extern "C" {
     ANIMUS_API uint64_t animus_shm_capacity(void* channel);
     ANIMUS_API bool animus_shm_push(void* channel, uint32_t event_id, uint32_t trace_id, uint64_t metric_value);
     ANIMUS_API bool animus_shm_pop(void* channel, animus::SharedTelemetryRecord* out);
+
+    // Verifies license_path (see animus::LicensePayload above) against
+    // the public key baked into this build and this machine's hardware
+    // fingerprint. Entirely offline -- no network call is made or ever
+    // will be. On success, sets the process-wide entitlement state that
+    // animus_pin_current_thread_to_core / animus_spsc_init check before
+    // allowing use; there is no grace period and no way to use either
+    // without a verified license in this build. Returns false for: file
+    // not found or wrong size, bad magic, signature mismatch (tampered
+    // file or wrong signing key), fingerprint mismatch (license issued
+    // for a different machine), or an expired license. Windows-only for
+    // now -- see animus_engine.cpp's definition for exactly why, and why
+    // returning false rather than faking success on other platforms was
+    // the deliberate choice here, same as animus_pin_current_thread_to_core.
+    ANIMUS_API bool animus_verify_license(const char* license_path);
+
+    // True once animus_verify_license has succeeded in this process.
+    ANIMUS_API bool animus_is_licensed(void);
+
+    // The verified license's entitled core count, or 0 if unlicensed.
+    ANIMUS_API uint32_t animus_licensed_max_cores(void);
 }
