@@ -27,6 +27,9 @@ python benchmark_suite.py
 
 # Compare native vs. pure-Python ingestion, including batched ingestion
 python benchmarks/benchmark_engine.py
+
+# Stress-test sustained load (1.2M+ events), memory leaks, and C-ABI boundary safety
+python benchmarks/stress_test_engine.py
  ```
 
 See `AnimusCore_v1/QUICKSTART.md` for four client proof-of-concept guides
@@ -168,4 +171,17 @@ python benchmarks/benchmark_engine.py
 ```
 
 Measured (100,000 events, both the MSVC `AnimusCore_v1.dll` build and the CMake `AnimusNative.dll` build): batched ingestion ran ~1.98-2.38x pure-Python's dict-loop throughput and ~6.8-7.5x the per-event `record_event()` ingestion path, reproducible across repeated runs on both binaries.
+
+## Phase 12: Stress Test -- Sustained Load, Memory Leaks & C-ABI Boundary Safety
+
+`benchmarks/stress_test_engine.py` pushes past the batch-size benchmarks above into two questions Phase 11 didn't answer: does memory grow unbounded under real sustained load, and what actually happens when `animus_record_events_batch`'s raw C-ABI is fed input it has no way to validate?
+
+* **Sustained-load memory check:** 1,200,000+ events through the full pipeline (`record_events_batch` -> rule evaluation -> disk persistence), sampling this process's resident memory (RSS) between batches. The first version of this check flagged a false-positive leak (+24.85% growth) by measuring from RSS immediately after `init()`, before the ring buffers' pages were ever touched by a write -- OS lazy page-commit made that early growth look like a leak. Fixed by using a "warm" baseline (after the ring has cycled twice) instead.
+* **C-ABI boundary fuzzing:** malformed *event data* (out-of-range fields, wrong tuple arity) through the public SDK -- always safely rejected by `struct.pack()` before any native call. Malformed *pointer/count* arguments against the raw C-ABI directly -- run in isolated subprocesses, since a `count` that lies about the buffer's real size is a genuine out-of-bounds read that can (and does) segfault the process reading it. The public `record_events_batch()` API is never reachable this way; only bypassing it and calling the raw library handle directly is.
+
+```bash
+python benchmarks/stress_test_engine.py
+```
+
+Measured across 5 consecutive runs: RSS growth from the warm baseline stayed in a 1.82-2.49% band (consistent with no leak), with all 108,000 expected threat signals matched and drained every run, zero loss. Boundary fuzzing found the out-of-bounds-count cases crash non-deterministically -- depending on heap layout, not the input -- so a run that doesn't crash isn't proof the input was safe; that distinction is reported explicitly rather than glossed over. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 12 section for the full breakdown, including a real ctypes bug (a truncated 64-bit process handle) found and fixed while building the memory-check harness itself.
 
