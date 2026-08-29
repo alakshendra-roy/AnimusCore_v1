@@ -24,6 +24,9 @@ python test_sdk.py
 
 3 Run production benchmark suite
 python benchmark_suite.py
+
+# Compare native vs. pure-Python ingestion, including batched ingestion
+python benchmarks/benchmark_engine.py
  ```
 
 See `AnimusCore_v1/QUICKSTART.md` for four client proof-of-concept guides
@@ -143,4 +146,26 @@ cluster_latency_bench.exe
 ```
 
 Verified: the amalgamated header was real-compiled and run with both MSVC (all four layers) and MinGW `g++` (portable core + RBAC layer, correctly excluding the Windows-only sections); the wheel build/install/import cycle succeeded end-to-end in a fresh venv; five consecutive cluster-latency-benchmark runs completed with zero failed proposals, showing sub-millisecond p50 majority-commit write latency (0.120-0.377 ms across runs) and full-cluster convergence latency clustering tightly around the 30 ms heartbeat interval. See `AnimusCore_v1/BENCHMARKS.md` for the full Phase 10 benchmark breakdown, including two real defects found and fixed while building the header generator (an under-broad include-stripping regex that caused a genuine type-redefinition compile error, and a guard that checked only `_WIN32` when the code it protected actually required MSVC specifically).
+
+## Phase 11: Batched Event Ingestion
+
+`benchmarks/benchmark_engine.py` (comparing the native engine against an equivalent pure-Python dict-loop implementation) isolated a real bottleneck the earlier per-phase benchmarks never surfaced: at 100,000 events, driving `animus_record_event()` from Python one call at a time lost to a pure in-memory Python loop by more than 3x -- even with disk I/O and rule evaluation both removed. A follow-up measurement pinned the cause precisely: the native C-ABI call itself processes 100,000 events in ~2.5 ms; it was the ctypes call-marshalling overhead of 100,000 individual foreign-function calls, not the ring-buffer push or any native-side work, that dominated.
+
+* **`animus_record_events_batch`** (`AnimusCore_v1/animus.hpp`, `animus_engine.cpp`) pushes a whole batch of events onto the ring buffer in one C-ABI call instead of one call per event, exposed from Python as `AnimusBindings.record_events_batch()`.
+* **A second bottleneck found while fixing the first:** the initial implementation still built one `ctypes.Structure` object per event before the call, which only closed ~10% of the gap -- Python object-construction cost, not the FFI call, was still dominant. Fixed by packing the batch with `struct.pack()` and a single `ctypes.memmove()` into the array's backing memory instead, roughly 6x faster to build at 100,000 events.
+
+```python
+from animus.bindings import AnimusBindings
+
+bindings = AnimusBindings()
+bindings.init(buffer_capacity=100_000)
+events = [(event_id, trace_id, metric_value), ...]
+pushed = bindings.record_events_batch(events)  # one native call, not len(events)
+```
+
+```bash
+python benchmarks/benchmark_engine.py
+```
+
+Measured (100,000 events, both the MSVC `AnimusCore_v1.dll` build and the CMake `AnimusNative.dll` build): batched ingestion ran ~1.98-2.38x pure-Python's dict-loop throughput and ~6.8-7.5x the per-event `record_event()` ingestion path, reproducible across repeated runs on both binaries.
 
