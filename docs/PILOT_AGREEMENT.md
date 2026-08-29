@@ -8,6 +8,11 @@
 > qualified attorney (licensed in the relevant jurisdiction) has reviewed
 > and adapted it -- including the governing-law, liability-cap, and
 > export-control provisions, which are placeholders below.
+>
+> **Review status:** counsel review not yet started. Open items are
+> tracked in [issue #7](https://github.com/alakshendra-roy/AnimusCore_v1/issues/7) --
+> do not remove that tracking link until every checklist item there is
+> resolved.
 
 ---
 
