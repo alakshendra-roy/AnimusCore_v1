@@ -225,6 +225,50 @@ See `AnimusCore_v1/soar_orchestrator.py` for a full automated-response
 pipeline built on this, and `AnimusCore_v1/shm_ipc_demo.py` for the
 cross-process ring in action.
 
+**The same thing, backed by compiled C++ instead of pure Python:**
+`SharedTelemetryChannel` is a ctypes wrapper over `animus::SharedTelemetryChannel`
+(a native shared-memory transport -- Windows `CreateFileMappingA`/
+`MapViewOfFile`, POSIX `shm_open`/`mmap`), deliberately wire-compatible
+with `SharedTelemetryRing` above: both read/write the identical byte
+layout, so one process can produce with either implementation and
+another can consume with either one, in any combination.
+
+```python
+from animus import SharedTelemetryChannel
+producer = SharedTelemetryChannel.create("my-shared-segment", capacity=65536)
+producer.push(event_id=500, trace_id=1, metric_value=150)
+
+# From a second process (or the pure-Python SharedTelemetryRing above,
+# attached to the same name -- either works):
+consumer = SharedTelemetryChannel.attach("my-shared-segment")
+record = consumer.pop()  # None if nothing pending; never blocks
+```
+
+**Read this before reaching for it on a latency-sensitive path:** the
+native `push()` call itself is genuinely sub-microsecond (~35-40ns,
+measured). A *single* call to it from Python costs ~1.3us instead --
+the same ctypes-marshalling tax documented in Phases 11 and 13 -- and
+genuine cross-process propagation (one process's write becoming visible
+to another's read) measured at single-digit-to-low-double-digit
+microseconds even from native code, not sub-microsecond, on a
+general-purpose machine with no CPU isolation set up. A related trap,
+found and documented rather than left for you to hit: pushing a burst
+of events back-to-back with no pacing can make a Python consumer fall
+behind the producer, and the *later* events in that burst end up
+waiting in a growing backlog -- multiple milliseconds by the end of a
+20,000-event unpaced burst in one measurement -- which looks like
+terrible IPC latency but is actually a throughput mismatch, not a
+transport problem. See `AnimusCore_v1/BENCHMARKS.md`'s Phase 16 section
+for the full layer-by-layer numbers (same-process vs. cross-process,
+native vs. ctypes) before assuming which one applies to your use case.
+
+Single-producer/single-consumer, same as `SharedTelemetryRing`: don't
+share one channel across multiple producer or multiple consumer
+processes. No pure-Python fallback for this specific class -- that's
+what `SharedTelemetryRing` already is; attach to the same segment with
+whichever implementation fits the process that doesn't have a compiled
+binary available.
+
 ---
 
 ## 2. C++ single header (embedded / in-process)
@@ -343,6 +387,49 @@ ring.push(animus::TelemetryPayload{
 animus::TelemetryPayload out;
 if (ring.pop(out)) { /* ... */ }
 ```
+
+**Cross-process, not just cross-thread: `animus::SharedTelemetryChannel`.**
+`SpscRingBuffer` above lives on this process's heap -- a second *thread*
+can share it, a second *process* cannot. `SharedTelemetryChannel` is the
+same SPSC contract over a named OS shared-memory mapping instead
+(Windows `CreateFileMappingA`/`MapViewOfFile`, POSIX `shm_open`/`mmap`),
+also fully header-only, and deliberately wire-compatible with the Python
+SDK's `SharedTelemetryRing`/`SharedTelemetryChannel` (guide 1) -- any
+combination of a C++ process and a Python process can produce/consume on
+the same segment:
+
+```cpp
+auto producer = animus::SharedTelemetryChannel::create("my-shared-segment", /*capacity=*/65536);
+producer->push(/*event_id=*/500, /*trace_id=*/1, /*metric_value=*/150);
+
+// From a second process (C++ via attach() below, or Python via
+// SharedTelemetryChannel.attach()/SharedTelemetryRing.attach() --
+// any of the three read the identical byte layout):
+auto consumer = animus::SharedTelemetryChannel::attach("my-shared-segment");
+animus::SharedTelemetryRecord rec{};
+if (consumer && consumer->pop(rec)) { /* ... */ }
+```
+
+`create()`/`attach()` return `nullptr` (not an exception) on failure --
+a name collision, a segment that doesn't exist, or a segment too small
+to hold a valid header -- check before dereferencing, same convention
+as `Engine::Create()`'s own error handling elsewhere in this guide.
+`unlink(name)` destroys the underlying OS object: a real operation on
+POSIX (call once every attached process has closed), a documented no-op
+on Windows (named file mappings are destroyed automatically once every
+handle to them closes).
+
+**Measured, not assumed, before you rely on this for a latency budget:**
+the native `push()` call above costs ~35-40ns in isolation. Genuine
+cross-process propagation -- one process's write becoming visible to
+another's `pop()` -- measured at single-digit-to-low-double-digit
+microseconds even here, in native code with no ctypes involved, on a
+general-purpose machine with no CPU isolation configured. See
+`AnimusCore_v1/BENCHMARKS.md`'s Phase 16 section for the full
+same-process-vs-cross-process breakdown, including a burst-without-
+pacing backlog effect that looked like catastrophic latency until it
+was traced to a producer/consumer throughput mismatch, not the
+transport itself.
 
 **CPU pinning is not header-only, unlike everything else in this
 guide** -- `animus_pin_current_thread_to_core`/`animus_get_cpu_count`
