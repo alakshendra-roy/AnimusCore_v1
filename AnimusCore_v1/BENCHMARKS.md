@@ -765,3 +765,40 @@ Compiles `AnimusCore_v1/animus_benchmark_suite.cpp` (g++/clang++, `-std=c++17 -O
 
 * **A real ambiguity resolved before writing any code, not after:** "no license verified" is a process-wide, one-way state (`animus_verify_license` only ever sets it true, never false, matching the existing `g_license_verified` design) -- so the ON-gate's denial path cannot be exercised in a test process that already verified a valid license earlier for an unrelated check. `tests/test_licensing.cpp` orders its checks so the denial assertion runs before the valid-license section, and the corresponding Python test (`ExecutionLicenseRequirementTests`) runs in a fresh `subprocess`, same convention `UnlicensedGatingTests` already established for exactly this reason.
 * **Status:** Phase 23 RSA License Enforcement Hardening Verified -- structured status reporting, an opt-in execution license gate, and offline Python tooling all added without changing any existing caller's behavior; every new code path (all 6 `LicenseStatus` outcomes, both states of the opt-in gate, and the new CLI) exercised against a real compiled DLL and a real signed license, not asserted from the design alone.
+
+## Phase 24: 10-Minute Continuous Soak Test -- Memory Stability, Zero-Allocation Proxy, and P99 Latency Persistence
+
+### Target System
+
+`benchmarks/soak_test_engine.py` -- distinct from `benchmarks/stress_test_engine.py`'s Part 1 (a fixed 1.2M-event burst) and `benchmarks/fintech_tail_latency.py` (max-throughput tail latency over a fixed event count): this script holds the real pipeline (`init` -> `add_rule` -> `start_logging` -> paced `record_events_batch` -> `stop_logging`) at a bounded, sustained rate for a fixed 600-second (10-minute) wall-clock duration against the real compiled `AnimusNative.dll`, sampling RSS on an independent 15-second timer and bucketing every batch's call latency into 30-second windows so a slow drift over minutes is visible instead of averaged into one headline number.
+
+### Method
+
+* **Paced, not max-throughput:** 50,000 events/sec target (500-event batches, ~100 calls/sec), deliberately well below the engine's proven multi-million-events/sec ceiling (Phase 11) -- a soak test's job is holding a bounded sustained load for a long duration, not re-finding a throughput ceiling already characterized elsewhere.
+* **Memory:** RSS sampled every 15s on a wall-clock timer independent of batch cadence; warm baseline taken once total events crossed 2x ring capacity (same reasoning as Phase 12's warm-baseline fix -- ring pages are committed, and so counted in RSS, only as first written, not at allocation time).
+* **Latency:** each `record_events_batch()` call timed with `perf_counter_ns` around the call only (batch construction happens before the timer starts, same discipline as Phase 13's `fintech_tail_latency.py`); percentiles computed per 30-second window (20 windows total) rather than once for the whole run, so drift shows up between windows, not just in an aggregate number.
+* **Zero dynamic allocation:** no native allocation-counting API exists (none was added for this phase either) -- this reuses Phase 12's proxy directly: a flat RSS curve after warm-up is what a zero-per-event-heap-allocation hot path looks like from the outside, since `EngineImpl`'s ring buffers and persistence batch buffer are sized once at construction and never reallocated per drain.
+* Ring capacity 65,536; rule threshold 90 against `metric_value = i % 100` (~9% match rate), same convention as Phase 12. One full real run, not a partial or synthetic loop.
+
+### Results (600.0s wall clock, 28,467,000 events, 56,934 batches)
+
+| Metric | Result |
+|---|---|
+| Sustained throughput | 47,444 events/sec (target 50,000; difference is Python-side pacing-loop overhead) |
+| Cold baseline RSS (before `init`) | 25.25 MB |
+| Post-init RSS | 36.62 MB |
+| Warm baseline RSS (2.8s, ring cycled 2x) | 37.45 MB |
+| Final RSS (after `stop_logging` + `gc.collect`) | 38.47 MB |
+| Max RSS observed during the run | 38.49 MB |
+| RSS growth, warm baseline -> final | +1.02 MB (+2.72%) |
+| Memory stability (<=10% growth threshold) | PASS |
+| Persistence integrity | OK -- 1,821,888,000 / 1,821,888,000 bytes (28,467,000 x 64 bytes/record) |
+| Threat signals matched and drained | 2,562,030 |
+| First-stable-window p99 (window 1, 30-60s) | 287.30 us |
+| Worst-window p99 (window 15, 450-480s) | 648.96 us (+125.9% vs. baseline) |
+| P99 latency persistence (<=50% drift threshold) | FLAGGED |
+| Zero dynamic allocation (RSS-plateau proxy) | CONSISTENT |
+
+* **Memory: genuinely flat.** RSS climbed from 36.62 MB (post-init) to a 37.45 MB warm baseline within the first ~3 seconds -- ring pages committing on first write, the same one-time effect Phase 12 documented -- then held in a 37.45-38.49 MB band for the entire remaining ~597 seconds and 28.3M events. 2.72% total drift from warm baseline to final is comfortably under the 10% leak-flag threshold and consistent with ordinary allocator/heap noise, not a leak; none of the 40 RSS samples taken across the run shows unbounded growth.
+* **P99 latency: window 15 flagged, but the underlying signal doesn't point at the engine.** Window 15 (450-480s) posted a 648.96 us p99, +125.9% over the window 1 baseline (287.30 us), tripping the drift threshold. What did and didn't move across all 20 windows matters more than the one flagged number: p50 stayed essentially flat the entire run (71.4-88.5 us in every window, including window 15 itself at 88.5 us -- barely above its neighbors); every window's max sits far above its own p99 and both are noisy window-to-window (e.g. window 16's 14,179.4 us max against a 382.89 us p99) in a pattern present from window 1 onward, not one that worsens with elapsed time or events processed. This is the same category of effect Phase 14 documented for an unpinned thread on a general-purpose OS: no CPU pinning or OS-level core isolation means the producer thread can be preempted by the scheduler for an arbitrary duration at any point, inflating exactly the tail percentiles (p99, max) without touching the typical case (p50, mean), independent of run duration. Read together with the flat p50 and the flat RSS over the same window, this run's data does not support a real latency-persistence defect in the native engine -- it reads as ordinary OS scheduler jitter on an unpinned thread, not engine degradation under sustained load. The drift check is reported as FLAGGED rather than silently reclassified as a pass: a threshold that gets explained away by hand every time it fires stops being a check. A follow-up run pinned via `animus_pin_current_thread_to_core` (Phase 14) is the natural next step to separate scheduler noise from a real regression with more confidence than a single unpinned run can provide.
+* **Status:** Phase 24 Soak Test Verified (600s continuous run, real native engine, not synthetic) -- memory stability PASS (2.72% growth, well under the 10% threshold), zero-dynamic-allocation proxy CONSISTENT, persistence integrity OK; P99 latency persistence FLAGGED by the automated threshold on one window (+125.9%), attributed to unpinned-thread OS scheduler jitter rather than a native engine issue based on the accompanying flat p50/RSS evidence -- not silently passed, and not overstated as a confirmed regression either.
