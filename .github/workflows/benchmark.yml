@@ -1,0 +1,66 @@
+name: Benchmark Regression
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Benchmark Regression (Linux / GCC Release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMakeLists.txt, Release)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build AnimusNative (libanimus_native.so, Release/-O3)
+        run: cmake --build build --config Release
+
+      # animus_benchmark_suite.cpp is header-only against animus.hpp and
+      # documents its own standalone build command in its file header;
+      # compiled here with -O3 (GCC's Release-equivalent optimization
+      # level) rather than through the CMake target above, which only
+      # builds the animus_native shared library, not this benchmark binary.
+      - name: Build animus_benchmark_suite (GCC, Release/-O3)
+        run: |
+          g++ -std=c++17 -O3 -pthread \
+            AnimusCore_v1/animus_benchmark_suite.cpp \
+            -o animus_benchmark_suite
+
+      - name: Run benchmark suite
+        run: ./animus_benchmark_suite > benchmark_suite.stdout
+
+      - name: Export tick-to-trade result to benchmark_results.json
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          PREFIX = "BENCHMARK_RESULT_TICK_TO_TRADE "
+
+          with open("benchmark_suite.stdout") as f:
+              payload = next(
+                  (line[len(PREFIX):].strip() for line in f if line.startswith(PREFIX)),
+                  None,
+              )
+
+          if payload is None:
+              sys.exit(f"ERROR: no '{PREFIX.strip()}' line found in benchmark_suite.stdout")
+
+          data = json.loads(payload)
+          with open("benchmark_results.json", "w") as out:
+              json.dump(data, out, indent=2)
+          PY
+
+      - name: Upload benchmark_results.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: benchmark_results.json
+
+      - name: Verify no performance regression (p50 <= 1000ns)
+        run: python3 scripts/verify_benchmarks.py

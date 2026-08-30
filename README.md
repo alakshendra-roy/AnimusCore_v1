@@ -1,6 +1,7 @@
 ﻿# Animus Core v1.0: High-Performance Event Processing Engine
 
 [![Build](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml)
+[![Benchmark](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml)
 ![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
@@ -59,6 +60,16 @@ sub-microsecond ingestion example, and how 30-day evaluation licenses work.
 ## Benchmark Performance
 * **Peak Throughput:** >238 Million ops/sec
 * **Latency Profile:** Sub-millisecond batch ingestion
+
+## Continuous Benchmark Regression
+
+[![Benchmark](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml)
+
+Every push and pull request to `master` rebuilds `animus_benchmark_suite`
+in Release mode (GCC, `-O3`) and re-runs the tick-to-trade latency
+benchmark. [`scripts/verify_benchmarks.py`](scripts/verify_benchmarks.py)
+fails the build if median (p50) tick-to-trade latency exceeds
+**1000ns**, guaranteeing zero silent latency regressions reach `master`.
 
 ## Phase 5: Event-Driven SOAR Orchestration
 `AnimusCore_v1/soar_orchestrator.py` closes the loop from raw telemetry to automated response, built directly on the Phase 4 in-memory rule engine rather than re-implementing signature matching in Python:
