@@ -51,6 +51,10 @@ See `AnimusCore_v1/QUICKSTART.md` for six client proof-of-concept guides
 distributed Raft-lite cluster, enterprise licensing, and market data feed
 adapters) covering every way to consume Animus Core.
 
+Running a pilot evaluation? See [`Pilot_Kit/`](Pilot_Kit/PILOT_README.md)
+for a minimal customer-facing quickstart -- setup, a runnable
+sub-microsecond ingestion example, and how 30-day evaluation licenses work.
+
 ## Benchmark Performance
 * **Peak Throughput:** >238 Million ops/sec
 * **Latency Profile:** Sub-millisecond batch ingestion
