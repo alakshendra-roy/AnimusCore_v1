@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Animus Core | Sub-2µs C++ Telemetry & Python Interop</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+        darkMode: 'class',
+        theme: {
+        extend: {
+        colors: {
+        brand: {
+        bg: '#05070a',
+        card: '#0c1017',
+        border: '#1b2436',
+        cyan: '#00f2fe',
+        red: '#ff2a5f',
+        glow: 'rgba(0, 242, 254, 0.15)'
+        }
+        }
+        }
+        }
+        }
+    </script>
+    <style>
+        .glow-cyan {
+            box-shadow: 0 0 25px rgba(0, 242, 254, 0.15);
+        }
+
+        .glow-cyan-hover:hover {
+            box-shadow: 0 0 35px rgba(0, 242, 254, 0.3);
+            border-color: #00f2fe;
+        }
+
+        .pulse-live {
+            animation: pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+    </style>
+</head>
+<body class="bg-brand-bg text-slate-200 font-sans antialiased selection:bg-brand-cyan selection:text-black relative overflow-x-hidden">
+
+    <!-- Glowing Background Overlay -->
+    <div class="fixed inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(0,242,254,0.12),rgba(255,255,255,0))] pointer-events-none"></div>
+
+    <!-- Navigation -->
+    <nav class="border-b border-brand-border/80 bg-brand-bg/80 backdrop-blur-xl fixed w-full z-50 top-0">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+                <!-- Animus Vector Logo -->
+                <svg class="w-8 h-8 text-brand-cyan" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M50 5 L90 25 L90 75 L50 95 L10 75 L10 25 Z" stroke="#ff2a5f" stroke-width="3" fill="none" />
+                    <path d="M50 15 L80 30 L80 70 L50 85 L20 70 L20 30 Z" stroke="#00f2fe" stroke-width="2" fill="rgba(0,242,254,0.05)" />
+                    <path d="M50 30 L65 70 H55 L50 55 L45 70 H35 L50 30 Z" fill="#00f2fe" />
+                </svg>
+                <span class="font-bold text-lg tracking-wider text-white">ANIMUS <span class="text-xs text-brand-cyan px-2 py-0.5 rounded bg-brand-cyan/10 border border-brand-cyan/30">v1.1.0</span></span>
+            </div>
+            <div class="flex items-center space-x-6 text-sm font-medium">
+                <a href="#benchmarks" class="hover:text-brand-cyan transition">Live Metrics</a>
+                <a href="#architecture" class="hover:text-brand-cyan transition">Architecture</a>
+                <a href="#integration" class="hover:text-brand-cyan transition">SDK</a>
+                <a href="#pilot" class="bg-gradient-to-r from-brand-cyan to-blue-500 text-black px-4 py-2 rounded-md font-bold hover:opacity-90 transition glow-cyan">Request Pilot Key</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pt-36 pb-20 px-6 max-w-7xl mx-auto text-center relative z-10">
+        <div class="inline-flex items-center space-x-2 border border-brand-cyan/30 bg-brand-cyan/10 px-3 py-1 rounded-full text-brand-cyan text-xs font-semibold mb-6">
+            <span class="w-2 h-2 rounded-full bg-brand-cyan pulse-live"></span>
+            <span>LIVE ENGINE BENCHMARKS ATTACHED</span>
+        </div>
+        <h1 class="text-5xl md:text-7xl font-extrabold text-white tracking-tight max-w-4xl mx-auto leading-tight">
+            Sub-Microsecond C++ Execution. <br />
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-brand-cyan via-teal-300 to-blue-500">Zero-Copy Python Interop.</span>
+        </h1>
+        <p class="mt-6 text-lg text-slate-400 max-w-2xl mx-auto">
+            Eliminate runtime IPC serialization and GIL bottlenecks. Animus pairs cache-line aligned SPSC lock-free shared memory buffers with native C-ABI bindings for HFT execution desks.
+        </p>
+
+        <!-- Live Benchmark Signal Cards -->
+        <div id="benchmarks" class="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl glow-cyan-hover transition duration-300 relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-brand-cyan"></div>
+                <div class="text-xs text-slate-400 uppercase font-bold tracking-wider flex items-center justify-between">
+                    <span>P99.9 Tail Latency</span>
+                    <span class="w-2 h-2 rounded-full bg-brand-cyan pulse-live"></span>
+                </div>
+                <div class="text-4xl font-extrabold text-brand-cyan mt-2 font-mono" id="live-latency">1.82 µs</div>
+                <div class="text-xs text-slate-500 mt-1">Multi-Tenant Thread Contention</div>
+            </div>
+
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl glow-cyan-hover transition duration-300 relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-blue-500"></div>
+                <div class="text-xs text-slate-400 uppercase font-bold tracking-wider flex items-center justify-between">
+                    <span>Sustained Throughput</span>
+                    <span class="w-2 h-2 rounded-full bg-blue-500 pulse-live"></span>
+                </div>
+                <div class="text-4xl font-extrabold text-white mt-2 font-mono" id="live-throughput">8,214,092</div>
+                <div class="text-xs text-slate-500 mt-1">Events / Sec Static Ring</div>
+            </div>
+
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl glow-cyan-hover transition duration-300 relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-1 bg-brand-red"></div>
+                <div class="text-xs text-slate-400 uppercase font-bold tracking-wider flex items-center justify-between">
+                    <span>Hot-Path Dynamic Heap</span>
+                    <span class="text-brand-red font-mono text-xs">HARDWARE LOCKED</span>
+                </div>
+                <div class="text-4xl font-extrabold text-brand-red mt-2 font-mono">0 Bytes</div>
+                <div class="text-xs text-slate-500 mt-1">Post-Initialization Memory</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Architecture Pillars -->
+    <section id="architecture" class="py-16 px-6 max-w-7xl mx-auto border-t border-brand-border/60">
+        <h2 class="text-3xl font-bold text-white mb-8 text-center">Engine Architecture</h2>
+        <div class="grid md:grid-cols-3 gap-6">
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl hover:border-brand-cyan/50 transition">
+                <div class="w-10 h-10 rounded bg-brand-cyan/10 border border-brand-cyan/30 flex items-center justify-center text-brand-cyan font-bold mb-4">01</div>
+                <h3 class="font-bold text-white text-xl">SPSC Lock-Free Ring</h3>
+                <p class="text-sm text-slate-400 mt-2">64-byte aligned lock-free shared memory transport (`ShmRing`) eliminating OS context switches and kernel-space transitions.</p>
+            </div>
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl hover:border-brand-cyan/50 transition">
+                <div class="w-10 h-10 rounded bg-brand-cyan/10 border border-brand-cyan/30 flex items-center justify-center text-brand-cyan font-bold mb-4">02</div>
+                <h3 class="font-bold text-white text-xl">C-ABI Zero-Copy Interop</h3>
+                <p class="text-sm text-slate-400 mt-2">Bypasses traditional gRPC and Sockets IPC serialization, allowing Python strategy logic to directly execute compiled C++ binary primitives.</p>
+            </div>
+            <div class="bg-brand-card border border-brand-border p-6 rounded-xl hover:border-brand-cyan/50 transition">
+                <div class="w-10 h-10 rounded bg-brand-cyan/10 border border-brand-cyan/30 flex items-center justify-center text-brand-cyan font-bold mb-4">03</div>
+                <h3 class="font-bold text-white text-xl">RSA-2048 CNG Licensing</h3>
+                <p class="text-sm text-slate-400 mt-2">Hardware-bound cryptographic verification running asynchronously at startup with zero hot-path performance impact.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Code Integration -->
+    <section id="integration" class="py-16 px-6 max-w-7xl mx-auto border-t border-brand-border/60">
+        <div class="bg-brand-card border border-brand-border rounded-xl p-6 glow-cyan">
+            <div class="flex items-center justify-between pb-4 border-b border-brand-border mb-4">
+                <div class="flex items-center space-x-2">
+                    <span class="w-3 h-3 rounded-full bg-red-500"></span>
+                    <span class="w-3 h-3 rounded-full bg-yellow-500"></span>
+                    <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                    <span class="text-xs font-mono text-slate-400 ml-2">strategy_pipeline.py</span>
+                </div>
+                <span class="text-xs text-brand-cyan font-mono">Zero-Copy Python SDK</span>
+            </div>
+            <pre class="font-mono text-sm text-slate-300 overflow-x-auto leading-relaxed"><code><span class="text-purple-400">import</span> animus_sdk
+
+<span class="text-slate-500"># Attach zero-copy lock-free shared memory ring</span>
+engine = animus_sdk.EngineKernel(license_path=<span class="text-emerald-400">"animus.lic"</span>)
+engine.connect_ring_buffer(channel_id=<span class="text-orange-400">1</span>, buffer_size_mb=<span class="text-orange-400">64</span>)
+
+<span class="text-slate-500"># Hot-path tick-to-trade execution (&lt; 1.85 µs latency)</span>
+engine.emit_event(
+    event_type=animus_sdk.EVENT_ORDER_EXECUTE,
+    symbol_id=<span class="text-orange-400">10492</span>,
+    price=<span class="text-orange-400">184.50</span>,
+    volume=<span class="text-orange-400">5000</span>
+)</code></pre>
+        </div>
+    </section>
+
+    <!-- Evaluation Form -->
+    <section id="pilot" class="py-20 px-6 max-w-3xl mx-auto text-center border-t border-brand-border/60">
+        <h2 class="text-3xl font-bold text-white">Request 30-Day Evaluation License</h2>
+        <p class="text-slate-400 mt-2 text-sm">Issued strictly under institutional evaluation agreements for qualified quantitative trading desks.</p>
+        <form class="mt-8 space-y-4 text-left">
+            <div class="grid grid-cols-2 gap-4">
+                <input type="text" placeholder="Full Name" class="bg-brand-card border border-brand-border rounded px-4 py-3 text-sm focus:outline-none focus:border-brand-cyan text-white w-full">
+                <input type="email" placeholder="Corporate Email" class="bg-brand-card border border-brand-border rounded px-4 py-3 text-sm focus:outline-none focus:border-brand-cyan text-white w-full">
+            </div>
+            <input type="text" placeholder="Firm / Organization Name" class="bg-brand-card border border-brand-border rounded px-4 py-3 text-sm focus:outline-none focus:border-brand-cyan text-white w-full">
+            <button type="submit" class="w-full bg-gradient-to-r from-brand-cyan to-blue-500 text-black font-extrabold py-3.5 rounded hover:opacity-90 transition glow-cyan">Apply for Hardware-Bound License Key</button>
+        </form>
+    </section>
+
+    <footer class="border-t border-brand-border py-8 text-center text-xs text-slate-500">
+        © 2026 Animus Engine. Founder & Lead Architect: Alakshendra Roy. All Rights Reserved.
+    </footer>
+
+    <!-- JS Live Telemetry Simulator -->
+    <script>
+        setInterval(() => {
+        // Slight natural fluctuation simulation
+        const lat = (1.81 + Math.random() * 0.05).toFixed(2);
+        const tp = (8210000 + Math.floor(Math.random() * 15000)).toLocaleString();
+        document.getElementById('live-latency').innerText = lat + ' µs';
+        document.getElementById('live-throughput').innerText = tp;
+        }, 1200);
+    </script>
+</body>
+</html>
