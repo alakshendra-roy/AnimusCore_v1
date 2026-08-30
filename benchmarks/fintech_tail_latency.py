@@ -19,6 +19,19 @@ Python-side list-building never contaminates the measured call latency.
     atomic load/store pair (no contention to retry against with only one
     producer, by construction).
 
+Both pin_current_thread_to_core and spsc_init are license-gated at the
+native layer (added after this script was first written, in the RSA
+licensing commit) with no unlicensed default -- _verify_local_license()
+below verifies the same gitignored, per-machine local test license
+benchmarks/soak_test_engine.py and tests/test_bindings.py already use,
+in every process that touches a pinned code path (the parent process's
+core-probing calibration, and each --run-sweep-spsc-pinned child, since
+license state is process-wide and does not carry across a subprocess
+boundary). Unlike soak_test_engine.py, this raises rather than falling
+back to unpinned -- this script's whole purpose is a pinned-vs-unpinned
+comparison, so silently running unpinned and reporting it as "pinned"
+would be a worse outcome than failing loudly.
+
 What pinning actually buys here, measured, not assumed: with a good core
 selected (see below), mean/p50/p90/p99 improve consistently and clearly
 over the unpinned baseline. p99.99 does NOT reliably improve, and often
@@ -88,6 +101,42 @@ EVENT_ID = 1
 SWEEP_TIMEOUT_S = 60.0
 BASELINE = "baseline"
 SPSC_PINNED = "spsc_pinned"
+
+# pin_current_thread_to_core/spsc_init are license-gated at the native layer
+# with no unlicensed default (animus_engine.cpp: fails closed, not even core
+# 0, until animus_verify_license has succeeded once in this process) -- a
+# gate added after this script was originally written, which this script
+# never accounted for. Same gitignored, per-machine, regenerate-as-needed
+# path/convention as tests/test_bindings.py's _LOCAL_TEST_LICENSE and
+# benchmarks/soak_test_engine.py's LOCAL_TEST_LICENSE.
+LOCAL_TEST_LICENSE = os.path.join(
+    os.path.dirname(__file__), "..", "AnimusCore_v1", "license_tools", "private",
+    "test_license_for_this_machine.lic",
+)
+
+
+def _verify_local_license(bindings: AnimusBindings) -> None:
+    """Verifies the local per-machine test license before any pinned code
+    path runs. Raises rather than falling back to unpinned: unlike
+    benchmarks/soak_test_engine.py (which degrades gracefully because
+    pinning there is incidental to what it measures), this script's entire
+    purpose is comparing pinned vs. unpinned latency -- silently running
+    the "SPSC + pinned" variant without real pinning would mislabel
+    unpinned numbers as pinned, which is worse than failing loudly.
+    """
+    if not os.path.exists(LOCAL_TEST_LICENSE):
+        raise RuntimeError(
+            f"no local test license found at {LOCAL_TEST_LICENSE} -- this benchmark's "
+            "SPSC + pinned path requires one (pin_current_thread_to_core/spsc_init are "
+            "license-gated with no unlicensed default). Generate one with: "
+            f"python scripts/generate_license.py sign --out \"{LOCAL_TEST_LICENSE}\" --max-cores <cpu count>"
+        )
+    if not bindings.verify_license(LOCAL_TEST_LICENSE):
+        raise RuntimeError(
+            f"local test license at {LOCAL_TEST_LICENSE} did not verify against this "
+            "machine (wrong machine, expired, or tampered) -- regenerate it with "
+            "scripts/generate_license.py sign."
+        )
 
 
 def percentile(sorted_data: List[float], pct: float) -> float:
@@ -195,6 +244,12 @@ def run_sweep_spsc_pinned(batch_size: int, total_events: int, core_id: int) -> d
             "no compiled native engine found -- this benchmark requires the real "
             "AnimusNative/AnimusCore_v1 binary, not the pure-Python fallback"
         )
+
+    # This is a fresh child process (see the module docstring for why each
+    # sweep runs isolated) -- license verification is process-wide state, so
+    # it must happen again here even though main()'s calibration probe
+    # already verified it in the parent process.
+    _verify_local_license(bindings)
 
     pinned = bindings.pin_current_thread_to_core(core_id)
     if not pinned:
@@ -421,6 +476,7 @@ def main() -> None:
             "no compiled native engine found -- this benchmark requires the real "
             "AnimusNative/AnimusCore_v1 binary, not the pure-Python fallback"
         )
+    _verify_local_license(probe)
     cpu_count = probe.get_cpu_count()
     print(f"Detected {cpu_count} logical CPU(s). Probing candidate cores (small workload, p99 latency)...")
     core_id, probe_results = find_best_core(cpu_count)
