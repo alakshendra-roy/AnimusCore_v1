@@ -17,6 +17,12 @@ All seven PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
+Running a pilot evaluation rather than integrating from source? See
+[`Pilot_Kit/PILOT_README.md`](../Pilot_Kit/PILOT_README.md) instead -- a
+minimal customer-facing quickstart covering just Guide 1's Python
+interop path, a runnable sub-microsecond ingestion example, and how
+30-day evaluation licenses work.
+
 ---
 
 ## 1. Python SDK (`pip install`)
