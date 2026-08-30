@@ -879,3 +879,27 @@ Core probe selected core 6 again (38.64 us probe p99 vs. 46.58-77.19 us for core
 
 * **Consistent with Phase 14's documented pattern, not a new finding.** p50 and p90 improved with pinning at every batch size (-4.2% to -12.5%), matching Phase 14's "improves consistently" result for the typical case. p99 improved for batch sizes 100 and 1,000 (-13.5%, -21.2%) but worsened for batch 10,000 (+79.8%) -- Phase 14's own 5-run range for that exact case was -8.9% to +78.7%, so this single run lands just outside (by ~1 point) a range built from 5 runs, not 1; not treated as evidence of anything new given that. p99.99 worsened at all three batch sizes (+379.5%, +120.1%, +99.4%), reproducing Phase 14's headline finding that thread pinning without OS-level core isolation does not reliably improve the extreme tail and can make it markedly worse -- two of these three deltas fall inside Phase 14's originally-documented 5-run ranges, and the third (batch 10,000, +99.4% vs. a previously observed max of +66.8%) is a single run exceeding a 5-run range, which is expected sampling variance for a metric Phase 14 already characterized as noisy, not a regression.
 * **Status:** Phase 26 Regression Check Verified -- `stress_test_engine.py` required no changes and reproduced Phase 12 exactly; `fintech_tail_latency.py` had a real, pre-existing license-verification gap (unrelated to Phase 24/25) fixed and confirmed working, with its re-verified numbers matching Phase 14's documented pinned-vs-unpinned behavior (typical case improves, extreme tail does not reliably improve) rather than contradicting it.
+
+## Phase 27: `fintech_tail_latency.py`, Second Re-Verification Run
+
+### Target System
+
+A second independent run of `benchmarks/fintech_tail_latency.py` (no code changes since Phase 26 -- this is a repeat run of the same fixed script, following up on Pilot_Kit work that touched unrelated files only), to check the license fix continues to hold and to accumulate a further data point against Phase 14's originally-documented 5-run ranges.
+
+### Results (1,000,000 events per batch size/variant)
+
+| Batch size | Variant | Throughput (ev/s) | p50 (us) | p90 (us) | p99 (us) | p99.99 (us) |
+|---|---|---|---|---|---|---|
+| 100 | Baseline (unpinned) | 6,786,899 | 13.80 | 15.60 | 30.60 | 242.33 |
+| 100 | SPSC + pinned (core 6) | 6,643,622 | 13.50 | 15.50 | 26.91 | 1,481.72 |
+| 1,000 | Baseline (unpinned) | 8,056,946 | 117.30 | 139.50 | 233.62 | 491.90 |
+| 1,000 | SPSC + pinned (core 6) | 8,643,072 | 106.70 | 117.81 | 279.43 | 1,378.34 |
+| 10,000 | Baseline (unpinned) | 6,853,244 | 1,406.70 | 1,588.01 | 2,209.81 | 2,524.42 |
+| 10,000 | SPSC + pinned (core 6) | 7,129,474 | 1,308.75 | 1,529.80 | 3,282.95 | 3,669.99 |
+
+Core probe again selected core 6 (37.48 us probe p99 vs. 45.42-75.39 us for the other five candidates) -- the fourth consecutive run (Phase 25, Phase 26, and now this one) to select core 6 on this machine.
+
+* **Ran clean; license fix confirmed stable across a second independent run.** No crash, no regression in the fix itself.
+* **A wider spread against Phase 14's 5-run ranges than Phase 26 alone showed, still within the same qualitative pattern.** Four of this run's twelve percentile deltas fall outside Phase 14's originally-documented 5-run ranges: p50 at batch 100 (-2.2% vs. a documented best-case range of -9.9% to -5.5%), p90 at batch 100 (-0.6% vs. -14.6% to -4.0%), p50 at batch 1,000 (-9.0% vs. -12.2% to -9.7%), and p99 at batch 1,000 (+19.6% vs. -40.0% to +17.1%). In every one of these four cases the deviation is in the "less improvement than previously observed" or "marginally worse than the previous worst case" direction, by single-digit-to-low-double-digit points, not a sign reversal or an order-of-magnitude jump -- p50 and p90 stayed negative (improved) at every batch size in this run, exactly as in every prior run. The remaining eight of twelve deltas (including all four at batch 10,000) land inside the original 5-run ranges.
+* **Interpretation, not dismissal:** Phase 14's ranges were built from 5 runs; Phase 26 added a 6th; this is a 7th. It is expected, not suspicious, for a small-sample empirical range to occasionally not contain a later run's exact value -- that is what "range observed across 5 runs" means, as distinct from "guaranteed bound." The qualitative finding these three phases now jointly support across 7 total runs is unchanged from Phase 14's original conclusion: p50/p90 (typical case) improve with pinning far more often than not, while p99/p99.99 (tail) are genuinely noisy and can move against pinning's favor, consistent with pinning-without-OS-isolation's known inability to protect the rare case. Nothing here motivates widening the documented Phase 14 ranges themselves -- that would take a deliberate, dedicated multi-run study (as Phase 14 itself was), not incidental data points gathered while verifying something else.
+* **Status:** Phase 27 Re-Verification Run Recorded -- `fintech_tail_latency.py` remains fixed and functional; this run's numbers extend, rather than contradict, the pinned-vs-unpinned behavior already characterized in Phase 14/26.
