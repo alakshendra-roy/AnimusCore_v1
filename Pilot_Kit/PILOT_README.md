@@ -14,7 +14,8 @@ running end to end.
 |---|---|---|
 | `PILOT_README.md` | This document | You |
 | `animus_integration_example.py` | Complete, runnable Python sample: loads the engine, ingests events through the real C-ABI, measures and reports per-event ingestion latency | Pilot customer |
-| `generate_license.py` | Issues a 30-day, hardware-locked evaluation `.lic` file | **Vendor only** -- see below |
+| `get_fingerprint.ps1` | Prints this machine's hardware fingerprint (no private key involved -- read-only, safe to run) | Pilot customer |
+| `generate_license.py` | Issues a 30-day, hardware-locked evaluation `.lic` file from a fingerprint | **Vendor only** -- see below |
 
 ## Prerequisites
 
@@ -93,22 +94,34 @@ license** -- verification only gates a small set of opt-in features (CPU
 core pinning; see `AnimusCore_v1/BENCHMARKS.md`'s licensing phases) that
 fail closed with no unlicensed default, not even core 0.
 
-`generate_license.py` in this kit issues a **30-day** evaluation license
-for a named machine. This is a **vendor-side tool** -- it requires the
-private RSA signing key (`AnimusCore_v1/license_tools/private/`,
-gitignored, never distributed), so it's meant to be run by your Animus
-Core contact from a full clone of the source repository, not by the pilot
-customer. If you're evaluating this kit and need a license, ask your
-Animus Core contact for one rather than running this script yourself;
-it's included here for transparency about how the license you receive was
-generated, not as a step in your own setup.
+Getting your evaluation license is a two-step, two-party handoff:
 
-For reference, here's what issuing one looks like (vendor side):
+1. **You (pilot customer)** run `get_fingerprint.ps1` on the machine you
+   want licensed and send the printed fingerprint to your Animus Core
+   contact:
 
-```bash
-python Pilot_Kit/generate_license.py --out acme_corp_pilot.lic \
-    --fingerprint <64 hex chars collected from the customer's machine>
-```
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File Pilot_Kit\get_fingerprint.ps1
+   ```
+
+   This is read-only (registry `MachineGuid` + network adapter info),
+   makes no network call, writes nothing to disk, and involves no private
+   key -- safe to run and safe to send the output from.
+
+2. **Your Animus Core contact (vendor side)** runs `generate_license.py`
+   with that fingerprint and sends back the resulting `.lic` file:
+
+   ```bash
+   python Pilot_Kit/generate_license.py --out acme_corp_pilot.lic \
+       --fingerprint <the 64 hex chars you sent them>
+   ```
+
+   This step requires the private RSA signing key
+   (`AnimusCore_v1/license_tools/private/`, gitignored, never
+   distributed), so it's run by your Animus Core contact from a full
+   clone of the source repository, not by you. It's included in this kit
+   for transparency about how your license is generated, not as a step in
+   your own setup.
 
 ## Questions
 
