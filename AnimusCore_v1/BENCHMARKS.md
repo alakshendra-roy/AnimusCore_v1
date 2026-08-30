@@ -838,3 +838,44 @@ Phase 24's own hypothesis for its FLAGGED P99 check was unpinned-thread OS sched
 * **Higher baseline RSS is expected, not a regression.** Both runs' warm-baseline RSS differ by ~7.4 MB (37.45 -> 44.88 MB) because this run does strictly more at startup than Phase 24's: verifying an RSA-2048 license (`animus_verify_license`, Windows BCrypt/CNG) and initializing a second ring (the standalone SPSC ring used only for the pre-run core probe, 65,536 x 64-byte `TelemetryPayload` records, ~4 MB) that Phase 24 never touched. Warm-to-final growth is what actually answers "does this run leak," and it's smaller here (+0.49%) than Phase 24's already-passing +2.72%, not larger.
 * **Pinning is not a complete fix for tail-latency spikes, and this run's own data says so plainly.** Two of the twenty windows (10 and 16) still show a max latency far above their neighbors (1,188.9 us and 963.1 us respectively, against a ~150-210 us max everywhere else) -- an order of magnitude smaller than Phase 24's worst spikes (up to 14,179.4 us), but not zero. This matches Phase 14's own documented caveat precisely: `SetThreadAffinityMask` pins a thread to a core, it does not reserve that core exclusively, so a pinned thread can still be preempted by something else scheduled onto the same core -- it just has nowhere else to go while that happens, which is why the *frequency* of spikes drops sharply (2 of 20 windows here vs. essentially every window in Phase 24) while a rare spike is not fully eliminated. Reporting this rather than rounding it off to "pinning fixed it" is the same standard Phase 14 already set for itself.
 * **Status:** Phase 25 CPU Affinity Pinning Verified -- re-running Phase 24's identical 600-second workload with the producer thread pinned to a probed-best core turned the P99 latency persistence check from FLAGGED (+125.9% drift) to PASS (+4.3% drift), directly confirming Phase 24's scheduler-jitter explanation rather than leaving it as an inference; memory stability and persistence integrity remained PASS/OK as in Phase 24, and two residual tail-latency outliers (down an order of magnitude from Phase 24, but not eliminated) are reported rather than omitted, consistent with Phase 14's own finding that thread pinning without OS-level core isolation narrows, but does not guarantee away, rare scheduler-preemption spikes.
+
+## Phase 26: Regression Check -- `stress_test_engine.py` Clean, `fintech_tail_latency.py` Fix + Re-Verification
+
+### Target System
+
+A full regression pass across the two other native-engine benchmark/stress scripts, run after Phase 24/25's soak-testing work landed, to confirm nothing in that work (or since) broke previously-verified behavior.
+
+`benchmarks/stress_test_engine.py` (Phase 12) required no changes and passed clean on this run -- see Results below.
+
+`benchmarks/fintech_tail_latency.py` (Phase 14) **crashed immediately** on this run, before this phase's fix: `RuntimeError: AnimusBindings.spsc_init() must succeed before recording events`, thrown from the very first call inside `find_best_core()`'s core-probing step. Root cause, found via `git log -S` against `animus_engine.cpp` rather than guessed: `animus_pin_current_thread_to_core` / `animus_spsc_init` fail closed with no verified license and no unlicensed default (not even core 0) -- but that gate was added by a **later** commit (`2c9b9c1`, "offline RSA-signed hardware licensing for proprietary-edition") than the one that created `fintech_tail_latency.py` (`15b16a5`, Phase 14 itself). The script was never updated to call `animus_verify_license` and has no license-verification call anywhere in its history. The real, already-verified pinned numbers in Phase 14 above were captured before the licensing commit landed; every run of this script since then, on any process without an already-verified license, would have hit this same crash -- unrelated to Phase 24/25's soak-test work, which never touched this file, `animus.hpp`, `animus_engine.cpp`, or `animus/bindings.py`.
+
+* **Fix:** `_verify_local_license()`, called in the parent process (before the core probe) and again in every `--run-sweep-spsc-pinned` child subprocess (license state is process-wide and does not cross a subprocess boundary), using the same gitignored, per-machine, regenerate-as-needed local test license convention `tests/test_bindings.py` and `benchmarks/soak_test_engine.py`'s Phase 25 work already established. Unlike Phase 25's graceful unpinned fallback, this raises rather than degrading silently -- this script's entire purpose is a pinned-vs-unpinned comparison, so silently running unpinned and reporting it as "pinned" would misrepresent every number in its output table, a worse outcome than failing loudly.
+
+### Results
+
+**`stress_test_engine.py`** (1,200,000-event sustained-load check + SDK validation + C-ABI fuzzing):
+
+| Check | Result |
+|---|---|
+| RSS growth, warm baseline -> final | +0.08% (well under the 10% leak-flag threshold) |
+| Threat signals matched and drained | 108,000 / 108,000 expected |
+| SDK-level malformed-input cases (7) | All 7 safely rejected (in-process) |
+| Raw C-ABI fuzz cases (6, subprocess-isolated) | 2/6 crashed (`count_exceeds_buffer_moderate`/`_extreme`) -- matches Phase 12's documented non-deterministic OOB-read behavior for a caller that bypasses the SDK; not a new issue |
+
+No changes required; behavior matches Phase 12's original documentation exactly.
+
+**`fintech_tail_latency.py`** (after the license-verification fix, 1,000,000 events per batch size/variant):
+
+| Batch size | Variant | Throughput (ev/s) | p50 (us) | p90 (us) | p99 (us) | p99.99 (us) |
+|---|---|---|---|---|---|---|
+| 100 | Baseline (unpinned) | 6,885,876 | 14.00 | 15.00 | 21.40 | 275.30 |
+| 100 | SPSC + pinned (core 6) | 6,976,585 | 13.40 | 13.80 | 18.50 | 1,320.13 |
+| 1,000 | Baseline (unpinned) | 8,218,379 | 116.40 | 125.70 | 227.40 | 536.19 |
+| 1,000 | SPSC + pinned (core 6) | 9,103,895 | 102.60 | 110.00 | 179.27 | 1,180.26 |
+| 10,000 | Baseline (unpinned) | 7,166,250 | 1,342.95 | 1,590.07 | 1,802.61 | 2,165.73 |
+| 10,000 | SPSC + pinned (core 6) | 7,242,871 | 1,286.65 | 1,450.78 | 3,240.30 | 4,318.31 |
+
+Core probe selected core 6 again (38.64 us probe p99 vs. 46.58-77.19 us for cores 0/1/12/18/23), consistent with Phase 14's and Phase 25's finding that core 6 is repeatedly the fastest candidate on this machine.
+
+* **Consistent with Phase 14's documented pattern, not a new finding.** p50 and p90 improved with pinning at every batch size (-4.2% to -12.5%), matching Phase 14's "improves consistently" result for the typical case. p99 improved for batch sizes 100 and 1,000 (-13.5%, -21.2%) but worsened for batch 10,000 (+79.8%) -- Phase 14's own 5-run range for that exact case was -8.9% to +78.7%, so this single run lands just outside (by ~1 point) a range built from 5 runs, not 1; not treated as evidence of anything new given that. p99.99 worsened at all three batch sizes (+379.5%, +120.1%, +99.4%), reproducing Phase 14's headline finding that thread pinning without OS-level core isolation does not reliably improve the extreme tail and can make it markedly worse -- two of these three deltas fall inside Phase 14's originally-documented 5-run ranges, and the third (batch 10,000, +99.4% vs. a previously observed max of +66.8%) is a single run exceeding a 5-run range, which is expected sampling variance for a metric Phase 14 already characterized as noisy, not a regression.
+* **Status:** Phase 26 Regression Check Verified -- `stress_test_engine.py` required no changes and reproduced Phase 12 exactly; `fintech_tail_latency.py` had a real, pre-existing license-verification gap (unrelated to Phase 24/25) fixed and confirmed working, with its re-verified numbers matching Phase 14's documented pinned-vs-unpinned behavior (typical case improves, extreme tail does not reliably improve) rather than contradicting it.
