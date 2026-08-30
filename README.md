@@ -46,10 +46,11 @@ python benchmarks/fintech_tail_latency.py
 python benchmarks/generate_benchmark_report.py
  ```
 
-See `AnimusCore_v1/QUICKSTART.md` for six client proof-of-concept guides
+See `AnimusCore_v1/QUICKSTART.md` for seven client proof-of-concept guides
 (Python SDK, C++ single-header embedding, secure multi-tenant + mTLS,
-distributed Raft-lite cluster, enterprise licensing, and market data feed
-adapters) covering every way to consume Animus Core.
+distributed Raft-lite cluster, enterprise licensing, market data feed
+adapters, and a generic shared-memory IPC ring) covering every way to
+consume Animus Core.
 
 Running a pilot evaluation? See [`Pilot_Kit/`](Pilot_Kit/PILOT_README.md)
 for a minimal customer-facing quickstart -- setup, a runnable
