@@ -25,6 +25,26 @@ Method:
     record_events_batch() calls paced to TARGET_EVENTS_PER_SEC, draining
     signals periodically and on backpressure (same handling as
     benchmarks/stress_test_engine.py) -> stop_logging.
+  - CPU affinity: the producer thread (the one running the loop above) is
+    pinned to a single logical core via animus_pin_current_thread_to_core
+    (animus.hpp / animus_engine.cpp) before the loop starts, with
+    animus_set_thread_high_priority() raising its scheduling priority on
+    top of that -- the same primitives benchmarks/fintech_tail_latency.py
+    uses for its "SPSC + pinned" variant, applied here to this script's
+    real Engine pipeline instead of the standalone SPSC ring. Both are
+    license-gated (animus_engine.cpp: fail closed with no verified license,
+    not even core 0) and both need an actual valid license file for this
+    machine to do anything -- see try_pin_producer_thread() below for the
+    graceful, warn-and-continue-unpinned fallback when one isn't present
+    (e.g. a fresh clone with no license_tools/private/ contents yet).
+  - Which core to pin to is *probed*, not guessed, for the same reason
+    Phase 14 (fintech_tail_latency.py) probes it: on a hybrid P-core/E-core
+    CPU, a fixed heuristic like "highest logical core" can silently land on
+    an Efficiency core and make pinning look counterproductive when it
+    isn't. find_best_core() below reuses that script's probing method
+    (a handful of candidate cores, each timed with a small SPSC workload,
+    lowest p99 wins) before pinning the real 600-second run's producer
+    thread to whichever core actually measured best.
   - RSS sampled on a wall-clock timer independent of batch cadence, so
     memory samples are evenly spaced across the full duration.
   - Every batch's call latency (perf_counter_ns around record_events_batch
@@ -46,7 +66,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -63,6 +83,20 @@ RULE_THRESHOLD = 90  # metric_value = i % 100 -> ~9% match rate
 PAYLOAD_SIZE_BYTES = 64  # sizeof(TelemetryPayload), alignas(64) -- BENCHMARKS.md Phase 1/12
 RSS_GROWTH_FLAG_PCT = 10.0  # same threshold as stress_test_engine.py Part 1
 LATENCY_DRIFT_FLAG_PCT = 50.0  # flag if any window's p99 exceeds the stable baseline by more than this
+
+# Same path/convention tests/test_bindings.py uses (_LOCAL_TEST_LICENSE):
+# local-only, gitignored, regenerated per-machine via
+# `python scripts/generate_license.py sign --out <this path> --max-cores N`
+# (or license_tools/sign_license.ps1 directly). Deliberately not committed
+# -- a license is bound to one machine's hardware fingerprint, so a copy
+# checked into source control would only ever verify on the machine that
+# generated it.
+LOCAL_TEST_LICENSE = os.path.join(
+    os.path.dirname(__file__), "..", "AnimusCore_v1", "license_tools", "private",
+    "test_license_for_this_machine.lic",
+)
+CORE_PROBE_CALLS = 50
+CORE_PROBE_BATCH_SIZE = 200
 
 
 def get_rss_bytes() -> int:
@@ -139,6 +173,97 @@ def percentile(sorted_data: List[float], pct: float) -> float:
     return d0 + d1
 
 
+def _probe_core_p99(bindings: AnimusBindings, core_id: int, num_calls: int, batch_size: int) -> float:
+    """Quick in-process probe: pins this thread to core_id, times num_calls
+    small batch pushes against the standalone SPSC ring, drains it
+    afterward so the next candidate core's probe starts clean. Copied from
+    benchmarks/fintech_tail_latency.py's identical helper -- see that
+    file's module docstring for why probing (not a fixed "avoid core 0"
+    heuristic) is necessary on a hybrid P-core/E-core CPU. This is a
+    calibration step, not a reported soak-test result: it runs once,
+    before init()/start_logging(), against the separate SPSC ring, not the
+    Engine this script otherwise drives.
+    """
+    bindings.pin_current_thread_to_core(core_id)
+    latencies_us: List[float] = []
+    for i in range(num_calls):
+        batch = [(RULE_EVENT_ID, i * batch_size + j, j) for j in range(batch_size)]
+        t0 = time.perf_counter_ns()
+        bindings.spsc_record_events_batch(batch)
+        t1 = time.perf_counter_ns()
+        latencies_us.append((t1 - t0) / 1000.0)
+    while bindings.spsc_drain(max_count=100_000):
+        pass
+    latencies_us.sort()
+    return percentile(latencies_us, 99)
+
+
+def find_best_core(bindings: AnimusBindings, cpu_count: int) -> Tuple[int, List[Tuple[int, float]]]:
+    """Probes a handful of candidate cores spread across the logical core
+    range and returns the one with the lowest measured p99 latency, plus
+    every candidate's result. Same candidate-selection and probing
+    algorithm as benchmarks/fintech_tail_latency.py's find_best_core.
+    """
+    candidates = sorted({
+        0, 1,
+        max(1, cpu_count // 4),
+        max(1, cpu_count // 2),
+        max(1, (3 * cpu_count) // 4),
+        max(0, cpu_count - 1),
+    })
+    candidates = [c for c in candidates if 0 <= c < cpu_count]
+
+    bindings.spsc_init(buffer_capacity=1 << 16)
+    results = [(core_id, _probe_core_p99(bindings, core_id, CORE_PROBE_CALLS, CORE_PROBE_BATCH_SIZE))
+               for core_id in candidates]
+    best_core_id, _ = min(results, key=lambda r: r[1])
+    return best_core_id, results
+
+
+def try_pin_producer_thread(bindings: AnimusBindings) -> Tuple[bool, Optional[int], List[Tuple[int, float]]]:
+    """Best-effort: verifies the local per-machine test license (if one
+    exists), probes for the best logical core, pins this thread to it, and
+    raises its scheduling priority. Returns (pinned, core_id, probe_results).
+
+    Pinning is opt-in and license-gated at the native layer (see this
+    file's module docstring) -- there is no unlicensed default, not even
+    core 0 (animus_engine.cpp). Rather than making the whole soak test
+    fail on a machine with no license provisioned yet (a fresh clone, or
+    CI, which intentionally has no private key -- see
+    tests/test_bindings.py's _LOCAL_TEST_LICENSE comment), this warns and
+    falls back to an unpinned run, the same graceful-skip philosophy
+    Phase 23 established for every other opt-in licensed capability.
+    """
+    if not os.path.exists(LOCAL_TEST_LICENSE):
+        print(f"No local test license found at {LOCAL_TEST_LICENSE} -- running unpinned. "
+              f"Generate one with: python scripts/generate_license.py sign "
+              f"--out \"{LOCAL_TEST_LICENSE}\" --max-cores <cpu count>")
+        return False, None, []
+
+    if not bindings.verify_license(LOCAL_TEST_LICENSE):
+        print(f"Local test license at {LOCAL_TEST_LICENSE} did not verify "
+              f"(wrong machine, expired, or tampered) -- running unpinned.")
+        return False, None, []
+
+    cpu_count = bindings.get_cpu_count()
+    print(f"License verified -- {cpu_count} logical CPU(s) detected. "
+          f"Probing candidate cores ({CORE_PROBE_CALLS} calls x {CORE_PROBE_BATCH_SIZE} events each)...")
+    core_id, probe_results = find_best_core(bindings, cpu_count)
+    for cid, p99 in probe_results:
+        marker = "  <- selected" if cid == core_id else ""
+        print(f"  core {cid:>3}: p99 = {p99:8.2f} us{marker}")
+
+    pinned = bindings.pin_current_thread_to_core(core_id)
+    if not pinned:
+        print(f"pin_current_thread_to_core({core_id}) failed despite a verified license "
+              f"-- running unpinned.")
+        return False, None, probe_results
+
+    bindings.set_thread_high_priority()
+    print(f"Producer thread pinned to logical core {core_id} and raised to high priority.")
+    return True, core_id, probe_results
+
+
 @dataclass
 class RssSample:
     elapsed_s: float
@@ -185,6 +310,17 @@ def run_soak_test(duration_s: float) -> dict:
     gc.collect()
     cold_rss = get_rss_bytes()
 
+    print("=" * 100)
+    print(f"  ANIMUS CORE SOAK TEST -- {duration_s:.0f}s continuous sustained load")
+    print("=" * 100)
+
+    # Pinned before init()/start_logging(), same "pin at the start of the
+    # thread that will run the hot loop" convention as
+    # animus_pin_current_thread_to_core's own docstring -- this is a
+    # single-threaded producer (this function's own thread runs the entire
+    # ingestion loop below), so there is exactly one thread to pin.
+    cpu_pinned, pinned_core_id, core_probe_results = try_pin_producer_thread(bindings)
+
     if not bindings.init(buffer_capacity=RING_CAPACITY):
         raise RuntimeError("animus_init failed")
     bindings.add_rule(
@@ -192,12 +328,10 @@ def run_soak_test(duration_s: float) -> dict:
         comparator=RuleComparator.GREATER_THAN, severity=5,
     )
 
-    print("=" * 100)
-    print(f"  ANIMUS CORE SOAK TEST -- {duration_s:.0f}s continuous sustained load")
-    print("=" * 100)
     print(f"Batch size: {BATCH_SIZE:,} | Target rate: {TARGET_EVENTS_PER_SEC:,} events/sec | "
           f"Ring capacity: {RING_CAPACITY:,}")
     print(f"RSS sample interval: {RSS_SAMPLE_INTERVAL_S:.0f}s | Latency window: {LATENCY_WINDOW_S:.0f}s")
+    print(f"CPU affinity: {'pinned to core ' + str(pinned_core_id) + ' (high priority)' if cpu_pinned else 'unpinned'}")
     print(f"Cold baseline RSS (before init): {fmt_mb(cold_rss)}")
 
     rss_samples: List[RssSample] = []
@@ -380,6 +514,9 @@ def run_soak_test(duration_s: float) -> dict:
         "batch_size": BATCH_SIZE,
         "target_events_per_sec": TARGET_EVENTS_PER_SEC,
         "ring_capacity": RING_CAPACITY,
+        "cpu_pinned": cpu_pinned,
+        "pinned_core_id": pinned_core_id,
+        "core_probe_results": [{"core_id": cid, "p99_us": p99} for cid, p99 in core_probe_results],
         "total_events": total_events,
         "total_batches": batch_idx,
         "throughput_events_per_sec": total_events / final_elapsed if final_elapsed else 0.0,
