@@ -24,6 +24,7 @@ Release/
 
 # Runtime generated benchmark / telemetry output
 BENCHMARK_REPORT.json
+benchmarks/SOAK_TEST_REPORT.json
 telemetry_data.bin
 telemetry_stream.bin
 
