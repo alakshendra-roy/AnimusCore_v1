@@ -59,3 +59,5 @@ AnimusCore_v1/demo_certs/
 # a real machine, so publishing them reveals nothing usable), and a
 # blanket pattern would silently exclude those too.
 AnimusCore_v1/license_tools/private/
+.vercel
+.env*
