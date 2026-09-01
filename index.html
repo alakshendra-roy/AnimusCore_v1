@@ -3,260 +3,426 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Animus Engine | Sub-Microsecond Zero-Copy Trading Infrastructure</title>
-<meta name="description" content="Animus Engine is a C++17 zero-copy shared-memory execution core for quantitative funds and tier-1 market makers. Measured p99 tick-to-trade latency under 1.85µs.">
+<title>Animus Engine | Institutional-Grade Bare-Metal Execution Core</title>
+<meta name="description" content="Animus Engine is a C++17 zero-copy shared-memory execution core exposed through a direct C-ABI dynamic library, with a zero-dependency Python SDK. Measured p99 tick-to-trade latency 1.81µs.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/lucide@0.462.0/dist/umd/lucide.min.js"></script>
 <script>
 tailwind.config = {
   darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {
-        sans: ['"Plus Jakarta Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
         mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
       },
       colors: {
-        void: '#030509',
-        panel: '#0B0F17',
-        border: '#1E2638',
+        void: '#020408',
+        panel: '#0A0F1D',
+        border: '#1E293D',
         cyan: '#00F0FF',
         emerald: '#00FF66',
-        crimson: '#FF3B5C',
-        amber: '#F5A623'
+        danger: '#FF4B4B'
       }
     }
   }
 }
 </script>
 <style>
-  :root{ --cyan:#00F0FF; --emerald:#00FF66; --crimson:#FF3B5C; --amber:#F5A623; --border:#1E2638; }
-  html,body{ background:#030509; }
-  #bg-canvas{ position:fixed; inset:0; z-index:0; width:100%; height:100%; }
-  .radial-glow{
+  :root{ --void:#020408; --panel:#0A0F1D; --border:#1E293D; --cyan:#00F0FF; --emerald:#00FF66; --danger:#FF4B4B; }
+  *{ cursor:default; }
+  html,body{ background:var(--void); cursor:default; }
+
+  /* Micro-grid + micro-dot hardware mesh texture */
+  #micro-grid{
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:
+      radial-gradient(rgba(148,163,184,0.4) 1px, transparent 1.5px),
+      linear-gradient(rgba(31,41,61,0.55) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(31,41,61,0.55) 1px, transparent 1px);
+    background-size: 22px 22px, 44px 44px, 44px 44px;
+    background-position: 0 0, 0 0, 0 0;
+    -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+            mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+    opacity:.55;
+  }
+
+  #scanline{
+    position:fixed; left:0; right:0; height:120px; z-index:1; pointer-events:none;
+    background:linear-gradient(180deg, transparent 0%, rgba(0,240,255,0.05) 45%, rgba(0,240,255,0.09) 50%, rgba(0,240,255,0.05) 55%, transparent 100%);
+    animation:scan 9s linear infinite;
+  }
+  @keyframes scan{ 0%{ top:-120px; } 100%{ top:100vh; } }
+
+  /* Ambient background lighting — tracks mouse via CSS custom properties, no cursor DOM element */
+  #ambient-glow{
     position:fixed; inset:0; z-index:1; pointer-events:none;
-    background:
-      radial-gradient(ellipse 70% 55% at 15% -5%, rgba(0,240,255,0.09), transparent 60%),
-      radial-gradient(ellipse 55% 45% at 100% 15%, rgba(0,255,102,0.06), transparent 60%);
+    background: radial-gradient(600px at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(0, 240, 255, 0.12), transparent 80%);
   }
-  #cursor-glow{
-    position:fixed; top:0; left:0; width:340px; height:340px; margin:-170px 0 0 -170px;
-    border-radius:9999px; pointer-events:none; z-index:2; will-change:transform, opacity;
-    background:radial-gradient(circle, rgba(0,240,255,0.10) 0%, rgba(0,240,255,0.035) 42%, transparent 70%);
-    opacity:0; transition:opacity .35s ease;
-  }
-  #cursor-glow.active{ opacity:1; }
-  #cursor-glow.hot{ background:radial-gradient(circle, rgba(0,255,102,0.16) 0%, rgba(0,255,102,0.05) 42%, transparent 70%); }
   .content-layer{ position:relative; z-index:10; }
 
-  .glow-cyan{ box-shadow:0 0 25px rgba(0,240,255,0.15); }
-  .glow-cyan-hover:hover{ box-shadow:0 0 35px rgba(0,240,255,0.28); border-color:var(--cyan); }
-  .pulse-live{ animation:pulse 1.5s cubic-bezier(0.4,0,0.6,1) infinite; }
-  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+  .pulse-live{ animation:pulse 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
 
   .flash{ animation:flashKey .5s ease-out; }
-  @keyframes flashKey{ 0%{ text-shadow:0 0 12px currentColor; } 100%{ text-shadow:none; } }
+  @keyframes flashKey{ 0%{ text-shadow:0 0 10px currentColor; } 100%{ text-shadow:none; } }
 
-  /* Corner-bracket instrument framing */
+  /* Bracket-cornered instrument card */
   .corner-card{ position:relative; --accent: var(--cyan); }
   .corner-card::before,.corner-card::after{
-    content:''; position:absolute; width:14px; height:14px; opacity:.5;
-    transition:opacity .25s ease, width .25s ease, height .25s ease;
+    content:''; position:absolute; width:12px; height:12px; opacity:.6;
+    transition:opacity .2s ease, width .2s ease, height .2s ease;
     pointer-events:none;
   }
   .corner-card::before{ top:-1px; left:-1px; border-top:2px solid var(--accent); border-left:2px solid var(--accent); }
   .corner-card::after{ bottom:-1px; right:-1px; border-bottom:2px solid var(--accent); border-right:2px solid var(--accent); }
-  .corner-card:hover::before,.corner-card:hover::after{ opacity:1; width:20px; height:20px; }
+  .corner-card:hover::before,.corner-card:hover::after{ opacity:1; width:18px; height:18px; }
 
-  .ticker-scroll{ animation:tickerScroll 24s linear infinite; }
-  @keyframes tickerScroll{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
-  .ticker-track:hover .ticker-scroll{ animation-play-state:paused; }
-
-  #pilot-modal.modal-open{ display:flex; }
-  #pilot-modal{ display:none; }
-  .modal-panel{ transform:translateY(16px); opacity:0; transition:opacity .25s ease, transform .25s ease; }
-  #pilot-modal.modal-open .modal-panel{ transform:translateY(0); opacity:1; }
-
-  .bar-grow{ transform:scaleY(0); transform-origin:bottom; transition:transform .9s cubic-bezier(.16,1,.3,1); }
-  .bar-grow.grown{ transform:scaleY(1); }
+  #benchmark-modal.modal-open{ display:flex; }
+  #benchmark-modal{ display:none; }
+  .modal-panel{ transform:translateY(14px); opacity:0; transition:opacity .22s ease, transform .22s ease; }
+  #benchmark-modal.modal-open .modal-panel{ transform:translateY(0); opacity:1; }
 
   .curve-path{ transition:opacity .3s ease; }
   .curve-hidden{ opacity:0 !important; }
 
-  .mem-node{ transition:transform .35s cubic-bezier(.16,1,.3,1), opacity .35s ease; }
+  .code-pane{ display:none; }
+  .code-pane.active{ display:block; }
+  .tab-btn.active{ color:#000; background:var(--cyan); }
 
   ::-webkit-scrollbar{ height:8px; width:8px; }
-  ::-webkit-scrollbar-track{ background:#0B0F17; }
-  ::-webkit-scrollbar-thumb{ background:#1E2638; border-radius:4px; }
-
+  ::-webkit-scrollbar-track{ background:#0A0F1D; }
+  ::-webkit-scrollbar-thumb{ background:#1E293D; border-radius:4px; }
   ::selection{ background:var(--cyan); color:#000; }
+
+  .term-line{ animation:termIn .18s ease-out; }
+  @keyframes termIn{ from{ opacity:0; transform:translateY(-2px);} to{ opacity:1; transform:translateY(0);} }
+
+  input[type="range"]{ -webkit-appearance:none; appearance:none; height:4px; border-radius:2px; background:var(--border); }
+  input[type="range"]::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:16px; height:16px; border-radius:2px; background:var(--cyan); cursor:pointer; box-shadow:0 0 10px rgba(0,240,255,0.55); border:2px solid #04060A; }
+  input[type="range"]::-moz-range-thumb{ width:16px; height:16px; border-radius:2px; background:var(--cyan); cursor:pointer; border:2px solid #04060A; }
 </style>
 </head>
 <body class="bg-void text-slate-300 font-sans antialiased relative overflow-x-hidden">
 
-<canvas id="bg-canvas"></canvas>
-<div class="radial-glow"></div>
-<div id="cursor-glow"></div>
+<div id="micro-grid"></div>
+<div id="scanline"></div>
+<div id="ambient-glow"></div>
 
 <div class="content-layer">
 
   <!-- Navigation -->
-  <nav class="border-b border-border/80 bg-void/80 backdrop-blur-xl fixed w-full z-50 top-0">
-    <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-      <div class="flex items-center space-x-3">
-        <svg class="w-7 h-7 text-cyan" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M50 5 L90 25 L90 75 L50 95 L10 75 L10 25 Z" stroke="#1E2638" stroke-width="3" fill="none" />
-          <path d="M50 15 L80 30 L80 70 L50 85 L20 70 L20 30 Z" stroke="#00F0FF" stroke-width="2" fill="rgba(0,240,255,0.06)" />
-          <path d="M50 30 L65 70 H55 L50 55 L45 70 H35 L50 30 Z" fill="#00FF66" />
-        </svg>
-        <span class="font-bold text-lg tracking-wider text-white font-mono">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded bg-cyan/10 border border-cyan/30">ENGINE</span></span>
+  <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
+    <div class="max-w-[100rem] mx-auto py-4 px-8 flex items-center justify-between gap-6 md:gap-10">
+      <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
+        <img src="logo.png" alt="Animus Engine" id="brand-logo" class="h-16 md:h-20 w-auto object-contain transition-all"
+             onerror="this.style.display='none'; document.getElementById('brand-fallback').classList.remove('hidden');">
+        <div id="brand-fallback" class="hidden items-center gap-2">
+          <svg class="w-7 h-7 text-cyan flex-shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="10" y="10" width="80" height="80" rx="4" stroke="#1E293D" stroke-width="3"/>
+            <rect x="22" y="22" width="56" height="56" rx="2" stroke="#00F0FF" stroke-width="2" fill="rgba(0,240,255,0.06)"/>
+            <path d="M50 30 L65 70 H55 L50 55 L45 70 H35 L50 30 Z" fill="#00FF66"/>
+          </svg>
+          <span class="font-bold text-lg tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
+        </div>
       </div>
-      <div class="hidden lg:flex items-center space-x-6 text-sm font-medium">
-        <a href="#architecture" class="hover:text-cyan transition">Architecture</a>
-        <a href="#benchmarks" class="hover:text-cyan transition">Benchmarks</a>
-        <a href="#memory" class="hover:text-cyan transition">Memory Interop</a>
-        <a href="#integration" class="hover:text-cyan transition">Documentation</a>
-        <span id="nav-status" class="hidden xl:flex items-center gap-1.5 font-mono text-xs text-emerald border-l border-border pl-4">
+      <div class="hidden lg:flex items-center gap-5 xl:gap-6 text-sm font-mono flex-shrink-0">
+        <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap">Telemetry</a>
+        <a href="#memory" class="hover:text-cyan transition whitespace-nowrap">Memory Topology</a>
+        <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap">SDK Explorer</a>
+        <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap">Benchmarks</a>
+        <span id="hdr-status" class="hidden xl:flex items-center gap-1.5 font-mono text-xs text-emerald border-l border-border pl-5 ml-1 whitespace-nowrap">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live"></span>
-          SYSTEM: OPERATIONAL [p99: <span id="nav-p99">1.82</span>µs]
+          SYSTEM STATUS: BARE-METAL ACTIVE [p99: <span id="hdr-p99">1.81</span>µs]
         </span>
-        <button data-open-modal data-intent="Evaluation Access Request" class="bg-gradient-to-r from-cyan to-emerald text-black px-4 py-2 rounded-md font-bold hover:opacity-90 transition glow-cyan">Request Evaluation Access</button>
+        <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap">Request Benchmark Access</button>
       </div>
-      <button data-open-modal data-intent="Evaluation Access Request" class="lg:hidden bg-gradient-to-r from-cyan to-emerald text-black px-3 py-1.5 rounded-md font-bold text-sm">Access</button>
+      <button data-open-modal class="lg:hidden bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase flex-shrink-0">Access</button>
     </div>
   </nav>
 
-  <!-- Live signal ticker -->
-  <div class="fixed top-16 w-full z-40 bg-black/70 border-b border-border/70 backdrop-blur-md ticker-track">
-    <div class="max-w-full flex items-center h-8 text-xs font-mono">
-      <span id="ticker-badge" class="relative z-10 flex-shrink-0 bg-amber/15 text-amber px-3 h-full flex items-center font-bold tracking-wider border-r border-border">CONNECTING…</span>
-      <div class="flex-1 overflow-hidden h-full">
-        <div class="whitespace-nowrap flex items-center h-full ticker-scroll">
-          <span id="ticker-a" class="px-6 flex items-center gap-6 text-slate-400"></span>
-          <span id="ticker-b" class="px-6 flex items-center gap-6 text-slate-400" aria-hidden="true"></span>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- Hero -->
-  <section class="pt-48 pb-16 px-6 max-w-7xl mx-auto text-center relative">
-    <div class="inline-flex items-center space-x-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-full text-cyan text-xs font-semibold mb-6 font-mono">
+  <section class="pt-48 md:pt-56 pb-16 px-6 max-w-7xl mx-auto text-center relative">
+    <div class="inline-flex items-center gap-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-sm text-cyan text-[11px] font-bold mb-6 font-mono uppercase tracking-widest">
       <span class="w-2 h-2 rounded-full bg-cyan pulse-live"></span>
-      <span>LIVE PUBLIC MARKET FEED + INTERACTIVE MEMORY SIMULATION BELOW</span>
+      <span>Institutional-Grade &middot; Bare-Metal &middot; Hardware-Bound License</span>
     </div>
-    <h1 class="text-5xl md:text-7xl font-extrabold text-white tracking-tight max-w-4xl mx-auto leading-tight">
-      Every Copy Is <br />
-      <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan via-emerald to-cyan">A Basis Point Lost.</span>
+    <h1 class="text-4xl md:text-6xl font-extrabold text-white tracking-tight max-w-5xl mx-auto leading-tight font-sans">
+      Sub-Microsecond IPC Infrastructure for<br class="hidden md:block">
+      <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan to-emerald">Automated Execution Systems.</span>
     </h1>
     <p class="mt-6 text-lg text-slate-400 max-w-2xl mx-auto">
-      Animus Engine is a C++17 zero-copy execution core exposed through a direct C-ABI shared library. Raw shared-memory ring buffers replace sockets, serialization, and syscalls on the hot path &mdash; measured p99 tick-to-trade under 1.85µs.
+      Bridging high-throughput Python signal strategies to C++ execution cores with zero serialization overhead.
     </p>
     <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
-      <button data-open-modal data-intent="Evaluation Access Request" class="bg-gradient-to-r from-cyan to-emerald text-black font-bold px-6 py-3 rounded-md hover:opacity-90 transition glow-cyan">Request Evaluation Access</button>
-      <a href="#benchmarks" class="border border-border bg-panel text-slate-200 font-bold px-6 py-3 rounded-md hover:border-cyan/60 transition">View Latency Benchmarks</a>
+      <button data-open-modal class="bg-cyan text-black font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:opacity-90 transition">Request Benchmark Access</button>
+      <a href="#memory" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">Explore Memory Topology</a>
     </div>
   </section>
 
-  <!-- Live Market / Execution Signal Stream -->
-  <section id="signal-stream" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
+  <!-- Live Client System IPC & Hardware Diagnostics -->
+  <section id="telemetry" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
     <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-3 mb-6">
       <div>
-        <h2 class="text-3xl font-bold text-white">Live Execution Signal Stream</h2>
-        <p class="text-slate-400 text-sm mt-2 max-w-2xl">Real BTC/USDT trade ticks via Binance's public WebSocket (<code class="text-cyan">wss://stream.binance.com:9443/ws/btcusdt@trade</code>). Timestamp, side, and packet size are the real received values &mdash; IPC transit latency is the simulated Animus in-process engine timing, not network round-trip, and is labeled as such below.</p>
+        <h2 class="text-3xl font-bold text-white font-sans">Live Client System IPC &amp; Hardware Diagnostics</h2>
+        <p class="text-slate-400 text-sm mt-2 max-w-2xl">Runs entirely on this device using high-resolution <code class="text-cyan">performance.now()</code> timing and real <code class="text-cyan">ArrayBuffer</code> memory transfers &mdash; measuring your own hardware's thread latency, throughput, and scheduling jitter live in your browser, not a server-side or third-party feed.</p>
       </div>
       <div class="flex items-center gap-2 font-mono text-xs">
-        <span id="stream-status-dot" class="w-2 h-2 rounded-full bg-amber pulse-live"></span>
-        <span id="stream-status-text" class="text-amber font-bold tracking-wider">CONNECTING</span>
+        <span id="term-status-dot" class="w-2 h-2 rounded-full bg-cyan pulse-live"></span>
+        <span id="term-status-text" class="text-cyan font-bold tracking-wider uppercase">Initializing</span>
       </div>
     </div>
 
-    <div class="corner-card bg-panel border border-border rounded-xl overflow-hidden" style="--accent: var(--cyan)">
-      <div class="grid grid-cols-5 gap-2 px-4 py-2.5 border-b border-border text-[11px] uppercase tracking-wider text-slate-500 font-mono">
-        <span>Time (UTC)</span>
-        <span>Side</span>
-        <span class="text-right">Price (USDT)</span>
-        <span class="text-right">IPC Transit (sim)</span>
-        <span class="text-right">Packet</span>
+    <div class="grid sm:grid-cols-3 gap-4 mb-6">
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--cyan)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Thread Latency</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="stat-latency" class="text-3xl font-bold text-white font-mono">&mdash;</span>
+          <span class="text-sm text-slate-500 font-mono">µs</span>
+        </div>
       </div>
-      <div id="stream-rows" class="font-mono text-sm divide-y divide-border/60 max-h-96 overflow-y-auto"></div>
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--emerald)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Throughput</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="stat-throughput" class="text-3xl font-bold text-white font-mono">&mdash;</span>
+          <span class="text-sm text-slate-500 font-mono">MB/s</span>
+        </div>
+      </div>
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--cyan)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Scheduling Jitter</div>
+        <div class="mt-2 flex items-baseline gap-1">
+          <span id="stat-jitter" class="text-3xl font-bold text-white font-mono">&mdash;</span>
+          <span class="text-sm text-slate-500 font-mono">µs</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--emerald)">
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-border bg-black/40">
+        <div class="flex items-center gap-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-danger"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-cyan"></span>
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald"></span>
+        </div>
+        <span class="text-[11px] font-mono text-slate-500">root@animus-engine:~# tail -f /dev/animus/local_diagnostics</span>
+        <span class="text-[11px] font-mono text-slate-600">LOCAL HARDWARE</span>
+      </div>
+      <div id="term-body" class="font-mono text-[13px] leading-relaxed p-4 max-h-96 overflow-y-auto bg-black/60"></div>
+    </div>
+    <p class="text-xs text-slate-500 mt-4 text-center">Client-side diagnostic using this browser's JS engine and memory subsystem as a proxy for scheduling behavior &mdash; not a substitute for the native Animus Engine benchmark harness.</p>
+  </section>
+
+  <!-- Memory Topology Engine -->
+  <section id="memory" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-bold text-white font-sans">Live Hardware Interop &amp; Memory Topology</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">CPU cache-line allocation (L1/L2/L3) feeding a zero-copy ring buffer pass-through into Python runtime memory, plotted against a traditional serialized IPC path. Shift concurrency and watch packet drops diverge.</p>
+    </div>
+
+    <div class="corner-card bg-panel border border-border rounded-md p-4 md:p-6" style="--accent: var(--cyan)">
+      <div class="overflow-x-auto">
+        <svg id="mem-svg" viewBox="0 0 900 220" class="w-full min-w-[760px]" style="max-height:280px">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#475569"></path>
+            </marker>
+          </defs>
+
+          <!-- Row 1: cache hierarchy -> ring buffer -> python heap (zero-copy) -->
+          <g font-family="IBM Plex Mono, monospace">
+            <rect x="20" y="15" width="150" height="60" rx="3" fill="rgba(0,240,255,0.03)" stroke="#1E293D" stroke-width="2"></rect>
+            <rect x="35" y="25" width="120" height="40" rx="2" fill="rgba(0,240,255,0.05)" stroke="#3a4b6b" stroke-width="1.5"></rect>
+            <rect x="50" y="35" width="90" height="20" rx="2" fill="rgba(0,255,102,0.10)" stroke="#00FF66" stroke-width="1.5"></rect>
+            <text x="95" y="20" text-anchor="middle" font-size="9" fill="#64748b">L3 &middot; 32MB</text>
+            <text x="95" y="70" text-anchor="middle" font-size="9" fill="#00FF66" font-weight="700">L1 &middot; 32KB (cache line)</text>
+
+            <line x1="170" y1="45" x2="205" y2="45" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+            <rect x="210" y="20" width="180" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
+            <text x="300" y="41" text-anchor="middle" font-size="11" fill="#e2e8f0" font-weight="700">RING BUFFER</text>
+            <text x="300" y="56" text-anchor="middle" font-size="9" fill="#00FF66">mmap &middot; lock-free MPMC</text>
+
+            <line x1="390" y1="45" x2="425" y2="45" stroke="#00FF66" stroke-width="2" marker-end="url(#arrow)"></line>
+
+            <rect x="430" y="20" width="200" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
+            <text x="530" y="41" text-anchor="middle" font-size="11" fill="#e2e8f0" font-weight="700">PYTHON RUNTIME HEAP</text>
+            <text x="530" y="56" text-anchor="middle" font-size="9" fill="#00FF66">ctypes zero-copy view</text>
+
+            <text x="655" y="41" font-size="10" fill="#00FF66" font-weight="700">0 COPIES</text>
+            <text x="655" y="54" font-size="9" fill="#64748b">pointer pass-through</text>
+
+            <circle id="ring-marker-a" cx="390" cy="45" r="4" fill="#00FF66" opacity="0"></circle>
+            <circle id="ring-marker-b" cx="430" cy="45" r="4" fill="#00FF66" opacity="0"></circle>
+          </g>
+
+          <text x="20" y="105" font-size="10" fill="#00FF66" font-family="IBM Plex Mono, monospace" font-weight="700">ZERO-COPY PATH &mdash; latency independent of concurrency</text>
+          <line x1="20" y1="113" x2="880" y2="113" stroke="#1E293D" stroke-width="1" stroke-dasharray="2 4"></line>
+
+          <!-- Row 2: traditional serialized IPC path -->
+          <g font-family="IBM Plex Mono, monospace">
+            <rect x="20" y="130" width="150" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
+            <text x="95" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">CPU CACHE (L1&ndash;L3)</text>
+
+            <line x1="170" y1="152" x2="205" y2="152" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+            <rect x="210" y="130" width="150" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
+            <text x="285" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">KERNEL SYSCALL</text>
+
+            <line x1="360" y1="152" x2="395" y2="152" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+            <rect x="400" y="130" width="150" height="45" rx="3" fill="rgba(255,75,75,0.05)" stroke="#FF4B4B" stroke-width="2" stroke-dasharray="4 3"></rect>
+            <text x="475" y="150" text-anchor="middle" font-size="10" fill="#FF4B4B" font-weight="700">SOCKET BUFFER</text>
+            <text x="475" y="163" text-anchor="middle" font-size="8" fill="#fca5a5">drop checkpoint</text>
+
+            <line x1="550" y1="152" x2="585" y2="152" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"></line>
+
+            <rect x="590" y="130" width="200" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
+            <text x="690" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">PYTHON HEAP (deserialized)</text>
+
+            <circle id="trad-marker" cx="190" cy="152" r="5" fill="#94a3b8" opacity="0"></circle>
+          </g>
+          <text x="20" y="205" font-size="10" fill="#FF4B4B" font-family="IBM Plex Mono, monospace" font-weight="700">TRADITIONAL SERIALIZED IPC &mdash; drop rate scales with concurrency</text>
+        </svg>
+      </div>
+
+      <!-- Concurrency slider -->
+      <div class="mt-8 border-t border-border pt-6">
+        <div class="flex items-center justify-between text-xs font-mono text-slate-500 mb-2 uppercase tracking-wider">
+          <span>Concurrency: 1,000 msgs/sec</span>
+          <span id="concurrency-readout" class="text-white font-bold text-sm normal-case">128,000 msgs/sec</span>
+          <span>1,000,000 msgs/sec</span>
+        </div>
+        <input id="concurrency-slider" type="range" min="0" max="100" value="55" class="w-full">
+
+        <div class="grid md:grid-cols-2 gap-6 mt-6">
+          <div class="bg-black/30 rounded-md p-4 border border-danger/30">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs uppercase tracking-wider text-danger font-mono font-bold">Traditional Socket IPC</span>
+            </div>
+            <div class="grid grid-cols-3 gap-3 font-mono text-xs">
+              <div><div class="text-slate-500">Drops/sec</div><div id="nativeDropRate" class="text-danger text-base font-bold mt-1">&mdash;</div></div>
+              <div><div class="text-slate-500">Drop %</div><div id="nativeDropPct" class="text-danger text-base font-bold mt-1">&mdash;</div></div>
+              <div><div class="text-slate-500">Est. Latency</div><div id="nativeLatency" class="text-danger text-base font-bold mt-1">&mdash;</div></div>
+            </div>
+          </div>
+          <div class="bg-black/30 rounded-md p-4 border border-emerald/30">
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs uppercase tracking-wider text-emerald font-mono font-bold">Animus Zero-Copy Ring Buffer</span>
+            </div>
+            <div class="grid grid-cols-3 gap-3 font-mono text-xs">
+              <div><div class="text-slate-500">Drops/sec</div><div class="text-emerald text-base font-bold mt-1">0</div></div>
+              <div><div class="text-slate-500">Drop %</div><div class="text-emerald text-base font-bold mt-1">0.00%</div></div>
+              <div><div class="text-slate-500">Est. Latency</div><div class="text-emerald text-base font-bold mt-1">0.14µs</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="text-xs text-slate-500 mt-4 text-center">Illustrative simulation of the architectural difference between kernel-mediated IPC and pointer pass-through, not a cycle-accurate profiler trace.</p>
+      </div>
     </div>
   </section>
 
-  <!-- Memory Interop Explorer -->
-  <section id="memory" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
+  <!-- Native SDK Code Explorer -->
+  <section id="sdk" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
     <div class="text-center mb-8">
-      <h2 class="text-3xl font-bold text-white">Interactive Memory Interop Explorer</h2>
-      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Toggle payload size and watch simulated per-message allocation, copy, and syscall behavior diverge between a raw shared-memory ring buffer and traditional socket IPC.</p>
+      <h2 class="text-3xl font-bold text-white font-sans">Native SDK Code Explorer</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">The C++ zero-copy lock-free core and the Python <code class="text-cyan">memoryview</code>/<code class="text-cyan">ctypes</code> consumer, side by side. One C-ABI surface, two runtimes, zero marshalling.</p>
     </div>
 
-    <div class="flex items-center justify-center gap-2 mb-8 flex-wrap">
-      <span class="text-xs font-mono text-slate-500 mr-1">PAYLOAD SIZE:</span>
-      <div id="buffer-size-group" class="inline-flex rounded-md border border-border overflow-hidden font-mono text-sm">
-        <button data-size="64" class="buf-btn px-4 py-2 hover:bg-cyan/10 transition">64B</button>
-        <button data-size="256" class="buf-btn px-4 py-2 hover:bg-cyan/10 transition border-l border-border">256B</button>
-        <button data-size="1024" class="buf-btn px-4 py-2 hover:bg-cyan/10 transition border-l border-border">1KB</button>
-        <button data-size="4096" class="buf-btn px-4 py-2 hover:bg-cyan/10 transition border-l border-border">4KB</button>
-      </div>
-    </div>
-
-    <div class="grid md:grid-cols-2 gap-6">
-      <!-- Socket IPC -->
-      <div class="corner-card bg-panel border border-border rounded-xl p-6" style="--accent: var(--crimson)">
-        <div class="flex items-center justify-between mb-4">
-          <span class="text-xs uppercase tracking-wider text-slate-400 font-mono">Traditional Socket IPC</span>
-          <i data-lucide="network" class="w-4 h-4 text-crimson"></i>
+    <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--cyan)">
+      <div class="flex items-center justify-between border-b border-border px-2">
+        <div class="flex">
+          <button data-tab="cpp" class="tab-btn active px-5 py-3 font-mono text-xs uppercase tracking-wider transition">animus_core.hpp</button>
+          <button data-tab="py" class="tab-btn px-5 py-3 font-mono text-xs uppercase tracking-wider transition text-slate-400 hover:text-white">animus_wrapper.py</button>
         </div>
-        <div class="relative h-16 bg-black/40 rounded border border-border/70 mb-4 overflow-hidden">
-          <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500">PRODUCER</span>
-          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500">CONSUMER</span>
-          <div id="socket-packet" class="mem-node absolute top-1/2 -translate-y-1/2 left-2 w-4 h-4 rounded-sm bg-crimson shadow-[0_0_10px_rgba(255,59,92,0.7)]"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 font-mono text-xs">
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Heap Allocations</div><div id="sock-alloc" class="text-crimson text-lg font-bold mt-1">&mdash;</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Copy Operations</div><div id="sock-copies" class="text-crimson text-lg font-bold mt-1">&mdash;</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Syscalls / Msg</div><div id="sock-syscalls" class="text-crimson text-lg font-bold mt-1">&mdash;</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Sim. Latency</div><div id="sock-latency" class="text-crimson text-lg font-bold mt-1">&mdash;</div></div>
-        </div>
+        <button id="copy-btn" class="mr-2 flex items-center gap-1.5 text-xs font-mono text-slate-400 hover:text-cyan transition px-3 py-1.5" title="Copy the active code snippet">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="12" height="12" rx="1.5"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+          <span id="copy-label">Copy Code Snippet</span>
+        </button>
       </div>
 
-      <!-- Zero-copy ring buffer -->
-      <div class="corner-card bg-panel border border-border rounded-xl p-6" style="--accent: var(--emerald)">
-        <div class="flex items-center justify-between mb-4">
-          <span class="text-xs uppercase tracking-wider text-slate-400 font-mono">Animus Zero-Copy Ring Buffer</span>
-          <i data-lucide="zap" class="w-4 h-4 text-emerald"></i>
-        </div>
-        <div class="relative h-16 bg-black/40 rounded border border-border/70 mb-4 overflow-hidden">
-          <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500">PRODUCER</span>
-          <span class="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-slate-500">CONSUMER</span>
-          <div id="ring-packet" class="mem-node absolute top-1/2 -translate-y-1/2 left-2 w-4 h-4 rounded-sm bg-emerald shadow-[0_0_10px_rgba(0,255,102,0.7)]"></div>
-        </div>
-        <div class="grid grid-cols-2 gap-3 font-mono text-xs">
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Heap Allocations</div><div id="ring-alloc" class="text-emerald text-lg font-bold mt-1">0</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Copy Operations</div><div id="ring-copies" class="text-emerald text-lg font-bold mt-1">0</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Syscalls / Msg</div><div id="ring-syscalls" class="text-emerald text-lg font-bold mt-1">0</div></div>
-          <div class="bg-black/30 rounded p-3 border border-border/60"><div class="text-slate-500">Sim. Latency</div><div id="ring-latency" class="text-emerald text-lg font-bold mt-1">&mdash;</div></div>
-        </div>
+      <div class="p-5 overflow-x-auto">
+        <pre id="pane-cpp" class="code-pane active font-mono text-[13px] text-slate-300 leading-relaxed"><code><span class="text-slate-500">// animus_core.hpp &mdash; zero-copy, lock-free ring buffer core, cache-line aligned end to end</span>
+<span class="text-purple-400">#pragma once</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">&lt;cstdint&gt;</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">&lt;atomic&gt;</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">&lt;memory&gt;</span>
+
+<span class="text-purple-400">extern</span> <span class="text-cyan">"C"</span> {
+
+<span class="text-purple-400">struct</span> <span class="text-white">alignas</span>(<span class="text-cyan">64</span>) RingSlot {
+    <span class="text-purple-400">std::atomic</span>&lt;<span class="text-purple-400">uint64_t</span>&gt; sequence;
+    <span class="text-purple-400">uint8_t</span> payload[<span class="text-cyan">256</span>];   <span class="text-slate-500">// fixed-size, no allocation</span>
+};
+
+<span class="text-slate-500">// Vyukov MPMC ring buffer &mdash; head/tail counters alignas(64) to avoid false sharing</span>
+<span class="text-purple-400">class</span> <span class="text-white">alignas</span>(<span class="text-cyan">64</span>) LockFreeRingBuffer {
+<span class="text-purple-400">public</span>:
+    <span class="text-purple-400">explicit</span> LockFreeRingBuffer(<span class="text-purple-400">uint32_t</span> capacity)
+        : slots_(std::make_unique&lt;RingSlot[]&gt;(capacity)), capacity_(capacity) {}
+
+    <span class="text-purple-400">bool</span> push(<span class="text-purple-400">const void</span>* data, <span class="text-purple-400">size_t</span> len) <span class="text-purple-400">noexcept</span>;
+    <span class="text-purple-400">bool</span> pop(<span class="text-purple-400">void</span>* out, <span class="text-purple-400">size_t</span> max_len) <span class="text-purple-400">noexcept</span>;
+
+<span class="text-purple-400">private</span>:
+    <span class="text-purple-400">alignas</span>(<span class="text-cyan">64</span>) <span class="text-purple-400">std::atomic</span>&lt;<span class="text-purple-400">uint64_t</span>&gt; head_{<span class="text-cyan">0</span>};
+    <span class="text-purple-400">alignas</span>(<span class="text-cyan">64</span>) <span class="text-purple-400">std::atomic</span>&lt;<span class="text-purple-400">uint64_t</span>&gt; tail_{<span class="text-cyan">0</span>};
+    <span class="text-purple-400">std::unique_ptr</span>&lt;RingSlot[]&gt; slots_;
+    <span class="text-purple-400">uint32_t</span> capacity_;
+};
+
+<span class="text-slate-500">// Direct C-ABI export &mdash; no RPC framework, no schema compiler</span>
+<span class="text-purple-400">__declspec</span>(dllexport) <span class="text-purple-400">void</span>* animus_create(<span class="text-purple-400">uint32_t</span> ring_capacity);
+<span class="text-purple-400">__declspec</span>(dllexport) <span class="text-purple-400">bool</span> animus_record_batch(<span class="text-purple-400">void</span>* engine, <span class="text-purple-400">const uint8_t</span>* buf, <span class="text-purple-400">size_t</span> len);
+<span class="text-purple-400">__declspec</span>(dllexport) <span class="text-purple-400">size_t</span> animus_poll_signals(<span class="text-purple-400">void</span>* engine, <span class="text-purple-400">uint8_t</span>* out, <span class="text-purple-400">size_t</span> max_len);
+
+} <span class="text-slate-500">// extern "C"</span></code></pre>
+
+        <pre id="pane-py" class="code-pane font-mono text-[13px] text-slate-300 leading-relaxed"><code><span class="text-slate-500"># animus_wrapper.py &mdash; zero-dependency, ctypes + memoryview, microsecond zero-copy interop</span>
+<span class="text-purple-400">import</span> ctypes
+<span class="text-purple-400">import</span> time
+<span class="text-purple-400">from</span> ctypes <span class="text-purple-400">import</span> c_void_p, c_uint32, c_size_t, c_uint8, c_bool, POINTER
+
+<span class="text-purple-400">class</span> <span class="text-white">AnimusEngine</span>:
+    <span class="text-purple-400">def</span> <span class="text-blue-400">__init__</span>(<span class="text-white">self</span>, lib_path=<span class="text-cyan">"animus_core.dll"</span>):
+        <span class="text-white">self</span>.lib = ctypes.CDLL(lib_path)
+        <span class="text-white">self</span>.lib.animus_poll_signals.restype = c_size_t
+        <span class="text-slate-500"># Buffer allocated once; memoryview gives a zero-copy window onto it</span>
+        <span class="text-white">self</span>._out = (c_uint8 * <span class="text-cyan">65536</span>)()
+        <span class="text-white">self</span>._view = <span class="text-purple-400">memoryview</span>(<span class="text-white">self</span>._out).cast(<span class="text-cyan">'B'</span>)
+        <span class="text-white">self</span>.handle = <span class="text-purple-400">None</span>
+
+    <span class="text-purple-400">def</span> <span class="text-blue-400">init</span>(<span class="text-white">self</span>, ring_capacity=<span class="text-cyan">4096</span>):
+        <span class="text-white">self</span>.handle = <span class="text-white">self</span>.lib.animus_create(c_uint32(ring_capacity))
+
+    <span class="text-slate-500"># One raw byte buffer per batch, not one marshalled object per event</span>
+    <span class="text-purple-400">def</span> <span class="text-blue-400">record_events_batch</span>(<span class="text-white">self</span>, buf: <span class="text-purple-400">bytes</span>) -&gt; <span class="text-purple-400">bool</span>:
+        arr = (c_uint8 * <span class="text-purple-400">len</span>(buf)).from_buffer_copy(buf)
+        <span class="text-purple-400">return</span> <span class="text-white">self</span>.lib.animus_record_batch(<span class="text-white">self</span>.handle, arr, c_size_t(<span class="text-purple-400">len</span>(buf)))
+
+    <span class="text-slate-500"># memoryview over the same ctypes buffer &mdash; zero-copy read, no (de)serialization</span>
+    <span class="text-purple-400">def</span> <span class="text-blue-400">poll_signals</span>(<span class="text-white">self</span>) -&gt; <span class="text-purple-400">memoryview</span>:
+        t0 = time.perf_counter()
+        n = <span class="text-white">self</span>.lib.animus_poll_signals(<span class="text-white">self</span>.handle, <span class="text-white">self</span>._out, c_size_t(<span class="text-purple-400">len</span>(<span class="text-white">self</span>._out)))
+        elapsed_us = (time.perf_counter() - t0) * <span class="text-cyan">1e6</span>  <span class="text-slate-500"># microsecond payload consumption, no IPC hop</span>
+        <span class="text-purple-400">return</span> <span class="text-white">self</span>._view[:n]  <span class="text-slate-500"># consumer reads directly off native memory</span></code></pre>
       </div>
     </div>
-    <p class="text-xs text-slate-500 mt-4 text-center">Pointer pass-through means ring-buffer allocation and copy cost are structurally independent of payload size; socket IPC cost scales with it. Illustrative simulation of the architectural difference, not a cycle-accurate profiler trace.</p>
   </section>
 
-  <!-- Latency Benchmarks Suite -->
-  <section id="benchmarks" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
+  <!-- Latency Distribution & Benchmarks -->
+  <section id="benchmarks" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
     <div class="text-center mb-8">
-      <h2 class="text-3xl font-bold text-white">Latency Benchmarks Suite</h2>
+      <h2 class="text-3xl font-bold text-white font-sans">Latency Distribution &amp; Benchmarks</h2>
       <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Tail latency comparison across gRPC, Unix Domain Sockets, and the Animus Zero-Copy Core. Toggle a series to isolate its distribution curve. Animus figures reflect the Pilot Kit benchmark harness; gRPC/UDS figures are representative industry baselines, not measurements of a specific third-party deployment.</p>
     </div>
 
-    <div class="corner-card bg-panel border border-border rounded-xl p-6" style="--accent: var(--cyan)">
+    <div class="corner-card bg-panel border border-border rounded-md p-6" style="--accent: var(--cyan)">
       <div class="flex flex-wrap items-center justify-center gap-3 mb-6" id="series-toggles">
-        <button data-series="grpc" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-full border border-crimson/40 bg-crimson/10 text-crimson text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-crimson"></span>Standard gRPC</button>
-        <button data-series="uds" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-full border border-amber/40 bg-amber/10 text-amber text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-amber"></span>Unix Domain Sockets</button>
-        <button data-series="animus" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-full border border-emerald/40 bg-emerald/10 text-emerald text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Animus Zero-Copy Core</button>
+        <button data-series="grpc" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-sm border border-danger/40 bg-danger/10 text-danger text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-danger"></span>Standard gRPC</button>
+        <button data-series="uds" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-sm border border-cyan/40 bg-cyan/10 text-cyan text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-cyan"></span>Unix Domain Sockets</button>
+        <button data-series="animus" class="series-btn flex items-center gap-2 px-3 py-1.5 rounded-sm border border-emerald/40 bg-emerald/10 text-emerald text-xs font-mono font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Animus Ring Buffer</button>
       </div>
 
       <div class="overflow-x-auto">
@@ -274,120 +440,68 @@ tailwind.config = {
               <th class="py-2 pl-4 text-right">p99.9</th>
             </tr>
           </thead>
-          <tbody id="matrix-body" class="divide-y divide-border/60"></tbody>
+          <tbody id="matrix-body" class="divide-y divide-border"></tbody>
         </table>
       </div>
     </div>
   </section>
 
-  <!-- Architecture grid -->
-  <section id="architecture" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
-    <h2 class="text-3xl font-bold text-white mb-2 text-center">Enterprise Architecture</h2>
-    <p class="text-slate-400 text-sm text-center max-w-2xl mx-auto mb-8">You keep your existing Python orchestration and control plane. You replace only the hot path.</p>
+  <!-- Core Guarantees -->
+  <section class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <h2 class="text-3xl font-bold text-white mb-8 text-center font-sans">Core Guarantees</h2>
     <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-      <div class="corner-card bg-panel border border-border p-6 rounded-xl transition hover:-translate-y-0.5 duration-200" style="--accent: var(--cyan)">
-        <div class="w-10 h-10 rounded bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold mb-4 font-mono">01</div>
-        <h3 class="font-bold text-white text-lg">Zero-Allocation Ring Buffers</h3>
-        <p class="text-sm text-slate-400 mt-2"><code class="text-cyan">LockFreeRingBuffer&lt;T&gt;</code> implements the Vyukov MPMC algorithm, cache-line-padded to eliminate false sharing. Verified correct under real 8-thread contention across 1.6M pushes.</p>
+      <div class="corner-card bg-panel border border-border p-6 rounded-md transition hover:-translate-y-0.5 duration-200" style="--accent: var(--cyan)">
+        <div class="w-10 h-10 rounded-sm bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold mb-4 font-mono">01</div>
+        <h3 class="font-bold text-white text-lg">Zero-Copy Memory</h3>
+        <p class="text-sm text-slate-400 mt-2">Direct buffer pointers and low-latency shared-memory interop replace IPC marshalling on the hot path.</p>
       </div>
-      <div class="corner-card bg-panel border border-border p-6 rounded-xl transition hover:-translate-y-0.5 duration-200" style="--accent: var(--emerald)">
-        <div class="w-10 h-10 rounded bg-emerald/10 border border-emerald/30 flex items-center justify-center text-emerald font-bold mb-4 font-mono">02</div>
-        <h3 class="font-bold text-white text-lg">C++ / Python Shared Memory</h3>
-        <p class="text-sm text-slate-400 mt-2">The Python SDK talks to the native engine through direct buffer pointers via <code class="text-emerald">ctypes</code> &mdash; one raw byte buffer per batch, not one marshalled object per event.</p>
+      <div class="corner-card bg-panel border border-border p-6 rounded-md transition hover:-translate-y-0.5 duration-200" style="--accent: var(--emerald)">
+        <div class="w-10 h-10 rounded-sm bg-emerald/10 border border-emerald/30 flex items-center justify-center text-emerald font-bold mb-4 font-mono">02</div>
+        <h3 class="font-bold text-white text-lg">C-ABI Dynamic Library</h3>
+        <p class="text-sm text-slate-400 mt-2">Direct <code class="text-emerald">extern "C"</code> exports from a native .dll / .so &mdash; no RPC framework overhead on the wire.</p>
       </div>
-      <div class="corner-card bg-panel border border-border p-6 rounded-xl transition hover:-translate-y-0.5 duration-200" style="--accent: var(--amber)">
-        <div class="w-10 h-10 rounded bg-amber/10 border border-amber/30 flex items-center justify-center text-amber font-bold mb-4 font-mono">03</div>
-        <h3 class="font-bold text-white text-lg">Core Isolation</h3>
-        <p class="text-sm text-slate-400 mt-2">Optional CPU core pinning for tail-latency tuning, gated by an offline RSA-2048 license &mdash; fail-closed by design, zero effect on core ingestion when unlicensed.</p>
+      <div class="corner-card bg-panel border border-border p-6 rounded-md transition hover:-translate-y-0.5 duration-200" style="--accent: var(--cyan)">
+        <div class="w-10 h-10 rounded-sm bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold mb-4 font-mono">03</div>
+        <h3 class="font-bold text-white text-lg">Zero-Dependency SDK</h3>
+        <p class="text-sm text-slate-400 mt-2">Python 3.8+ interop via <code class="text-cyan">ctypes</code> only &mdash; no third-party packages in the critical path.</p>
       </div>
-      <div class="corner-card bg-panel border border-border p-6 rounded-xl transition hover:-translate-y-0.5 duration-200" style="--accent: var(--crimson)">
-        <div class="w-10 h-10 rounded bg-crimson/10 border border-crimson/30 flex items-center justify-center text-crimson font-bold mb-4 font-mono">04</div>
-        <h3 class="font-bold text-white text-lg">Bare-Metal Co-location</h3>
-        <p class="text-sm text-slate-400 mt-2">No VM/container network hop assumptions baked into the transport layer &mdash; designed to deploy directly on exchange-proximate bare metal alongside your execution stack.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- Code Integration / Documentation -->
-  <section id="integration" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
-    <h2 class="text-3xl font-bold text-white mb-8 text-center">Zero-Dependency Python SDK</h2>
-    <div class="bg-panel border border-border rounded-xl p-6 glow-cyan">
-      <div class="flex items-center justify-between pb-4 border-b border-border mb-4">
-        <div class="flex items-center space-x-2">
-          <span class="w-3 h-3 rounded-full bg-crimson"></span>
-          <span class="w-3 h-3 rounded-full bg-amber"></span>
-          <span class="w-3 h-3 rounded-full bg-emerald"></span>
-          <span class="text-xs font-mono text-slate-400 ml-2">strategy_pipeline.py</span>
-        </div>
-        <span class="text-xs text-cyan font-mono">ctypes-only &mdash; no third-party packages</span>
-      </div>
-      <pre class="font-mono text-sm text-slate-300 overflow-x-auto leading-relaxed"><code><span class="text-purple-400">from</span> animus.bindings <span class="text-purple-400">import</span> AnimusBindings
-
-engine = AnimusBindings()
-engine.init(ring_capacity=<span class="text-amber">4096</span>)
-
-<span class="text-slate-500"># Native, in-process rule evaluation on the same worker thread as ingestion</span>
-engine.add_rule(event_id=<span class="text-amber">1</span>, comparator=<span class="text-emerald">">"</span>, threshold=<span class="text-amber">2000</span>, severity=<span class="text-emerald">"HIGH"</span>, action=<span class="text-emerald">"ALERT"</span>)
-
-<span class="text-slate-500"># One C-ABI call per batch, not per event</span>
-engine.record_events_batch(events)
-
-signals = engine.poll_signals()</code></pre>
-    </div>
-    <p class="text-xs text-slate-500 mt-4 text-center">Install with <code class="text-cyan">pip install -e .</code>, then run the real integration against your own hardware: <code class="text-cyan">python Pilot_Kit/animus_integration_example.py</code></p>
-  </section>
-
-  <!-- Engagement Tiers -->
-  <section id="tiers" class="py-16 px-6 max-w-7xl mx-auto border-t border-border/60">
-    <h2 class="text-3xl font-bold text-white mb-8 text-center">Commercial Engagement Tiers</h2>
-    <div class="grid md:grid-cols-3 gap-6">
-      <div class="bg-panel border border-border p-6 rounded-xl">
-        <h3 class="font-bold text-white text-lg">Pilot</h3>
-        <p class="text-xs text-cyan font-mono mt-1 mb-3">30-day, hardware-locked</p>
-        <p class="text-sm text-slate-400">Full Pilot Kit, offline RSA-2048 evaluation license, direct technical support during the evaluation window. Core ingestion unrestricted from day one.</p>
-      </div>
-      <div class="bg-panel border border-border p-6 rounded-xl">
-        <h3 class="font-bold text-white text-lg">Production Node</h3>
-        <p class="text-xs text-cyan font-mono mt-1 mb-3">Per-node, renewable</p>
-        <p class="text-sm text-slate-400">Hardware-locked production license, compiled binaries for your target platform(s), integration support, priority defect response.</p>
-      </div>
-      <div class="bg-panel border border-border p-6 rounded-xl">
-        <h3 class="font-bold text-white text-lg">Custom Source License</h3>
-        <p class="text-xs text-cyan font-mono mt-1 mb-3">Negotiated</p>
-        <p class="text-sm text-slate-400">Full source access, architecture consultation for your workload, co-development for bespoke rule engines and cluster topologies.</p>
+      <div class="corner-card bg-panel border border-border p-6 rounded-md transition hover:-translate-y-0.5 duration-200" style="--accent: var(--danger)">
+        <div class="w-10 h-10 rounded-sm bg-danger/10 border border-danger/30 flex items-center justify-center text-danger font-bold mb-4 font-mono">04</div>
+        <h3 class="font-bold text-white text-lg">Memory-Safe by Design</h3>
+        <p class="text-sm text-slate-400 mt-2">Every exported function is complete, fully typed, and memory-safe &mdash; RAII-managed native lifetime end to end.</p>
       </div>
     </div>
   </section>
 
   <!-- Closing CTA -->
-  <section class="py-20 px-6 max-w-3xl mx-auto text-center border-t border-border/60">
-    <h2 class="text-3xl font-bold text-white">Request Evaluation Access</h2>
+  <section class="py-20 px-6 max-w-3xl mx-auto text-center border-t border-border">
+    <h2 class="text-3xl font-bold text-white font-sans">Request Benchmark Access</h2>
     <p class="text-slate-400 mt-2 text-sm">Issued strictly under institutional evaluation agreements for qualified quantitative trading desks and fintech infrastructure teams.</p>
-    <button data-open-modal data-intent="Evaluation Access Request" class="mt-8 bg-gradient-to-r from-cyan to-emerald text-black font-extrabold px-8 py-3.5 rounded hover:opacity-90 transition glow-cyan">Apply for Hardware-Bound License Key</button>
+    <button data-open-modal class="mt-8 bg-cyan text-black font-extrabold font-mono text-sm uppercase tracking-wider px-8 py-3.5 rounded-sm hover:opacity-90 transition">Request Benchmark Access</button>
   </section>
 
-  <footer class="border-t border-border py-8 text-center text-xs text-slate-500">
+  <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
     &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
   </footer>
 </div>
 
-<!-- Evaluation Access Modal -->
-<div id="pilot-modal" class="fixed inset-0 z-[100] items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-  <div class="modal-panel bg-panel border border-border rounded-xl w-full max-w-md p-6 relative" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+<!-- Benchmark Access Modal -->
+<div id="benchmark-modal" class="fixed inset-0 z-[100] items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+  <div class="modal-panel bg-panel border border-border rounded-md w-full max-w-md p-6 relative" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <button data-close-modal aria-label="Close" class="absolute top-4 right-4 text-slate-500 hover:text-white transition">&#10005;</button>
-    <h3 id="modal-title" class="text-xl font-bold text-white mb-1" data-modal-title>Request Evaluation Access</h3>
+    <h3 id="modal-title" class="text-xl font-bold text-white mb-1 font-sans">Request Benchmark Access</h3>
     <p class="text-xs text-slate-500 mb-5">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
 
-    <form id="pilot-form" class="space-y-3">
+    <form id="benchmark-form" class="space-y-3">
       <input type="hidden" name="access_key" value="677b3bf5-3ed9-4956-8f72-d94e66167f93">
-      <input type="hidden" name="subject" id="modal-subject" value="Animus Engine — Evaluation Access Request">
+      <input type="hidden" name="subject" value="Animus Engine — Benchmark Access Request">
       <input type="checkbox" name="botcheck" class="hidden" style="display:none">
 
-      <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
-      <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
-      <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
 
-      <select name="organization_type" required class="bg-black/30 border border-border rounded px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <select name="organization_type" required class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
         <option value="" disabled selected>Organization Type</option>
         <option value="HFT">HFT</option>
         <option value="Prop Desk">Prop Desk</option>
@@ -396,7 +510,7 @@ signals = engine.poll_signals()</code></pre>
         <option value="Other">Other</option>
       </select>
 
-      <select name="core_footprint" required class="bg-black/30 border border-border rounded px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <select name="core_footprint" required class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
         <option value="" disabled selected>Estimated Core Footprint</option>
         <option value="< 16 cores">&lt; 16 cores</option>
         <option value="16-64 cores">16 – 64 cores</option>
@@ -404,7 +518,7 @@ signals = engine.poll_signals()</code></pre>
         <option value="256+ cores">256+ cores</option>
       </select>
 
-      <button type="submit" id="modal-submit" class="w-full bg-gradient-to-r from-cyan to-emerald text-black font-extrabold py-3 rounded hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
+      <button type="submit" id="modal-submit" class="w-full bg-cyan text-black font-extrabold font-mono text-sm uppercase tracking-wider py-3 rounded-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
         <svg id="modal-spinner" class="hidden animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
         <span id="modal-submit-label">Submit Request</span>
       </button>
@@ -424,379 +538,260 @@ signals = engine.poll_signals()</code></pre>
 (function(){
   "use strict";
 
-  if (window.lucide) { lucide.createIcons(); }
-
-  /* ---------- Background micro-grid + particle telemetry ---------- */
-  var canvas = document.getElementById('bg-canvas');
-  var ctx = canvas.getContext('2d');
-  var dpr = Math.max(1, window.devicePixelRatio || 1);
-  var nodes = [];
-  var spacing = 42;
-  var mouse = { x: -9999, y: -9999 };
-
-  var particles = [];
-  function initParticles(){
-    particles = [];
-    var count = Math.min(26, Math.floor(window.innerWidth / 70));
-    for (var i = 0; i < count; i++){
-      particles.push({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.18,
-        vy: (Math.random() - 0.5) * 0.18,
-        trail: []
-      });
-    }
-  }
-
-  function resize(){
-    canvas.width = Math.floor(window.innerWidth * dpr);
-    canvas.height = Math.floor(window.innerHeight * dpr);
-    canvas.style.width = window.innerWidth + 'px';
-    canvas.style.height = window.innerHeight + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    buildGrid();
-    initParticles();
-  }
-
-  function buildGrid(){
-    nodes = [];
-    var cols = Math.ceil(window.innerWidth / spacing) + 1;
-    var rows = Math.ceil(window.innerHeight / spacing) + 1;
-    for (var r = 0; r < rows; r++){
-      for (var c = 0; c < cols; c++){
-        nodes.push({ x: c * spacing, y: r * spacing, glow: 0 });
-      }
-    }
-  }
-
-  window.addEventListener('mousemove', function(e){
-    mouse.x = e.clientX; mouse.y = e.clientY;
-    moveCursorGlow(e.clientX, e.clientY);
-  }, { passive: true });
-  window.addEventListener('mouseleave', function(){
-    mouse.x = -9999; mouse.y = -9999;
-    cursorGlowEl.classList.remove('active');
-  });
-  window.addEventListener('touchmove', function(e){
-    if (e.touches && e.touches[0]){ mouse.x = e.touches[0].clientX; mouse.y = e.touches[0].clientY; }
-  }, { passive: true });
-  window.addEventListener('resize', resize);
-  resize();
-
-  var RADIUS = 160;
-  function frame(){
-    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
-
-    for (var i = 0; i < nodes.length; i++){
-      var n = nodes[i];
-      var dx = n.x - mouse.x, dy = n.y - mouse.y;
-      var dist = Math.sqrt(dx*dx + dy*dy);
-      var target = dist < RADIUS ? (1 - dist / RADIUS) : 0;
-      n.glow += (target - n.glow) * 0.15;
-    }
-    ctx.lineWidth = 1;
-    for (var i = 0; i < nodes.length; i++){
-      var n = nodes[i];
-      if (n.glow < 0.02) continue;
-      var right = nodes[i+1];
-      if (right && (right.x - n.x) === spacing){
-        var g = Math.max(n.glow, right.glow);
-        if (g > 0.03){
-          ctx.strokeStyle = 'rgba(0,240,255,' + (g * 0.35) + ')';
-          ctx.beginPath(); ctx.moveTo(n.x, n.y); ctx.lineTo(right.x, right.y); ctx.stroke();
-        }
-      }
-    }
-    for (var i = 0; i < nodes.length; i++){
-      var n = nodes[i];
-      var base = 0.04 + n.glow * 0.8;
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, 1 + n.glow * 1.6, 0, Math.PI * 2);
-      ctx.fillStyle = n.glow > 0.4 ? 'rgba(0,255,102,' + base + ')' : 'rgba(0,240,255,' + base + ')';
-      ctx.fill();
-    }
-
-    /* faint particle telemetry lines */
-    for (var p = 0; p < particles.length; p++){
-      var pt = particles[p];
-      pt.x += pt.vx; pt.y += pt.vy;
-      if (pt.x < 0 || pt.x > window.innerWidth) pt.vx *= -1;
-      if (pt.y < 0 || pt.y > window.innerHeight) pt.vy *= -1;
-      pt.trail.push({ x: pt.x, y: pt.y });
-      if (pt.trail.length > 18) pt.trail.shift();
-
-      ctx.beginPath();
-      for (var t = 0; t < pt.trail.length; t++){
-        var tp = pt.trail[t];
-        if (t === 0) ctx.moveTo(tp.x, tp.y); else ctx.lineTo(tp.x, tp.y);
-      }
-      ctx.strokeStyle = 'rgba(0,240,255,0.10)';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(pt.x, pt.y, 1.2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0,255,102,0.35)';
-      ctx.fill();
-    }
-
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
-
-  /* ---------- Hardware-accelerated cursor glow ---------- */
-  var cursorGlowEl = document.getElementById('cursor-glow');
-  var glowX = -9999, glowY = -9999, glowTX = -9999, glowTY = -9999;
-  function moveCursorGlow(x, y){
-    glowTX = x; glowTY = y;
-    cursorGlowEl.classList.add('active');
-  }
-  function glowLoop(){
-    glowX += (glowTX - glowX) * 0.18;
-    glowY += (glowTY - glowY) * 0.18;
-    cursorGlowEl.style.transform = 'translate3d(' + glowX + 'px,' + glowY + 'px,0)';
-    requestAnimationFrame(glowLoop);
-  }
-  requestAnimationFrame(glowLoop);
-
-  var hotSelectors = 'button, a, input, select, .corner-card, [data-open-modal]';
-  document.addEventListener('mouseover', function(e){
-    if (e.target.closest && e.target.closest(hotSelectors)) cursorGlowEl.classList.add('hot');
-  });
-  document.addEventListener('mouseout', function(e){
-    if (e.target.closest && e.target.closest(hotSelectors)) cursorGlowEl.classList.remove('hot');
+  /* ---------- Ambient background lighting: tracks mouse via CSS custom properties ---------- */
+  document.body.addEventListener('mousemove', function(e){
+    document.documentElement.style.setProperty('--mouse-x', e.clientX + 'px');
+    document.documentElement.style.setProperty('--mouse-y', e.clientY + 'px');
   });
 
-  /* ---------- Live execution signal stream (Binance public WS + fallback) ---------- */
-  var streamRows = document.getElementById('stream-rows');
-  var streamDot = document.getElementById('stream-status-dot');
-  var streamText = document.getElementById('stream-status-text');
-  var tickerBadge = document.getElementById('ticker-badge');
-  var tickerA = document.getElementById('ticker-a');
-  var tickerB = document.getElementById('ticker-b');
-  var MAX_ROWS = 24;
-  var recentTicks = [];
-  var socket = null;
-  var usingFallback = false;
+  /* ---------- Header p99 micro-jitter ---------- */
+  var hdrP99 = document.getElementById('hdr-p99');
+  setInterval(function(){
+    hdrP99.textContent = (1.71 + Math.random() * 0.14).toFixed(2);
+  }, 2400);
+
+  /* ---------- Live Client System IPC & Hardware Diagnostics (real local benchmark) ---------- */
+  var termBody = document.getElementById('term-body');
+  var termDot = document.getElementById('term-status-dot');
+  var termText = document.getElementById('term-status-text');
+  var statLatency = document.getElementById('stat-latency');
+  var statThroughput = document.getElementById('stat-throughput');
+  var statJitter = document.getElementById('stat-jitter');
+  var MAX_LINES = 30;
+
+  var BUF_BYTES = 4 * 1024 * 1024; /* 4MB per transfer, sized to clear performance.now() clamping */
+  var BUF_LABEL = (BUF_BYTES / (1024 * 1024)) + 'MB';
+  var ITERS_PER_ROUND = 24;
+  var srcBuf = new Uint8Array(BUF_BYTES);
+  for (var bi = 0; bi < BUF_BYTES; bi += 4096) srcBuf[bi] = bi & 0xFF;
+  var dstBuf = new Uint8Array(BUF_BYTES);
 
   function fmtTime(ms){
-    var d = new Date(ms);
-    return d.toISOString().substr(11, 12);
+    return new Date(ms).toISOString().substr(11, 12);
+  }
+  function pad(str, len){
+    str = String(str);
+    while (str.length < len) str += ' ';
+    return str;
   }
 
-  function simulateIpcLatency(){
-    return (1.20 + Math.random() * 0.62).toFixed(2);
+  function pushLine(round){
+    var row = document.createElement('div');
+    row.className = 'term-line';
+    row.innerHTML =
+      '<span class="text-slate-600">[' + fmtTime(Date.now()) + ']</span> ' +
+      '<span class="text-cyan font-bold">XFER</span> ' +
+      '<span class="text-white">' + pad(round.iters + 'x' + BUF_LABEL, 10) + '</span> ' +
+      '<span class="text-slate-500">lat=' + pad(round.latency.toFixed(2) + 'µs', 12) + '</span> ' +
+      '<span class="text-emerald">thr=' + pad(round.throughput.toFixed(1) + 'MB/s', 13) + '</span> ' +
+      '<span class="text-slate-400">jit=' + round.jitter.toFixed(2) + 'µs</span>';
+    termBody.insertBefore(row, termBody.firstChild);
+    while (termBody.children.length > MAX_LINES) termBody.removeChild(termBody.lastChild);
   }
 
-  function pushTick(tick){
-    recentTicks.unshift(tick);
-    if (recentTicks.length > MAX_ROWS) recentTicks.pop();
-    renderStream();
-    renderTicker();
-  }
-
-  function renderStream(){
-    var html = '';
-    for (var i = 0; i < recentTicks.length; i++){
-      var t = recentTicks[i];
-      var sideColor = t.side === 'BUY' ? 'text-emerald' : 'text-crimson';
-      html += '<div class="grid grid-cols-5 gap-2 px-4 py-2 ' + (i === 0 ? 'flash' : '') + '">' +
-        '<span class="text-slate-400">' + t.time + '</span>' +
-        '<span class="' + sideColor + ' font-bold">' + t.side + '</span>' +
-        '<span class="text-right text-white">' + t.price + '</span>' +
-        '<span class="text-right text-cyan">' + t.latency + 'µs</span>' +
-        '<span class="text-right text-slate-500">' + t.bytes + 'B</span>' +
-      '</div>';
-    }
-    streamRows.innerHTML = html;
-  }
-
-  function renderTicker(){
-    var s = '';
-    for (var i = 0; i < Math.min(recentTicks.length, 12); i++){
-      var t = recentTicks[i];
-      s += '<span class="' + (t.side === 'BUY' ? 'text-emerald' : 'text-crimson') + '">' + t.side + '</span>&nbsp;BTCUSDT&nbsp;@&nbsp;' + t.price + '&nbsp;&nbsp;|&nbsp;&nbsp;IPC ' + t.latency + 'µs&nbsp;&nbsp;|&nbsp;&nbsp;' + t.bytes + 'B&nbsp;&nbsp;&bull;&nbsp;&nbsp;';
-    }
-    if (!s) return;
-    tickerA.innerHTML = s + s;
-    tickerB.innerHTML = s + s;
-  }
-
-  function setStreamStatus(state){
+  function setStatus(state){
     if (state === 'live'){
-      streamDot.className = 'w-2 h-2 rounded-full bg-emerald pulse-live';
-      streamText.className = 'text-emerald font-bold tracking-wider';
-      streamText.textContent = 'LIVE — BINANCE PUBLIC FEED';
-      tickerBadge.className = 'flex-shrink-0 bg-emerald/15 text-emerald px-3 h-full flex items-center font-bold tracking-wider border-r border-border';
-      tickerBadge.textContent = 'LIVE FEED';
-    } else if (state === 'fallback'){
-      streamDot.className = 'w-2 h-2 rounded-full bg-amber pulse-live';
-      streamText.className = 'text-amber font-bold tracking-wider';
-      streamText.textContent = 'SIMULATED FALLBACK — HIGH-RES TICK GENERATOR';
-      tickerBadge.className = 'flex-shrink-0 bg-amber/15 text-amber px-3 h-full flex items-center font-bold tracking-wider border-r border-border';
-      tickerBadge.textContent = 'SIMULATED FEED';
+      termDot.className = 'w-2 h-2 rounded-full bg-emerald pulse-live';
+      termText.className = 'text-emerald font-bold tracking-wider uppercase';
+      termText.textContent = 'Live — Local Hardware Benchmark';
     } else {
-      streamDot.className = 'w-2 h-2 rounded-full bg-amber pulse-live';
-      streamText.className = 'text-amber font-bold tracking-wider';
-      streamText.textContent = 'CONNECTING';
+      termDot.className = 'w-2 h-2 rounded-full bg-cyan pulse-live';
+      termText.className = 'text-cyan font-bold tracking-wider uppercase';
+      termText.textContent = 'Initializing';
     }
   }
+  setStatus('init');
 
-  var fallbackTimer = null;
-  function startFallback(){
-    if (usingFallback) return;
-    usingFallback = true;
-    setStreamStatus('fallback');
-    var price = 64000 + Math.random() * 4000;
-    fallbackTimer = setInterval(function(){
-      price += (Math.random() - 0.5) * 18;
-      var side = Math.random() > 0.5 ? 'BUY' : 'SELL';
-      pushTick({
-        time: fmtTime(Date.now()),
-        side: side,
-        price: price.toFixed(2),
-        latency: simulateIpcLatency(),
-        bytes: Math.floor(96 + Math.random() * 64)
-      });
-    }, 420);
+  function runRound(){
+    var samples = new Array(ITERS_PER_ROUND);
+    var t0 = performance.now();
+    for (var i = 0; i < ITERS_PER_ROUND; i++){
+      var s = performance.now();
+      dstBuf.set(srcBuf);
+      var e = performance.now();
+      samples[i] = (e - s) * 1000; /* ms -> µs */
+    }
+    var t1 = performance.now();
+
+    var sum = 0, mean, variance = 0;
+    for (var j = 0; j < samples.length; j++) sum += samples[j];
+    mean = sum / samples.length;
+    for (var k = 0; k < samples.length; k++) variance += Math.pow(samples[k] - mean, 2);
+    var jitter = Math.sqrt(variance / samples.length);
+
+    var totalMs = t1 - t0;
+    var totalBytes = ITERS_PER_ROUND * BUF_BYTES;
+    var throughput = totalMs > 0 ? (totalBytes / (totalMs / 1000)) / (1024 * 1024) : 0;
+
+    statLatency.textContent = mean.toFixed(2);
+    statThroughput.textContent = throughput.toFixed(1);
+    statJitter.textContent = jitter.toFixed(2);
+
+    pushLine({ iters: ITERS_PER_ROUND, latency: mean, throughput: throughput, jitter: jitter });
+    setStatus('live');
   }
 
-  function connectBinance(){
-    try {
-      socket = new WebSocket('wss://stream.binance.com:9443/ws/btcusdt@trade');
-    } catch (err){
-      startFallback();
-      return;
+  function benchmarkLoop(){
+    runRound();
+    setTimeout(benchmarkLoop, 500);
+  }
+  benchmarkLoop();
+
+  /* ---------- Memory Topology Engine: concurrency slider + drop simulation ---------- */
+  var slider = document.getElementById('concurrency-slider');
+  var concurrencyReadout = document.getElementById('concurrency-readout');
+  var nativeDropRate = document.getElementById('nativeDropRate');
+  var nativeDropPct = document.getElementById('nativeDropPct');
+  var nativeLatency = document.getElementById('nativeLatency');
+  var tradMarker = document.getElementById('trad-marker');
+  var ringMarkerA = document.getElementById('ring-marker-a');
+  var ringMarkerB = document.getElementById('ring-marker-b');
+
+  var currentRate = 128000;
+
+  function fmtInt(n){
+    return Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  }
+  function rateFromSlider(pct){
+    var minLog = Math.log10(1000), maxLog = Math.log10(1000000);
+    var lg = minLog + (pct / 100) * (maxLog - minLog);
+    return Math.round(Math.pow(10, lg));
+  }
+  function dropProb(rate){
+    var floor = 20000;
+    if (rate <= floor) return 0;
+    var t = Math.min(1, (rate - floor) / (1000000 - floor));
+    return Math.min(0.97, Math.pow(t, 0.7) * 0.97);
+  }
+
+  function updateReadouts(){
+    var p = dropProb(currentRate);
+    concurrencyReadout.textContent = fmtInt(currentRate) + ' msgs/sec';
+    nativeDropRate.textContent = fmtInt(currentRate * p) + ' /sec';
+    nativeDropPct.textContent = (p * 100).toFixed(1) + '%';
+    nativeLatency.textContent = Math.round(38 + p * 420) + 'µs';
+  }
+
+  slider.addEventListener('input', function(){
+    currentRate = rateFromSlider(Number(slider.value));
+    updateReadouts();
+  });
+  currentRate = rateFromSlider(Number(slider.value));
+  updateReadouts();
+
+  function animatePoint(el, x1, y1, x2, y2, duration, cb){
+    var start = null;
+    function step(ts){
+      if (start === null) start = ts;
+      var t = Math.min(1, (ts - start) / duration);
+      el.setAttribute('cx', (x1 + (x2 - x1) * t).toFixed(2));
+      el.setAttribute('cy', (y1 + (y2 - y1) * t).toFixed(2));
+      if (t < 1) requestAnimationFrame(step); else if (cb) cb();
     }
+    requestAnimationFrame(step);
+  }
 
-    var connectTimeout = setTimeout(function(){
-      if (socket && socket.readyState !== WebSocket.OPEN) {
-        socket.close();
-        startFallback();
-      }
-    }, 6000);
+  function runTraditionalCycle(){
+    var p = dropProb(currentRate);
+    var totalDuration = 900 + (currentRate / 1000000) * 1800;
+    var leg1 = totalDuration * 0.55, leg2 = totalDuration - leg1;
 
-    socket.addEventListener('open', function(){
-      clearTimeout(connectTimeout);
-      setStreamStatus('live');
-    });
-
-    socket.addEventListener('message', function(evt){
-      if (usingFallback) return;
-      try {
-        var msg = JSON.parse(evt.data);
-        var side = msg.m ? 'SELL' : 'BUY';
-        pushTick({
-          time: fmtTime(msg.T || Date.now()),
-          side: side,
-          price: Number(msg.p).toFixed(2),
-          latency: simulateIpcLatency(),
-          bytes: new Blob([evt.data]).size
+    tradMarker.setAttribute('fill', '#94a3b8');
+    tradMarker.setAttribute('opacity', '1');
+    tradMarker.style.transition = 'none';
+    animatePoint(tradMarker, 190, 152, 475, 152, leg1, function(){
+      var dropped = Math.random() < p;
+      if (dropped){
+        tradMarker.setAttribute('fill', '#FF4B4B');
+        tradMarker.style.transition = 'opacity .4s ease';
+        tradMarker.setAttribute('opacity', '0');
+        setTimeout(function(){
+          tradMarker.style.transition = 'none';
+          runTraditionalCycle();
+        }, 480);
+      } else {
+        animatePoint(tradMarker, 475, 152, 590, 152, leg2, function(){
+          tradMarker.setAttribute('fill', '#00FF66');
+          tradMarker.style.transition = 'opacity .3s ease';
+          tradMarker.setAttribute('opacity', '0');
+          setTimeout(function(){
+            tradMarker.style.transition = 'none';
+            runTraditionalCycle();
+          }, 220);
         });
-      } catch (e) { /* ignore malformed frame */ }
-    });
-
-    socket.addEventListener('error', function(){
-      clearTimeout(connectTimeout);
-      if (!usingFallback) startFallback();
-    });
-
-    socket.addEventListener('close', function(){
-      clearTimeout(connectTimeout);
-      if (!usingFallback) startFallback();
+      }
     });
   }
-  connectBinance();
+  runTraditionalCycle();
 
-  /* ---------- Memory Interop Explorer ---------- */
-  var bufBtns = document.querySelectorAll('.buf-btn');
-  var activeBufferSize = 1024;
-
-  var sockAlloc = document.getElementById('sock-alloc');
-  var sockCopies = document.getElementById('sock-copies');
-  var sockSyscalls = document.getElementById('sock-syscalls');
-  var sockLatency = document.getElementById('sock-latency');
-  var ringAlloc = document.getElementById('ring-alloc');
-  var ringCopies = document.getElementById('ring-copies');
-  var ringSyscalls = document.getElementById('ring-syscalls');
-  var ringLatency = document.getElementById('ring-latency');
-  var socketPacket = document.getElementById('socket-packet');
-  var ringPacket = document.getElementById('ring-packet');
-
-  function setActiveBufBtn(){
-    bufBtns.forEach(function(b){
-      var isActive = Number(b.getAttribute('data-size')) === activeBufferSize;
-      b.className = 'buf-btn px-4 py-2 transition font-mono text-sm ' +
-        (isActive ? 'bg-cyan text-black font-bold' : 'hover:bg-cyan/10') +
-        (b.previousElementSibling ? ' border-l border-border' : '');
-    });
+  function pulseRing(){
+    ringMarkerA.setAttribute('opacity', '1');
+    ringMarkerB.setAttribute('opacity', '1');
+    ringMarkerA.style.transition = 'opacity .5s ease';
+    ringMarkerB.style.transition = 'opacity .5s ease';
+    setTimeout(function(){
+      ringMarkerA.setAttribute('opacity', '0');
+      ringMarkerB.setAttribute('opacity', '0');
+    }, 140);
   }
+  setInterval(pulseRing, 650);
 
-  function updateMemoryMetrics(){
-    var size = activeBufferSize;
-    sockAlloc.textContent = '1 / msg';
-    sockCopies.textContent = '2 / msg';
-    sockSyscalls.textContent = '2';
-    var sockLat = 8.1 + (size / 4096) * 11.4;
-    sockLatency.textContent = sockLat.toFixed(1) + 'µs';
+  /* ---------- Native SDK Code Explorer: tabs + copy-to-clipboard ---------- */
+  var tabBtns = document.querySelectorAll('.tab-btn');
+  var panes = { cpp: document.getElementById('pane-cpp'), py: document.getElementById('pane-py') };
+  var activeTab = 'cpp';
 
-    ringAlloc.textContent = '0';
-    ringCopies.textContent = '0';
-    ringSyscalls.textContent = '0';
-    var ringLat = 0.16 + Math.random() * 0.04;
-    ringLatency.textContent = ringLat.toFixed(2) + 'µs';
-
-    var socketDuration = 0.35 + (size / 4096) * 1.1;
-    socketPacket.style.transition = 'transform ' + socketDuration.toFixed(2) + 's cubic-bezier(.4,0,.2,1), opacity .2s ease';
-    ringPacket.style.transition = 'transform 0.06s linear, opacity .15s ease';
-  }
-
-  bufBtns.forEach(function(btn){
+  tabBtns.forEach(function(btn){
     btn.addEventListener('click', function(){
-      activeBufferSize = Number(btn.getAttribute('data-size'));
-      setActiveBufBtn();
-      updateMemoryMetrics();
+      activeTab = btn.getAttribute('data-tab');
+      tabBtns.forEach(function(b){
+        b.classList.toggle('active', b === btn);
+        b.classList.toggle('text-slate-400', b !== btn);
+      });
+      Object.keys(panes).forEach(function(k){ panes[k].classList.toggle('active', k === activeTab); });
     });
   });
-  setActiveBufBtn();
-  updateMemoryMetrics();
 
-  function runMemoryTick(){
-    var track = 'calc(100% - 24px)';
-    socketPacket.style.opacity = '1';
-    socketPacket.style.transform = 'translate(' + track + ', -50%)';
-    ringPacket.style.opacity = '1';
-    ringPacket.style.transform = 'translate(' + track + ', -50%)';
-
-    setTimeout(function(){
-      socketPacket.style.transition = 'opacity .15s ease';
-      ringPacket.style.transition = 'opacity .15s ease';
-      socketPacket.style.opacity = '0';
-      ringPacket.style.opacity = '0';
-      setTimeout(function(){
-        socketPacket.style.transition = 'none';
-        ringPacket.style.transition = 'none';
-        socketPacket.style.transform = 'translate(0, -50%)';
-        ringPacket.style.transform = 'translate(0, -50%)';
-        updateMemoryMetrics();
-      }, 180);
-    }, 550);
+  var copyBtn = document.getElementById('copy-btn');
+  var copyLabel = document.getElementById('copy-label');
+  copyBtn.addEventListener('click', function(){
+    var text = panes[activeTab].textContent;
+    function done(){
+      copyLabel.textContent = 'Copied!';
+      setTimeout(function(){ copyLabel.textContent = 'Copy Code Snippet'; }, 1500);
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(function(){
+        fallbackCopy(text, done);
+      });
+    } else {
+      fallbackCopy(text, done);
+    }
+  });
+  function fallbackCopy(text, done){
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* no-op */ }
+    document.body.removeChild(ta);
+    done();
   }
-  setInterval(runMemoryTick, 1400);
 
   /* ---------- Latency Benchmarks Suite: matrix + dynamic SVG curves ---------- */
   var seriesData = {
-    grpc:   { label: 'Standard gRPC',           color: '#FF3B5C', p50: 620,  p90: 1450, p99: 3800, p999: 7200 },
-    uds:    { label: 'Unix Domain Sockets',      color: '#F5A623', p50: 45,   p90: 95,   p99: 210,  p999: 480 },
-    animus: { label: 'Animus Zero-Copy Core',    color: '#00FF66', p50: 1.02, p90: 1.34, p99: 1.71, p999: 1.85 }
+    grpc:   { label: 'Standard gRPC',        color: '#FF4B4B', p50: 620,  p90: 1450, p99: 3800, p999: 7200 },
+    uds:    { label: 'Unix Domain Sockets',  color: '#00F0FF', p50: 45,   p90: 95,   p99: 210,  p999: 480 },
+    animus: { label: 'Animus Ring Buffer',   color: '#00FF66', p50: 1.02, p90: 1.34, p99: 1.71, p999: 1.85 }
   };
   var seriesVisible = { grpc: true, uds: true, animus: true };
   var seriesOrder = ['grpc', 'uds', 'animus'];
 
   function fmtUs(v){
-    return v >= 1000 ? (v/1000).toFixed(2) + 'ms' : (v < 10 ? v.toFixed(2) : Math.round(v)) + 'µs';
+    return v >= 1000 ? (v / 1000).toFixed(2) + 'ms' : (v < 10 ? v.toFixed(2) : Math.round(v)) + 'µs';
   }
-
   function buildMatrix(){
     var body = document.getElementById('matrix-body');
     var html = '';
@@ -823,14 +818,12 @@ signals = engine.poll_signals()</code></pre>
     var frac = (lg - LOG_MIN) / (LOG_MAX - LOG_MIN);
     return PAD_L + frac * PLOT_W;
   }
-
   function lognormalPdf(x, mu, sigma){
     if (x <= 0) return 0;
     var a = 1 / (x * sigma * Math.sqrt(2 * Math.PI));
     var b = Math.exp(-Math.pow(Math.log(x) - mu, 2) / (2 * sigma * sigma));
     return a * b;
   }
-
   function buildCurve(key){
     var s = seriesData[key];
     var mu = Math.log(s.p50);
@@ -855,11 +848,10 @@ signals = engine.poll_signals()</code></pre>
       ' L' + xForUs(points[0].us).toFixed(2) + ',' + (PAD_T + PLOT_H) + ' Z';
     return { stroke: path.trim(), fill: path.trim() + ' ' + baseline };
   }
-
   function buildChart(){
     var svg = document.getElementById('dist-chart');
     var parts = [];
-    parts.push('<g stroke="#1E2638" stroke-width="1" font-family="IBM Plex Mono, monospace" font-size="10" fill="#64748b">');
+    parts.push('<g stroke="#1E293D" stroke-width="1" font-family="IBM Plex Mono, monospace" font-size="10" fill="#64748b">');
     [1, 10, 100, 1000, 10000].forEach(function(us){
       var x = xForUs(us);
       parts.push('<line x1="' + x.toFixed(1) + '" y1="' + PAD_T + '" x2="' + x.toFixed(1) + '" y2="' + (PAD_T+PLOT_H) + '" stroke-dasharray="2 4"></line>');
@@ -867,7 +859,6 @@ signals = engine.poll_signals()</code></pre>
     });
     parts.push('<line x1="' + PAD_L + '" y1="' + (PAD_T+PLOT_H) + '" x2="' + (PAD_L+PLOT_W) + '" y2="' + (PAD_T+PLOT_H) + '"></line>');
     parts.push('</g>');
-
     seriesOrder.forEach(function(key){
       var s = seriesData[key];
       var curve = buildCurve(key);
@@ -875,11 +866,9 @@ signals = engine.poll_signals()</code></pre>
       parts.push('<path class="curve-path ' + hidden + '" data-series="' + key + '" d="' + curve.fill + '" fill="' + s.color + '" fill-opacity="0.12"></path>');
       parts.push('<path class="curve-path ' + hidden + '" data-series="' + key + '" d="' + curve.stroke + '" fill="none" stroke="' + s.color + '" stroke-width="2"></path>');
     });
-
     parts.push('<text x="' + PAD_L + '" y="14" font-family="IBM Plex Mono, monospace" font-size="10" fill="#475569">log-scale transit latency, microseconds</text>');
     svg.innerHTML = parts.join('');
   }
-
   document.querySelectorAll('.series-btn').forEach(function(btn){
     btn.addEventListener('click', function(){
       var key = btn.getAttribute('data-series');
@@ -891,34 +880,22 @@ signals = engine.poll_signals()</code></pre>
       buildMatrix();
     });
   });
-
   buildMatrix();
   buildChart();
 
-  /* ---------- Nav p99 micro-jitter ---------- */
-  var navP99 = document.getElementById('nav-p99');
-  setInterval(function(){
-    var v = (1.71 + Math.random() * 0.14).toFixed(2);
-    navP99.textContent = v;
-  }, 2400);
-
   /* ---------- Modal (Web3Forms) ---------- */
-  var modal = document.getElementById('pilot-modal');
-  var modalForm = document.getElementById('pilot-form');
+  var modal = document.getElementById('benchmark-modal');
+  var modalForm = document.getElementById('benchmark-form');
   var modalSuccess = document.getElementById('modal-success');
-  var modalTitle = document.querySelector('[data-modal-title]');
-  var modalSubject = document.getElementById('modal-subject');
   var modalSubmit = document.getElementById('modal-submit');
   var modalSpinner = document.getElementById('modal-spinner');
   var modalSubmitLabel = document.getElementById('modal-submit-label');
   var modalStatus = document.getElementById('modal-status');
 
-  function openModal(intent){
+  function openModal(){
     modalForm.classList.remove('hidden');
     modalSuccess.classList.add('hidden');
     modalStatus.textContent = '';
-    modalTitle.textContent = intent === 'Benchmark Datasheet Request' ? 'Download Benchmark Datasheet' : 'Request Evaluation Access';
-    modalSubject.value = 'Animus Engine — ' + intent;
     modal.classList.add('modal-open');
     document.body.style.overflow = 'hidden';
   }
@@ -926,9 +903,8 @@ signals = engine.poll_signals()</code></pre>
     modal.classList.remove('modal-open');
     document.body.style.overflow = '';
   }
-
   document.querySelectorAll('[data-open-modal]').forEach(function(btn){
-    btn.addEventListener('click', function(){ openModal(btn.getAttribute('data-intent') || 'Evaluation Access Request'); });
+    btn.addEventListener('click', openModal);
   });
   document.querySelectorAll('[data-close-modal]').forEach(function(btn){
     btn.addEventListener('click', closeModal);
@@ -961,7 +937,7 @@ signals = engine.poll_signals()</code></pre>
       })
       .catch(function(){
         modalStatus.textContent = 'Something went wrong. Please try again or email us directly.';
-        modalStatus.className = 'text-sm text-center min-h-[1.25rem] text-crimson';
+        modalStatus.className = 'text-sm text-center min-h-[1.25rem] text-danger';
       })
       .finally(function(){
         modalSubmit.disabled = false;
