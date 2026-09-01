@@ -6,9 +6,101 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const REQUIRED_FIELDS = ['name', 'email', 'orgType', 'coreFootprint', 'useCase'];
 const MAX_FIELD_LENGTH = 2000;
 const WEBHOOK_TIMEOUT_MS = 5000;
+const RESEND_TIMEOUT_MS = 8000;
+const RESEND_API_URL = 'https://api.resend.com/emails';
+const NOTIFY_TO = process.env.REQUEST_ACCESS_NOTIFY_EMAIL || 'inquiries@animusinfra.com';
+const NOTIFY_FROM = process.env.REQUEST_ACCESS_FROM_EMAIL || 'Animus Engine <noreply@animusinfra.com>';
 
 function sanitize(value) {
   return typeof value === 'string' ? value.trim().slice(0, MAX_FIELD_LENGTH) : '';
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function buildEmailText(record) {
+  return [
+    'New benchmark access request',
+    '',
+    `Name:            ${record.name}`,
+    `Email:           ${record.email}`,
+    `Organization:    ${record.organization || '(not provided)'}`,
+    `Org Type:        ${record.orgType}`,
+    `Core Footprint:  ${record.coreFootprint}`,
+    `Use Case:        ${record.useCase}`,
+    '',
+    `Received:  ${record.receivedAt}`,
+    `IP:        ${record.ip || '(unknown)'}`,
+  ].join('\n');
+}
+
+function buildEmailHtml(record) {
+  const row = (label, value) =>
+    `<tr><td style="padding:4px 12px 4px 0;color:#64748b;white-space:nowrap;">${escapeHtml(label)}</td>` +
+    `<td style="padding:4px 0;color:#0f172a;">${escapeHtml(value)}</td></tr>`;
+  return [
+    '<div style="font-family:monospace,sans-serif;font-size:14px;">',
+    '<h2 style="margin:0 0 12px;">New Benchmark Access Request</h2>',
+    '<table cellpadding="0" cellspacing="0">',
+    row('Name', record.name),
+    row('Email', record.email),
+    row('Organization', record.organization || '(not provided)'),
+    row('Org Type', record.orgType),
+    row('Core Footprint', record.coreFootprint),
+    row('Use Case', record.useCase),
+    row('Received', record.receivedAt),
+    row('IP', record.ip || '(unknown)'),
+    '</table>',
+    '</div>',
+  ].join('');
+}
+
+// Best-effort: a failed/unconfigured send is logged, never thrown, so a
+// downstream email-provider outage never turns into a 500 for the visitor
+// who already successfully submitted the form (see the record's own
+// console.log, which is the durable record of the request regardless of
+// whether this send succeeds).
+async function sendNotificationEmail(record) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    console.warn('[request-access] RESEND_API_KEY not set — skipping email delivery');
+    return;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), RESEND_TIMEOUT_MS);
+  try {
+    const resendRes = await fetch(RESEND_API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: NOTIFY_FROM,
+        to: NOTIFY_TO,
+        reply_to: record.email,
+        subject: `Benchmark Access Request — ${record.organization || record.name}`,
+        text: buildEmailText(record),
+        html: buildEmailHtml(record),
+      }),
+      signal: controller.signal,
+    });
+    if (!resendRes.ok) {
+      const body = await resendRes.text().catch(() => '');
+      console.error('[request-access] Resend send failed', resendRes.status, body);
+    }
+  } catch (err) {
+    console.error('[request-access] Resend send error', err && err.message);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 module.exports = async function handler(req, res) {
@@ -67,6 +159,10 @@ module.exports = async function handler(req, res) {
     // Clean structured log — always happens, visible in Vercel's function logs.
     console.log('[request-access] telemetry access request', JSON.stringify(record));
 
+    // Primary delivery path: notify inquiries@animusinfra.com directly via Resend.
+    await sendNotificationEmail(record);
+
+    // Optional secondary forward (Slack/Zapier/etc.), unrelated to email delivery above.
     const webhookUrl = process.env.REQUEST_ACCESS_WEBHOOK_URL;
     if (webhookUrl) {
       const controller = new AbortController();
