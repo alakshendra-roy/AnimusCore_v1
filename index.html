@@ -161,7 +161,22 @@ tailwind.config = {
         </span>
         <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap">Request Benchmark Access</button>
       </div>
-      <button data-open-modal class="lg:hidden bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase flex-shrink-0">Access</button>
+      <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
+        <button data-open-modal class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase">Access</button>
+        <button id="mobile-menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Toggle navigation menu" class="flex items-center justify-center w-9 h-9 border border-border rounded-sm text-slate-300 hover:text-cyan hover:border-cyan/50 transition">
+          <svg id="mobile-menu-icon-open" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          <svg id="mobile-menu-icon-close" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="mobile-menu" class="lg:hidden hidden border-t border-border bg-void/95 backdrop-blur-xl">
+      <div class="flex flex-col px-8 py-2 text-sm font-mono">
+        <a href="#telemetry" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Telemetry</a>
+        <a href="#memory" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Memory Topology</a>
+        <a href="#sdk" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">SDK Explorer</a>
+        <a href="#benchmarks" data-mobile-nav-link class="py-3 hover:text-cyan transition">Benchmarks</a>
+      </div>
     </div>
   </nav>
 
@@ -927,6 +942,32 @@ tailwind.config = {
   });
   modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+
+  /* ---------- Mobile nav drawer ---------- */
+  var mobileMenu = document.getElementById('mobile-menu');
+  var mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+  var mobileMenuIconOpen = document.getElementById('mobile-menu-icon-open');
+  var mobileMenuIconClose = document.getElementById('mobile-menu-icon-close');
+
+  function openMobileMenu(){
+    mobileMenu.classList.remove('hidden');
+    mobileMenuToggle.setAttribute('aria-expanded', 'true');
+    mobileMenuIconOpen.classList.add('hidden');
+    mobileMenuIconClose.classList.remove('hidden');
+  }
+  function closeMobileMenu(){
+    mobileMenu.classList.add('hidden');
+    mobileMenuToggle.setAttribute('aria-expanded', 'false');
+    mobileMenuIconOpen.classList.remove('hidden');
+    mobileMenuIconClose.classList.add('hidden');
+  }
+  mobileMenuToggle.addEventListener('click', function(){
+    if (mobileMenu.classList.contains('hidden')) openMobileMenu(); else closeMobileMenu();
+  });
+  document.querySelectorAll('[data-mobile-nav-link]').forEach(function(link){
+    link.addEventListener('click', closeMobileMenu);
+  });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeMobileMenu(); });
 
   modalForm.addEventListener('submit', function(e){
     e.preventDefault();
