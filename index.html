@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Animus Engine | Institutional-Grade Bare-Metal Execution Core</title>
 <meta name="description" content="Animus Engine is a C++17 zero-copy shared-memory execution core exposed through a direct C-ABI dynamic library, with a zero-dependency Python SDK. Measured p99 tick-to-trade latency 1.81µs.">
+<meta name="author" content="Alakshendra Roy">
 <link rel="icon" type="image/png" href="/logo.png">
 <link rel="shortcut icon" type="image/png" href="/logo.png">
 <link rel="apple-touch-icon" href="/logo.png">
@@ -77,6 +78,16 @@ tailwind.config = {
   .corner-card::before{ top:-1px; left:-1px; border-top:2px solid var(--accent); border-left:2px solid var(--accent); }
   .corner-card::after{ bottom:-1px; right:-1px; border-bottom:2px solid var(--accent); border-right:2px solid var(--accent); }
   .corner-card:hover::before,.corner-card:hover::after{ opacity:1; width:18px; height:18px; }
+
+  /* Interactive card glow — repositioned via JS from real pointermove/mousemove events
+     only; no simulated cursor element is rendered, the native OS cursor is untouched. */
+  .glow-card{ position:relative; }
+  .glow-card .card-glow{
+    position:absolute; inset:0; z-index:0; border-radius:inherit; pointer-events:none;
+    background: radial-gradient(240px circle at var(--gx,50%) var(--gy,50%), rgba(0,240,255,0.14), rgba(0,255,102,0.05) 45%, transparent 70%);
+    opacity:0; transition:opacity .3s ease;
+  }
+  .glow-card:hover .card-glow{ opacity:1; }
 
   #benchmark-modal.modal-open{ display:flex; }
   #benchmark-modal{ display:none; }
@@ -249,6 +260,49 @@ tailwind.config = {
       <div id="term-body" class="font-mono text-[13px] leading-relaxed p-4 max-h-96 overflow-y-auto bg-black/60"></div>
     </div>
     <p class="text-xs text-slate-500 mt-4 text-center">Client-side diagnostic using this browser's JS engine and memory subsystem as a proxy for scheduling behavior &mdash; not a substitute for the native Animus Engine benchmark harness.</p>
+  </section>
+
+  <!-- Engine Architecture & Technical Overview -->
+  <section id="architecture" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-bold text-white font-sans">ENGINE ARCHITECTURE &amp; DIRECTIVES</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Zero-overhead IPC bridging Python algorithmic strategy layers to bare-metal C++ execution cores.</p>
+    </div>
+    <div class="grid md:grid-cols-3 gap-6">
+      <div class="glow-card corner-card bg-panel border border-border rounded-md p-6" style="--accent: var(--cyan)">
+        <div class="card-glow" aria-hidden="true"></div>
+        <div class="relative z-10">
+          <h3 class="font-bold text-white text-lg mb-3">Zero-Copy IPC Architecture</h3>
+          <ul class="space-y-2.5 text-sm text-slate-400">
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>Lock-free, cache-aligned shared memory ring buffers.</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>Direct binary memory transfer eliminating serialization overhead (JSON/Protobuf bypass).</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>Deterministic cross-process message passing under 1.5 microseconds.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="glow-card corner-card bg-panel border border-border rounded-md p-6" style="--accent: var(--emerald)">
+        <div class="card-glow" aria-hidden="true"></div>
+        <div class="relative z-10">
+          <h3 class="font-bold text-white text-lg mb-3">Bare-Metal Core Pinning</h3>
+          <ul class="space-y-2.5 text-sm text-slate-400">
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-emerald flex-shrink-0"></span><span>Isolated CPU thread affinity preventing OS thread migration and kernel context switches.</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-emerald flex-shrink-0"></span><span>Manual memory layout optimization with zero garbage collection (GC) pauses or thread jitter.</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-emerald flex-shrink-0"></span><span>NUMA-aware memory allocations dedicated to order book state reconstruction.</span></li>
+          </ul>
+        </div>
+      </div>
+      <div class="glow-card corner-card bg-panel border border-border rounded-md p-6" style="--accent: var(--cyan)">
+        <div class="card-glow" aria-hidden="true"></div>
+        <div class="relative z-10">
+          <h3 class="font-bold text-white text-lg mb-3">Deterministic Telemetry &amp; Diagnostics</h3>
+          <ul class="space-y-2.5 text-sm text-slate-400">
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>Hardware-level cycle counters (RDTSC) providing nanosecond-precision profiling.</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>End-to-end execution audit logs without adding profiling latency to the critical path.</span></li>
+            <li class="flex gap-2.5"><span class="mt-1.5 w-1.5 h-1.5 rounded-sm bg-cyan flex-shrink-0"></span><span>Native C++ library bindings exposed cleanly to Python via high-throughput C-ABI.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- Memory Topology Engine -->
@@ -519,6 +573,7 @@ tailwind.config = {
 
   <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
     &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
+    <div class="mt-2 text-xs font-mono text-slate-500">Architected &amp; Maintained by Alakshendra Roy &middot; Founder &amp; Systems Architect</div>
   </footer>
 </div>
 
@@ -968,6 +1023,17 @@ tailwind.config = {
     link.addEventListener('click', closeMobileMenu);
   });
   document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeMobileMenu(); });
+
+  /* ---------- Card hover glow: repositions a background radial-gradient from real
+     pointermove coordinates. No cursor element is created or rendered — the native
+     OS cursor is left completely untouched. ---------- */
+  document.querySelectorAll('.glow-card').forEach(function(card){
+    card.addEventListener('pointermove', function(e){
+      var rect = card.getBoundingClientRect();
+      card.style.setProperty('--gx', ((e.clientX - rect.left) / rect.width * 100) + '%');
+      card.style.setProperty('--gy', ((e.clientY - rect.top) / rect.height * 100) + '%');
+    });
+  });
 
   modalForm.addEventListener('submit', function(e){
     e.preventDefault();
