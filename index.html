@@ -91,6 +91,31 @@ tailwind.config = {
   .curve-path{ transition:opacity .3s ease; }
   .curve-hidden{ opacity:0 !important; }
 
+  /* Dark-themed native <select> — Tailwind can't reach into the native option
+     popup, so background/color/arrow are set explicitly here instead of via
+     utility classes on the element. */
+  select.custom-select{
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+    background-color:#0B1117;
+    color:#ffffff;
+    border:1px solid #1E293D;
+    border-radius:2px;
+    padding:0.625rem 2.75rem 0.625rem 1rem;
+    font-size:0.875rem;
+    line-height:1.25rem;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2300F0FF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat:no-repeat;
+    background-position:right 1rem center;
+    background-size:12px;
+    cursor:pointer;
+  }
+  select.custom-select::-ms-expand{ display:none; }
+  select.custom-select:focus{ outline:none; border-color:var(--cyan); }
+  select.custom-select option{
+    background-color:#0B1117;
+    color:#ffffff;
+  }
+
   .code-pane{ display:none; }
   .code-pane.active{ display:block; }
   .tab-btn.active{ color:#000; background:var(--cyan); }
@@ -504,7 +529,7 @@ tailwind.config = {
       <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
       <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
 
-      <select name="organization_type" required class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <select name="organization_type" required class="custom-select w-full">
         <option value="" disabled selected>Organization Type</option>
         <option value="HFT">HFT</option>
         <option value="Prop Desk">Prop Desk</option>
@@ -513,7 +538,7 @@ tailwind.config = {
         <option value="Other">Other</option>
       </select>
 
-      <select name="core_footprint" required class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <select name="core_footprint" required class="custom-select w-full">
         <option value="" disabled selected>Estimated Core Footprint</option>
         <option value="< 16 cores">&lt; 16 cores</option>
         <option value="16-64 cores">16 – 64 cores</option>
