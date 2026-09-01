@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANIMUS — Business Card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#000000;
+    --card-bg:#050505;
+    --zinc-900:#0d0d0f;
+    --zinc-800:#19191c;
+    --zinc-700:#28282c;
+    --zinc-600:#3a3a3f;
+    --zinc-500:#6b6b70;
+    --zinc-400:#8c8c92;
+    --steel:#8b98a6;
+    --ink:#f2f2f3;
+    --guide-trim:#ff4d4d;
+    --guide-safe:#22d3ee;
+
+    /* physical card geometry — US business card, 3mm bleed */
+    --trim-w:88.9mm;
+    --trim-h:50.8mm;
+    --bleed:3mm;
+    --safe:3mm;
+    --bleed-w:calc(var(--trim-w) + (var(--bleed) * 2));
+    --bleed-h:calc(var(--trim-h) + (var(--bleed) * 2));
+
+    /* on-screen magnification only — real size is restored for print */
+    --scale:1.5;
+  }
+
+  @media print{
+    :root{ --scale:1; }
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{
+    margin:0;
+    padding:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Space Grotesk',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  body{
+    min-height:100vh;
+    padding:64px 24px 80px;
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(255,255,255,0.05), transparent 60%),
+      var(--bg);
+  }
+
+  .page{
+    max-width:1220px;
+    margin:0 auto;
+  }
+
+  .masthead{
+    text-align:center;
+    margin-bottom:36px;
+  }
+
+  .kicker{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.32em;
+    text-transform:uppercase;
+    color:var(--zinc-500);
+    margin:0 0 10px;
+  }
+
+  .masthead h1{
+    font-size:26px;
+    font-weight:600;
+    letter-spacing:0.02em;
+    margin:0 0 8px;
+  }
+
+  .masthead p{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12.5px;
+    color:var(--zinc-400);
+    margin:0;
+  }
+
+  .controls{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:22px;
+    flex-wrap:wrap;
+    margin:34px 0 50px;
+    padding:14px 20px;
+    border:1px solid var(--zinc-800);
+    border-radius:10px;
+    background:var(--zinc-900);
+    max-width:fit-content;
+    margin-left:auto;
+    margin-right:auto;
+  }
+
+  .toggle{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    color:var(--zinc-400);
+    cursor:pointer;
+    user-select:none;
+  }
+
+  .toggle input{
+    position:absolute;
+    opacity:0;
+    width:0;
+    height:0;
+  }
+
+  .switch{
+    position:relative;
+    width:34px;
+    height:19px;
+    background:var(--zinc-700);
+    border-radius:999px;
+    transition:background .15s ease;
+    flex:none;
+  }
+
+  .switch::after{
+    content:"";
+    position:absolute;
+    top:2px;
+    left:2px;
+    width:15px;
+    height:15px;
+    border-radius:50%;
+    background:var(--zinc-400);
+    transition:transform .15s ease, background .15s ease;
+  }
+
+  #guideToggle:checked ~ .toggle .switch,
+  .toggle input:checked ~ .switch{
+    background:#0e3f45;
+  }
+
+  .toggle input:checked ~ .switch::after{
+    transform:translateX(15px);
+    background:var(--guide-safe);
+  }
+
+  .legend{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--zinc-500);
+  }
+
+  .legend span{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+  }
+
+  .legend i{
+    width:10px;
+    height:2px;
+    display:inline-block;
+    border-radius:1px;
+  }
+
+  .legend .dot-trim{ background:var(--guide-trim); }
+  .legend .dot-safe{ background:var(--guide-safe); }
+
+  .btn{
+    font-family:'JetBrains Mono',monospace;
+    font-size:12px;
+    letter-spacing:0.04em;
+    color:#050505;
+    background:var(--ink);
+    border:none;
+    border-radius:6px;
+    padding:9px 16px;
+    cursor:pointer;
+    transition:opacity .15s ease;
+  }
+
+  .btn:hover{ opacity:0.85; }
+
+  .deck{
+    display:flex;
+    align-items:flex-start;
+    justify-content:center;
+    gap:56px;
+    flex-wrap:wrap;
+  }
+
+  .card-block{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:14px;
+  }
+
+  .face-label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.3em;
+    text-transform:uppercase;
+    color:var(--zinc-500);
+    margin:0;
+  }
+
+  .stage{
+    width:calc(var(--bleed-w) * var(--scale));
+    height:calc(var(--bleed-h) * var(--scale));
+    position:relative;
+  }
+
+  .card-face{
+    position:absolute;
+    top:0;
+    left:0;
+    width:var(--bleed-w);
+    height:var(--bleed-h);
+    transform:scale(var(--scale));
+    transform-origin:top left;
+    background:var(--card-bg);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.07),
+      0 30px 70px -20px rgba(0,0,0,0.9);
+    overflow:hidden;
+  }
+
+  @media print{
+    .card-face{ box-shadow:none; }
+  }
+
+  /* faint structural grid texture */
+  .grid-tex{
+    position:absolute;
+    inset:0;
+    background-image:
+      repeating-linear-gradient(to right, rgba(255,255,255,0.035) 0 1px, transparent 1px calc(var(--bleed-w) / 22)),
+      repeating-linear-gradient(to bottom, rgba(255,255,255,0.035) 0 1px, transparent 1px calc(var(--bleed-h) / 13));
+    pointer-events:none;
+  }
+
+  /* print / trim / safe guides */
+  .guides{
+    position:absolute;
+    inset:0;
+    opacity:0;
+    transition:opacity .15s ease;
+    pointer-events:none;
+  }
+
+  body:has(#guideToggle:checked) .guides{
+    opacity:1;
+  }
+
+  @media print{
+    .guides{ display:none !important; }
+  }
+
+  .guide-trim{
+    position:absolute;
+    inset:var(--bleed);
+    outline:1px dashed var(--guide-trim);
+    outline-offset:-0.5px;
+  }
+
+  .guide-safe{
+    position:absolute;
+    inset:calc(var(--bleed) + var(--safe));
+    outline:1px dashed var(--guide-safe);
+    outline-offset:-0.5px;
+  }
+
+  .corner{
+    position:absolute;
+    width:5mm;
+    height:5mm;
+    border-color:var(--zinc-600);
+    border-style:solid;
+    border-width:0;
+    pointer-events:none;
+  }
+
+  .corner-tl{ top:calc(var(--bleed) + var(--safe)); left:calc(var(--bleed) + var(--safe)); border-top-width:1px; border-left-width:1px; }
+  .corner-br{ bottom:calc(var(--bleed) + var(--safe)); right:calc(var(--bleed) + var(--safe)); border-bottom-width:1px; border-right-width:1px; }
+
+  .safe-area{
+    position:absolute;
+    inset:calc(var(--bleed) + var(--safe));
+  }
+
+  /* ---------- FRONT ---------- */
+
+  .front-safe{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    text-align:center;
+  }
+
+  .wordmark{
+    margin:0;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:7.6mm;
+    letter-spacing:0.2em;
+    color:var(--ink);
+  }
+
+  .rule{
+    width:7mm;
+    height:1px;
+    background:var(--zinc-600);
+    margin:2.4mm 0;
+  }
+
+  .tagline{
+    margin:0;
+    font-family:'JetBrains Mono',monospace;
+    font-weight:500;
+    font-size:2.2mm;
+    letter-spacing:0.16em;
+    text-transform:uppercase;
+    color:var(--steel);
+  }
+
+  .domain-tag{
+    position:absolute;
+    right:calc(var(--bleed) + var(--safe));
+    bottom:calc(var(--bleed) + var(--safe));
+    margin:0;
+    font-family:'JetBrains Mono',monospace;
+    font-size:2.1mm;
+    letter-spacing:0.05em;
+    color:var(--zinc-500);
+  }
+
+  /* ---------- BACK ---------- */
+
+  .back-safe{
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+  }
+
+  .back-header{
+    display:flex;
+    align-items:flex-start;
+    justify-content:space-between;
+  }
+
+  .identity .name{
+    margin:0 0 1.2mm;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:600;
+    font-size:4.4mm;
+    letter-spacing:0.01em;
+    color:var(--ink);
+  }
+
+  .identity .role{
+    margin:0;
+    font-family:'JetBrains Mono',monospace;
+    font-size:2.15mm;
+    letter-spacing:0.1em;
+    text-transform:uppercase;
+    color:var(--steel);
+  }
+
+  .mark{
+    width:6mm;
+    height:6mm;
+    flex:none;
+    border:1px solid var(--zinc-700);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-family:'Space Grotesk',sans-serif;
+    font-weight:700;
+    font-size:3mm;
+    color:var(--ink);
+  }
+
+  .divider{
+    height:1px;
+    background:var(--zinc-800);
+    margin:3mm 0;
+  }
+
+  .meta-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    column-gap:5mm;
+    row-gap:2.6mm;
+  }
+
+  .meta{
+    display:flex;
+    flex-direction:column;
+    gap:0.6mm;
+    min-width:0;
+  }
+
+  .meta.wide{
+    grid-column:1 / -1;
+  }
+
+  .meta-label{
+    font-family:'JetBrains Mono',monospace;
+    font-size:1.55mm;
+    letter-spacing:0.14em;
+    text-transform:uppercase;
+    color:var(--zinc-500);
+  }
+
+  .meta-value{
+    font-family:'JetBrains Mono',monospace;
+    font-size:2.15mm;
+    color:#d6d6d9;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  .meta.wide .meta-value{
+    white-space:normal;
+    line-height:1.35;
+  }
+
+  .foot{
+    text-align:center;
+    margin-top:52px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    letter-spacing:0.04em;
+    color:var(--zinc-600);
+  }
+
+  .no-print{}
+
+  @media print{
+    body{
+      padding:0;
+      background:#000;
+      min-height:0;
+    }
+    .no-print,
+    .masthead,
+    .controls,
+    .face-label,
+    .foot{
+      display:none !important;
+    }
+    .page{ max-width:none; }
+    .deck{
+      display:block;
+      gap:0;
+    }
+    .card-block{
+      gap:0;
+      align-items:stretch;
+    }
+    .card-block:first-child{
+      break-after:page;
+    }
+    .stage{
+      margin:0;
+    }
+    @page{
+      size:94.9mm 56.8mm;
+      margin:0;
+    }
+  }
+
+  @media screen and (max-width:820px){
+    .deck{ flex-direction:column; align-items:center; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="page">
+
+    <header class="masthead no-print">
+      <p class="kicker">Animus Infra</p>
+      <h1>Business Card — Print-Ready Mockup</h1>
+      <p>3.5in × 2in · 3mm bleed · dual-sided</p>
+    </header>
+
+    <div class="controls no-print">
+      <label class="toggle">
+        <input type="checkbox" id="guideToggle">
+        <span class="switch"></span>
+        Bleed / safe guides
+      </label>
+      <div class="legend">
+        <span><i class="dot-trim"></i>Trim line</span>
+        <span><i class="dot-safe"></i>Safe area</span>
+      </div>
+      <button class="btn" onclick="window.print()">Print / Export PDF</button>
+    </div>
+
+    <div class="deck">
+
+      <section class="card-block">
+        <p class="face-label">Front</p>
+        <div class="stage">
+          <div class="card-face front">
+            <div class="grid-tex"></div>
+
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-br"></div>
+
+            <div class="safe-area front-safe">
+              <h1 class="wordmark">ANIMUS</h1>
+              <div class="rule"></div>
+              <p class="tagline">Low-Latency Telemetry &amp; Execution Systems</p>
+            </div>
+
+            <p class="domain-tag">animusinfra.com</p>
+
+            <div class="guides">
+              <div class="guide-trim"></div>
+              <div class="guide-safe"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card-block">
+        <p class="face-label">Back</p>
+        <div class="stage">
+          <div class="card-face back">
+            <div class="grid-tex"></div>
+
+            <div class="corner corner-tl"></div>
+            <div class="corner corner-br"></div>
+
+            <div class="safe-area back-safe">
+              <div class="back-header">
+                <div class="identity">
+                  <p class="name">Alakshendra Roy</p>
+                  <p class="role">Founder &amp; Chief Architect</p>
+                </div>
+                <div class="mark">A</div>
+              </div>
+
+              <div>
+                <div class="divider"></div>
+                <div class="meta-grid">
+                  <div class="meta">
+                    <span class="meta-label">Email</span>
+                    <span class="meta-value">alakshendra@animusinfra.com</span>
+                  </div>
+                  <div class="meta">
+                    <span class="meta-label">Direct</span>
+                    <span class="meta-value">+91 9891161189</span>
+                  </div>
+                  <div class="meta">
+                    <span class="meta-label">Domain</span>
+                    <span class="meta-value">animusinfra.com</span>
+                  </div>
+                  <div class="meta wide">
+                    <span class="meta-label">Core Architecture</span>
+                    <span class="meta-value">C++23 • Zero-Copy Telemetry • High-Throughput IPC</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="guides">
+              <div class="guide-trim"></div>
+              <div class="guide-safe"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <p class="foot">Trim 3.5in × 2in (88.9mm × 50.8mm) · Bleed 3mm · Safe margin 3mm · Front/Back print as separate pages at true size</p>
+
+  </div>
+
+</body>
+</html>
