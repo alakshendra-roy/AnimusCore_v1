@@ -585,15 +585,13 @@ tailwind.config = {
     <p class="text-xs text-slate-500 mb-5">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
 
     <form id="benchmark-form" class="space-y-3">
-      <input type="hidden" name="access_key" value="677b3bf5-3ed9-4956-8f72-d94e66167f93">
-      <input type="hidden" name="subject" value="Animus Engine — Benchmark Access Request">
-      <input type="checkbox" name="botcheck" class="hidden" style="display:none">
+      <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
 
       <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
       <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
       <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
 
-      <select name="organization_type" required class="custom-select w-full">
+      <select name="orgType" required class="custom-select w-full">
         <option value="" disabled selected>Organization Type</option>
         <option value="HFT">HFT</option>
         <option value="Prop Desk">Prop Desk</option>
@@ -602,7 +600,7 @@ tailwind.config = {
         <option value="Other">Other</option>
       </select>
 
-      <select name="core_footprint" required class="custom-select w-full">
+      <select name="coreFootprint" required class="custom-select w-full">
         <option value="" disabled selected>Estimated Core Footprint</option>
         <option value="< 16 cores">&lt; 16 cores</option>
         <option value="16-64 cores">16 – 64 cores</option>
@@ -610,17 +608,21 @@ tailwind.config = {
         <option value="256+ cores">256+ cores</option>
       </select>
 
-      <button type="submit" id="modal-submit" class="w-full bg-cyan text-black font-extrabold font-mono text-sm uppercase tracking-wider py-3 rounded-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
-        <svg id="modal-spinner" class="hidden animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+      <textarea name="useCase" required rows="3" placeholder="Use Case / Evaluation Goals" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full resize-none"></textarea>
+
+      <div id="modal-error" class="hidden text-xs text-danger bg-danger/10 border border-danger/40 rounded-sm px-3 py-2 font-mono"></div>
+
+      <button type="submit" id="modal-submit" class="w-full bg-cyan text-black font-extrabold font-mono text-xs sm:text-sm uppercase tracking-wider py-3 rounded-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
+        <svg id="modal-spinner" class="hidden animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
         <span id="modal-submit-label">Submit Request</span>
       </button>
-      <p id="modal-status" class="text-sm text-center min-h-[1.25rem]"></p>
     </form>
 
-    <div id="modal-success" class="hidden text-center py-6">
-      <div class="w-14 h-14 mx-auto rounded-full bg-emerald/10 border border-emerald/40 flex items-center justify-center text-emerald text-2xl">&#10003;</div>
-      <h4 class="text-white font-bold mt-4">Request received</h4>
-      <p class="text-sm text-slate-400 mt-1">We'll follow up at the email you provided.</p>
+    <div id="modal-success" class="hidden text-center py-6 font-mono">
+      <div class="border border-emerald/40 bg-emerald/5 rounded-sm px-4 py-4 text-left">
+        <div class="text-emerald text-xs">&gt; [STATUS: 200 OK]</div>
+        <div class="text-slate-300 text-xs mt-1.5 leading-relaxed">Evaluation request logged. Evaluation kit details dispatched.</div>
+      </div>
       <button data-close-modal class="mt-5 text-sm text-cyan hover:underline">Close</button>
     </div>
   </div>
@@ -969,19 +971,20 @@ tailwind.config = {
   buildMatrix();
   buildChart();
 
-  /* ---------- Modal (Web3Forms) ---------- */
+  /* ---------- Modal (Request Access API) ---------- */
   var modal = document.getElementById('benchmark-modal');
   var modalForm = document.getElementById('benchmark-form');
   var modalSuccess = document.getElementById('modal-success');
   var modalSubmit = document.getElementById('modal-submit');
   var modalSpinner = document.getElementById('modal-spinner');
   var modalSubmitLabel = document.getElementById('modal-submit-label');
-  var modalStatus = document.getElementById('modal-status');
+  var modalError = document.getElementById('modal-error');
 
   function openModal(){
     modalForm.classList.remove('hidden');
     modalSuccess.classList.add('hidden');
-    modalStatus.textContent = '';
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
     modal.classList.add('modal-open');
     document.body.style.overflow = 'hidden';
   }
@@ -1037,30 +1040,42 @@ tailwind.config = {
 
   modalForm.addEventListener('submit', function(e){
     e.preventDefault();
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
     modalSubmit.disabled = true;
     modalSpinner.classList.remove('hidden');
-    modalSubmitLabel.textContent = 'Submitting…';
-    modalStatus.textContent = '';
+    modalSubmitLabel.textContent = '[ TRANSMITTING TELEMETRY ACCESS REQUEST... ]';
 
-    var payload = Object.fromEntries(new FormData(modalForm));
+    var formData = new FormData(modalForm);
+    var payload = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      organization: formData.get('organization'),
+      orgType: formData.get('orgType'),
+      coreFootprint: formData.get('coreFootprint'),
+      useCase: formData.get('useCase'),
+      botcheck: !!formData.get('botcheck')
+    };
 
-    fetch('https://api.web3forms.com/submit', {
+    fetch('/api/request-access', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
-      .then(function(r){ return r.json(); })
+      .then(function(r){
+        return r.json().then(function(data){ return { ok: r.ok, data: data }; });
+      })
       .then(function(result){
-        if (result.success){
+        if (result.ok && result.data && result.data.success){
           modalForm.classList.add('hidden');
           modalSuccess.classList.remove('hidden');
         } else {
-          throw new Error(result.message || 'Submission failed.');
+          throw new Error((result.data && result.data.error) || 'Submission failed.');
         }
       })
-      .catch(function(){
-        modalStatus.textContent = 'Something went wrong. Please try again or email us directly.';
-        modalStatus.className = 'text-sm text-center min-h-[1.25rem] text-danger';
+      .catch(function(err){
+        modalError.textContent = (err && err.message) || 'Something went wrong. Please try again or email us directly.';
+        modalError.classList.remove('hidden');
       })
       .finally(function(){
         modalSubmit.disabled = false;
