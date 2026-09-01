@@ -59,11 +59,6 @@ tailwind.config = {
   }
   @keyframes scan{ 0%{ top:-120px; } 100%{ top:100vh; } }
 
-  /* Ambient background lighting — tracks mouse via CSS custom properties, no cursor DOM element */
-  #ambient-glow{
-    position:fixed; inset:0; z-index:1; pointer-events:none;
-    background: radial-gradient(600px at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(0, 240, 255, 0.12), transparent 80%);
-  }
   .content-layer{ position:relative; z-index:10; }
 
   .pulse-live{ animation:pulse 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
@@ -137,7 +132,6 @@ tailwind.config = {
 
 <div id="micro-grid"></div>
 <div id="scanline"></div>
-<div id="ambient-glow"></div>
 
 <div class="content-layer">
 
@@ -565,12 +559,6 @@ tailwind.config = {
 <script>
 (function(){
   "use strict";
-
-  /* ---------- Ambient background lighting: tracks mouse via CSS custom properties ---------- */
-  document.body.addEventListener('mousemove', function(e){
-    document.documentElement.style.setProperty('--mouse-x', e.clientX + 'px');
-    document.documentElement.style.setProperty('--mouse-y', e.clientY + 'px');
-  });
 
   /* ---------- Header p99 micro-jitter ---------- */
   var hdrP99 = document.getElementById('hdr-p99');
