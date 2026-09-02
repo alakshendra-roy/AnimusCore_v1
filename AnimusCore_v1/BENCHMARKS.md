@@ -902,4 +902,57 @@ Core probe again selected core 6 (37.48 us probe p99 vs. 45.42-75.39 us for the 
 * **Ran clean; license fix confirmed stable across a second independent run.** No crash, no regression in the fix itself.
 * **A wider spread against Phase 14's 5-run ranges than Phase 26 alone showed, still within the same qualitative pattern.** Four of this run's twelve percentile deltas fall outside Phase 14's originally-documented 5-run ranges: p50 at batch 100 (-2.2% vs. a documented best-case range of -9.9% to -5.5%), p90 at batch 100 (-0.6% vs. -14.6% to -4.0%), p50 at batch 1,000 (-9.0% vs. -12.2% to -9.7%), and p99 at batch 1,000 (+19.6% vs. -40.0% to +17.1%). In every one of these four cases the deviation is in the "less improvement than previously observed" or "marginally worse than the previous worst case" direction, by single-digit-to-low-double-digit points, not a sign reversal or an order-of-magnitude jump -- p50 and p90 stayed negative (improved) at every batch size in this run, exactly as in every prior run. The remaining eight of twelve deltas (including all four at batch 10,000) land inside the original 5-run ranges.
 * **Interpretation, not dismissal:** Phase 14's ranges were built from 5 runs; Phase 26 added a 6th; this is a 7th. It is expected, not suspicious, for a small-sample empirical range to occasionally not contain a later run's exact value -- that is what "range observed across 5 runs" means, as distinct from "guaranteed bound." The qualitative finding these three phases now jointly support across 7 total runs is unchanged from Phase 14's original conclusion: p50/p90 (typical case) improve with pinning far more often than not, while p99/p99.99 (tail) are genuinely noisy and can move against pinning's favor, consistent with pinning-without-OS-isolation's known inability to protect the rare case. Nothing here motivates widening the documented Phase 14 ranges themselves -- that would take a deliberate, dedicated multi-run study (as Phase 14 itself was), not incidental data points gathered while verifying something else.
+
+## Phase 28: C++23 Telemetry Dispatch Benchmark Harness (Cross-Core SPSC, RDTSC-Resolution)
+
+### Target System
+
+`benchmarks/telemetry_benchmark.cpp` -- a self-contained C++23 harness built for institutional-grade proof points (HFT/execution client due diligence), independent of `animus.hpp`'s existing `SpscRingBuffer<T>`: its own compile-time-sized `SpscRingBuffer<T, Capacity>` template (`std::array`-backed, no heap allocation ever, not even at construction) and a 64-byte, cache-line-aligned `TelemetryEvent`. One producer thread and one consumer thread, pinned to separate physical cores, exchange events through the ring; timestamps are lfence-serialized RDTSC reads calibrated against `std::chrono::steady_clock` (a measured, not assumed, cycle rate), giving sub-100ns resolution the `QueryPerformanceCounter`-quantized figures elsewhere in this document structurally cannot show.
+
+### Method
+
+10,000,000 total measured events (plus 1,000,000 unmeasured warm-up through the identical path), split into two purpose-built phases rather than one flooded run:
+
+* **Latency phase** (1,000,000 events): the producer waits for the consumer's receipt acknowledgment before dispatching the next event (in-flight depth bounded to 1), so each sample is the actual enqueue-to-receipt transport cost, not queueing delay.
+* **Throughput phase** (9,000,000 events): unthrottled flood at maximum sustained rate.
+
+Real MSVC (`cl /std:c++latest /EHsc /O2`) and MinGW GCC 15.2 (`g++ -std=c++23 -O3 -pthread -lstdc++exp`) builds, both run for real and cross-checked against each other for consistency, not merely compiled. 3 consecutive runs.
+
+### Results
+
+**Latency (depth-1 phase, producer -> consumer, cross-core):**
+
+| Percentile | Latency (representative run) | Range across 3 runs |
+|---|---|---|
+| min | 45.5 ns | 39.7 - 45.5 ns |
+| p50 | 53.3 ns | 52.5 - 53.3 ns |
+| p90 | 57.9 ns | 56.6 - 57.9 ns |
+| p99 | 64.9 ns | 62.4 - 64.9 ns |
+| p99.9 | 111.6 ns | 88.5 - 113.7 ns |
+
+**Throughput (unthrottled flood phase):**
+
+| Metric | Representative run | Range across 3 runs |
+|---|---|---|
+| Sustained throughput | 47.306 M msgs/sec | 47.306 - 49.497 M msgs/sec |
+
+* **A real methodology bug found and fixed before these numbers were recorded, not after:** the first version of this harness measured latency and throughput in one unthrottled flooded run -- producer floods the ring, consumer drains continuously, no flow control. That reported a p50 of ~354,000 ns (354 microseconds), because the ring saturates and stays near-full under sustained flooding, so a "latency" sample there is mostly queueing delay behind a deep backlog, not transport cost -- a real number, but not the one an HFT client asking "how fast is one event" wants, and indistinguishable from a genuine transport regression without knowing the cause. Fixed by splitting into the two-phase design above; re-measured, the same pipeline reports p50 53ns, not 354,000ns -- the fix, not the transport, explains the three-order-of-magnitude difference.
+* **A real build portability finding:** `<print>`/`std::println` compiles cleanly under MinGW GCC 15.2 but fails to *link* (`undefined reference to std::__open_terminal` / `std::__write_to_terminal`) without `-lstdc++exp` -- libstdc++ ships `<print>`'s terminal-writing backend in a separate "experimental" static library until that TS support stabilizes. Found by isolating the link step and inspecting the raw `ld` invocation after `collect2` swallowed the real error behind a generic "ld returned 1 exit status." `CMakeLists.txt`'s GNU-compiler branch links `stdc++exp` accordingly.
+* **A real toolchain finding:** this machine's MSVC (19.51, a pre-release "Visual Studio 2026" toolset) does not yet expose a literal `/std:c++23` flag -- only `c++14|c++17|c++20|c++latest` -- despite already shipping the `<print>`/`<stacktrace>` headers. `/std:c++latest` is what actually compiles this file under MSVC today; recorded directly in the build commands below rather than left as a surprise for whoever runs this next.
+* **How this compares to the other benchmark layers in this document:** SPSC (one producer, one consumer, zero compare-exchange contention) with a consumer actively draining concurrently is not directly comparable to Phase 14's 8-producer MPMC contention numbers (different contention model, no consumer draining there) or to any single-threaded, no-cross-core-hop figure elsewhere in this document (different workload -- no actual transport happening at all). See `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC dispatch latency" section for the client-facing summary of these same numbers with that methodology caveat spelled out.
+* **Build commands:**
+
+  ```
+  # MSVC (x64 Native Tools Prompt)
+  cl /std:c++latest /EHsc /O2 /DNDEBUG /Fe:telemetry_benchmark.exe benchmarks\telemetry_benchmark.cpp
+
+  # GCC/Clang + libstdc++ -- needs -lstdc++exp for <print>'s terminal-I/O backend
+  g++ -std=c++23 -O3 -DNDEBUG -pthread -o telemetry_benchmark benchmarks/telemetry_benchmark.cpp -lstdc++exp
+
+  # CMake (target added to the root CMakeLists.txt; own cxx_std_23, doesn't touch animus_native's C++17)
+  cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+  cmake --build build --target telemetry_benchmark
+  ```
+
+* **Status:** Phase 28 C++23 Telemetry Dispatch Benchmark Harness Verified
 * **Status:** Phase 27 Re-Verification Run Recorded -- `fintech_tail_latency.py` remains fixed and functional; this run's numbers extend, rather than contradict, the pinned-vs-unpinned behavior already characterized in Phase 14/26.
