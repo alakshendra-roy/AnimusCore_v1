@@ -92,3 +92,25 @@ foreach(config ${CMAKE_CONFIGURATION_TYPES})
         LIBRARY_OUTPUT_DIRECTORY_${config_upper} ${CMAKE_BINARY_DIR}/${config}
     )
 endforeach()
+
+# telemetry_benchmark -- standalone C++23 proof-point harness (benchmarks/).
+# A per-target language standard (cxx_std_23) rather than the project-wide
+# CMAKE_CXX_STANDARD above, so this doesn't force C++23 onto animus_native,
+# which stays on the C++17 the exported C-ABI shim is built against.
+add_executable(telemetry_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/telemetry_benchmark.cpp
+)
+target_compile_features(telemetry_benchmark PRIVATE cxx_std_23)
+find_package(Threads REQUIRED)
+target_link_libraries(telemetry_benchmark PRIVATE Threads::Threads)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # libstdc++'s <print> ships its Windows/POSIX terminal-writing backend
+    # (std::__open_terminal / std::__write_to_terminal) in the separate
+    # "experimental" static library until the TS support stabilizes --
+    # without this, linking fails with undefined references to those two
+    # symbols on any GCC (including MinGW) new enough to have <print> at all.
+    target_link_libraries(telemetry_benchmark PRIVATE stdc++exp)
+endif()
+set_target_properties(telemetry_benchmark PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
