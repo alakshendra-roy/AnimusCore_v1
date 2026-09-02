@@ -319,18 +319,9 @@ tailwind.config = {
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="#475569"></path>
             </marker>
-            <!-- Light-beam pulse: a short gradient segment with tapered, transparent
-                 edges (fully replaces the old traveling-dot markers below) -->
-            <linearGradient id="beam-green" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="#00ff88" stop-opacity="0"></stop>
-              <stop offset="50%" stop-color="#00ff88" stop-opacity="1"></stop>
-              <stop offset="100%" stop-color="#00ff88" stop-opacity="0"></stop>
-            </linearGradient>
-            <linearGradient id="beam-red" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stop-color="#ff4444" stop-opacity="0"></stop>
-              <stop offset="50%" stop-color="#ff8844" stop-opacity="0.95"></stop>
-              <stop offset="100%" stop-color="#ff4444" stop-opacity="0"></stop>
-            </linearGradient>
+            <!-- Light-beam pulse: the connector arrow's own path lights up and
+                 travels along itself (stroke-dasharray/dashoffset), rather than
+                 a separate shape sliding over a static line. -->
             <filter id="glow-green" x="-150%" y="-400%" width="400%" height="900%">
               <feGaussianBlur stdDeviation="1.6" result="blur"></feGaussianBlur>
               <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
@@ -371,7 +362,7 @@ tailwind.config = {
             <text x="690" y="41" text-anchor="middle" font-size="11" fill="#00FF66" font-weight="700">0 COPIES</text>
             <text x="690" y="56" text-anchor="middle" font-size="8" fill="#64748b">pointer pass-through</text>
 
-            <rect id="beam-zero-copy" x="152" y="43.5" width="36" height="3" rx="1.5" fill="url(#beam-green)" filter="url(#glow-green)" opacity="0"></rect>
+            <path id="beam-zero-copy" d="M170,45 L205,45" fill="none" stroke="#00ff88" stroke-width="3" stroke-linecap="round" stroke-dasharray="16 320" filter="url(#glow-green)" opacity="0"></path>
           </g>
 
           <text x="20" y="103" font-size="10" fill="#00FF66" font-family="IBM Plex Mono, monospace" font-weight="700">ZERO-COPY PATH &mdash; latency independent of concurrency</text>
@@ -398,7 +389,7 @@ tailwind.config = {
             <rect x="590" y="130" width="200" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
             <text x="690" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">PYTHON HEAP (deserialized)</text>
 
-            <rect id="beam-socket" x="152" y="150.5" width="36" height="3" rx="1.5" fill="url(#beam-red)" filter="url(#glow-red)" opacity="0"></rect>
+            <path id="beam-socket" d="M170,152 L205,152" fill="none" stroke="#ff4444" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="16 320" filter="url(#glow-red)" opacity="0"></path>
           </g>
           <text x="20" y="205" font-size="10" fill="#FF4B4B" font-family="IBM Plex Mono, monospace" font-weight="700">TRADITIONAL SERIALIZED IPC &mdash; drop rate scales with concurrency</text>
         </svg>
@@ -868,24 +859,29 @@ tailwind.config = {
   currentRate = rateFromSlider(Number(slider.value));
   updateReadouts();
 
-  // Light-beam pulse animation: a short glowing gradient segment (see
-  // #beam-green/#beam-red defs) slides across one connector gap at a time,
-  // rather than a dot traveling the whole path -- matches "flowing across
-  // connectors," not "a ball crossing the diagram." Both rows share the
-  // same 3 connector gaps (see the SVG's 4-column grid comment above).
-  var BEAM_WIDTH = 36;
+  // Light-beam pulse animation: the connector arrow's own path lights up
+  // and travels along itself -- a short bright dash (stroke-dasharray)
+  // whose position (stroke-dashoffset) is animated end to end, rather than
+  // a separate shape sliding over a static line. The line IS the beam.
+  // Both rows share the same 3 connector gaps (see the SVG's 4-column
+  // grid comment above); only the y coordinate differs per row.
+  var DASH_LEN = 16;
   var CONNECTOR_GAPS = [[170, 205], [360, 395], [550, 585]];
 
-  function animateBeamAcrossGap(el, x1, x2, duration, stepped, cb){
+  function animateBeamAcrossGap(el, x1, x2, y, duration, stepped, cb){
+    var len = x2 - x1;
+    el.setAttribute('d', 'M' + x1 + ',' + y + ' L' + x2 + ',' + y);
     var start = null;
-    var bx1 = x1 - BEAM_WIDTH / 2, bx2 = x2 - BEAM_WIDTH / 2;
     function step(ts){
       if (start === null) start = ts;
       var t = Math.min(1, (ts - start) / duration);
       // "stepped" quantizes progress into visible jumps instead of a smooth
       // glide -- the stutter effect for the slower socket path.
       var p = stepped ? Math.floor(t * 6) / 6 : t;
-      el.setAttribute('x', (bx1 + (bx2 - bx1) * p).toFixed(2));
+      // Sweeps the DASH_LEN-long bright segment from fully-before-start
+      // (invisible) to fully-past-end (invisible) as p goes 0 -> 1.
+      var offset = DASH_LEN - p * (len + DASH_LEN * 2);
+      el.setAttribute('stroke-dashoffset', offset.toFixed(2));
       if (t < 1) requestAnimationFrame(step); else if (cb) cb();
     }
     requestAnimationFrame(step);
@@ -900,7 +896,7 @@ tailwind.config = {
       if (i >= CONNECTOR_GAPS.length){ setTimeout(runZeroCopyCycle, 220); return; }
       var g = CONNECTOR_GAPS[i];
       beamZeroCopy.setAttribute('opacity', '1');
-      animateBeamAcrossGap(beamZeroCopy, g[0], g[1], 130, false, function(){
+      animateBeamAcrossGap(beamZeroCopy, g[0], g[1], 45, 130, false, function(){
         beamZeroCopy.setAttribute('opacity', '0');
         i++;
         setTimeout(nextGap, 55);
@@ -924,19 +920,18 @@ tailwind.config = {
       if (i >= 2){ // reached the SOCKET BUFFER checkpoint -- roll for a drop
         var dropped = Math.random() < p;
         if (dropped){
-          beamSocket.setAttribute('fill', '#FF4B4B');
+          beamSocket.setAttribute('d', 'M544,152 L556,152');
+          beamSocket.setAttribute('stroke-dashoffset', '0');
           beamSocket.setAttribute('opacity', '1');
-          beamSocket.setAttribute('x', (550 - BEAM_WIDTH / 2).toFixed(2));
           setTimeout(function(){
             beamSocket.setAttribute('opacity', '0');
-            beamSocket.setAttribute('fill', 'url(#beam-red)');
             setTimeout(runSocketCycle, 420);
           }, 300);
           return;
         }
         var g = CONNECTOR_GAPS[2];
         beamSocket.setAttribute('opacity', '1');
-        animateBeamAcrossGap(beamSocket, g[0], g[1], perGap, true, function(){
+        animateBeamAcrossGap(beamSocket, g[0], g[1], 152, perGap, true, function(){
           beamSocket.setAttribute('opacity', '0');
           setTimeout(runSocketCycle, 350);
         });
@@ -944,7 +939,7 @@ tailwind.config = {
       }
       var g = CONNECTOR_GAPS[i];
       beamSocket.setAttribute('opacity', '1');
-      animateBeamAcrossGap(beamSocket, g[0], g[1], perGap, true, function(){
+      animateBeamAcrossGap(beamSocket, g[0], g[1], 152, perGap, true, function(){
         beamSocket.setAttribute('opacity', '0');
         i++;
         setTimeout(nextGap, 160);
