@@ -16,21 +16,34 @@ from __future__ import annotations
 import struct
 from typing import Iterator, List, NamedTuple, Optional
 
-try:
-    from . import _animus_native as _native
-except ImportError as exc:
-    raise ImportError(
-        "animus.consumer requires the compiled _animus_native extension, "
-        "which the base animus-engine-sdk install does not build (it stays "
-        "on the zero-dependency ctypes path -- see animus/bindings.py). "
-        "Build it locally: `pip install ./bindings` from a full source "
-        "checkout (see bindings/CMakeLists.txt), or for fast iteration, "
-        "the direct-CMake steps documented at the bottom of that file."
-    ) from exc
-
-WIRE_FORMAT = _native.WIRE_FORMAT           # "<QIIQ" -- matches animus::SharedTelemetryRecord / animus.shm
-WIRE_RECORD_SIZE = _native.WIRE_RECORD_SIZE  # 24 bytes
+# Matches animus::SharedTelemetryRecord (animus.hpp, static_assert'd there
+# to 24 bytes) and animus.shm's own <QIIQ> wire record -- hardcoded here
+# rather than read from the compiled extension so that decode()/
+# decode_iter()/to_numpy()/TelemetryRecord stay usable (and testable)
+# without _animus_native being built at all. Only TelemetryConsumer
+# itself needs the extension, imported lazily in its __init__ -- see the
+# comment there for why eagerly importing it at module level would make
+# this whole module unimportable for anyone who hasn't built it yet.
+WIRE_FORMAT = "<QIIQ"
+WIRE_RECORD_SIZE = 24
 _UNPACKER = struct.Struct(WIRE_FORMAT)
+assert _UNPACKER.size == WIRE_RECORD_SIZE  # catches a WIRE_FORMAT/WIRE_RECORD_SIZE edit going out of sync
+
+
+def _import_native():
+    try:
+        from . import _animus_native as native
+    except ImportError as exc:
+        raise ImportError(
+            "animus.consumer.TelemetryConsumer requires the compiled "
+            "_animus_native extension, which the base animus-engine-sdk "
+            "install does not build (it stays on the zero-dependency "
+            "ctypes path -- see animus/bindings.py). Build it locally: "
+            "`pip install ./bindings` from a full source checkout (see "
+            "bindings/CMakeLists.txt), or for fast iteration, the "
+            "direct-CMake steps documented at the bottom of that file."
+        ) from exc
+    return native
 
 
 class TelemetryRecord(NamedTuple):
@@ -114,7 +127,7 @@ class TelemetryConsumer:
     """
 
     def __init__(self, capacity: int, drain_batch_capacity: int = 8192):
-        self._native = _native.TelemetryStream(capacity, drain_batch_capacity)
+        self._native = _import_native().TelemetryStream(capacity, drain_batch_capacity)
 
     def __enter__(self) -> "TelemetryConsumer":
         return self
