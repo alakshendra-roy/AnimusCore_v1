@@ -13,7 +13,7 @@ Every telemetry and risk pipeline built on a Python orchestration layer eventual
 
 For a fraud-detection loop, a risk check on an execution path, or a market-data-driven decision loop, that overhead isn't a rounding error. It is the difference between catching an anomaly in-flight and catching it after the trade has already cleared.
 
-**Animus Core removes the boundary.** It is a C++17 telemetry and rule-evaluation engine exposed through a direct C-ABI shared library (`.dll` / `.so`), paired with a zero-dependency Python SDK (`ctypes`-only, no third-party packages) that talks to it through direct buffer pointers and shared memory — not IPC, not serialization, not a socket in the loop. The result is a decision loop measured in **tens to hundreds of nanoseconds**, not the milliseconds typical of message-bus or REST-mediated telemetry stacks, with an integration surface your Python team already knows how to call.
+**Animus Core removes the boundary.** It is a C++17 telemetry and rule-evaluation engine exposed through a direct C-ABI shared library (`.dll` / `.so`), paired with a zero-dependency Python SDK (`ctypes`-only, no third-party packages) that talks to it through direct buffer pointers and shared memory — not IPC, not serialization, not a socket in the loop. The result is a decision loop measured in **tens to hundreds of nanoseconds**, not the milliseconds typical of message-bus or REST-mediated telemetry stacks, with an integration surface your Python team already knows how to call. That number isn't a marketing rounding — `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC dispatch latency" section measures the real producer-to-consumer handoff between independent threads, at RDTSC (hardware timestamp counter) resolution, at p50 53ns / p99 65ns.
 
 > **Bottom line:** you keep your existing Python orchestration, control plane, and tooling. You replace only the hot path — event ingestion, rule evaluation, and signal dispatch — with a native engine that was built from the ground up to never leave a CPU cache line it doesn't have to.
 
@@ -77,4 +77,4 @@ Animus Core is offered across three engagement models, structured to match how a
 
 ---
 
-*For engineering specifications, benchmark methodology, and integration code, see* [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md)*.*
+*For engineering specifications, benchmark methodology, and integration code, see* [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) *(including its "Cross-core SPSC dispatch latency" section for the RDTSC-resolution transport numbers cited in Section 1 above).*
