@@ -195,6 +195,17 @@ pure-Python fallback: they raise `RuntimeError` if no compiled binary is
 loaded, rather than silently degrading to something that wouldn't measure
 the same thing.
 
+**What genuine cross-core producer/consumer transport costs on this class
+of primitive, measured directly:** `benchmarks/telemetry_benchmark.cpp` is a
+dedicated C++23 harness for exactly this question -- one producer thread and
+one consumer thread, pinned to separate physical cores, handing off
+cache-line-aligned events through a lock-free SPSC ring, timestamped with
+lfence-serialized RDTSC reads rather than a `steady_clock` whose resolution
+can't distinguish anything finer than ~100ns. Result: p50 53ns / p99 65ns /
+p99.9 112ns for the actual enqueue-to-receipt hop, isolated from queueing
+backlog by design (see `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC dispatch
+latency" section for the full methodology and reproduction command).
+
 **The pinning caveat, stated plainly because the numbers don't round the
 way you'd expect:** don't just pin to `core_count - 1`. `benchmarks/
 fintech_tail_latency.py` did exactly that first and got tail latency up to
@@ -297,7 +308,11 @@ the same ctypes-marshalling tax documented in Phases 11 and 13 -- and
 genuine cross-process propagation (one process's write becoming visible
 to another's read) measured at single-digit-to-low-double-digit
 microseconds even from native code, not sub-microsecond, on a
-general-purpose machine with no CPU isolation set up. A related trap,
+general-purpose machine with no CPU isolation set up. In between those
+two numbers sits same-process, cross-*thread* transport -- no IPC, no
+ctypes, just two pinned threads and a shared ring -- which lands at p50
+53ns / p99 65ns; see `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC
+dispatch latency" section. A related trap,
 found and documented rather than left for you to hit: pushing a burst
 of events back-to-back with no pacing can make a Python consumer fall
 behind the producer, and the *later* events in that burst end up
@@ -475,7 +490,10 @@ general-purpose machine with no CPU isolation configured. See
 same-process-vs-cross-process breakdown, including a burst-without-
 pacing backlog effect that looked like catastrophic latency until it
 was traced to a producer/consumer throughput mismatch, not the
-transport itself.
+transport itself. For the layer in between -- same-process, cross-core
+*thread*-to-thread transport through a lock-free SPSC ring, no process
+boundary at all -- see `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC
+dispatch latency" section: p50 53ns / p99 65ns at RDTSC resolution.
 
 **CPU pinning is not header-only, unlike everything else in this
 guide** -- `animus_pin_current_thread_to_core`/`animus_get_cpu_count`
