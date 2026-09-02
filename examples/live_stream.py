@@ -37,9 +37,10 @@ import time
 from pathlib import Path
 
 # Allow running directly from a source checkout without installing the
-# package first -- python/ is this repo's src-layout root (see
-# bindings/pyproject.toml).
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
+# package first -- explicit, not relying on cwd: importing plain `animus`
+# from an arbitrary working directory is not guaranteed to resolve to
+# this checkout's animus/ package over some other installed one.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from animus.consumer import TelemetryConsumer, decode  # noqa: E402
 
