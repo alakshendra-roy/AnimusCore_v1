@@ -70,3 +70,12 @@ AnimusCore_v1/demo_certs/
 AnimusCore_v1/license_tools/private/
 .vercel
 .env*
+
+# W-8BEN generator: never commit real PII (PAN, home address, DOB) or a
+# filled tax form, to this repo or any repo -- this one has a public
+# GitHub remote and deploys via Vercel. The config holds real personal
+# data; the generated PDF embeds it. Both are local-only, gitignored
+# regardless of where they're generated. See scripts/generate_w8ben.py.
+scripts/.w8ben_config.json
+docs/W8BEN_*_prefilled.pdf
+.cache/
