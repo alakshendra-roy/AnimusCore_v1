@@ -1,0 +1,29 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "animus-native-stream"
+version = "0.1.0"
+description = "Zero-copy Python interop over Animus Engine's in-process SPSC telemetry ring (nanobind)"
+readme = "../README.md"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+
+# Deliberately its own installable unit, separate from the root
+# animus-engine-sdk package (the existing zero-dependency ctypes SDK) --
+# `pip install ./bindings` builds and installs this on its own. Installing
+# both into the same environment currently means both provide a top-level
+# `animus` import; until/unless that's merged into one package, install
+# only one of the two per environment (see bindings/CMakeLists.txt's top
+# comment).
+dependencies = []
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build"
+wheel.packages = ["../python/animus"]
+
+[tool.scikit-build.cmake.define]
+CMAKE_BUILD_TYPE = "Release"
