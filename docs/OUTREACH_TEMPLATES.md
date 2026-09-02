@@ -25,9 +25,9 @@
 >
 > Worth a 20-minute call to see if it's a fit? Happy to send the full datasheet and reproduction commands first if that's a faster path for your team.
 >
-> [Your Name]
-> [Title] — Animus Core
-> [Calendar link] / [email]
+> Alakshendra Roy
+> Founder & Engineer — Animus Core
+> royrichie006@gmail.com
 
 ---
 
@@ -57,7 +57,7 @@
 >
 > No pressure if the timing's wrong — happy to send the datasheet with reproduction commands now and pick this back up whenever it's relevant on your end.
 >
-> [Your Name]
+> Alakshendra Roy
 
 ### LinkedIn
 
