@@ -72,6 +72,30 @@ Single-threaded, sequential ingest → poll → execute loop (`MarketDataFeed` t
 | Unpadded (false-sharing) | Baseline |
 | Cache-line padded | **4.55x** combined ops/sec |
 
+### Cross-core SPSC dispatch latency — C++23 telemetry harness
+
+*Source: `benchmarks/telemetry_benchmark.cpp`, representative run out of 3. Reproduce with `cl /std:c++latest /EHsc /O2 /DNDEBUG /Fe:telemetry_benchmark.exe benchmarks\telemetry_benchmark.cpp && telemetry_benchmark.exe` (MSVC) or `g++ -std=c++23 -O3 -DNDEBUG -pthread -o telemetry_benchmark benchmarks/telemetry_benchmark.cpp -lstdc++exp && ./telemetry_benchmark` (GCC/Clang+libstdc++).*
+
+A different methodology layer from every table above: one producer thread and one consumer thread, pinned to separate physical cores, handing off cache-line-aligned (64-byte) `TelemetryEvent`s through a lock-free SPSC ring. Timestamps are lfence-serialized RDTSC reads, calibrated against `std::chrono::steady_clock` (not assumed from the advertised clock speed), giving sub-100ns resolution the `QueryPerformanceCounter`-quantized figures elsewhere in this document cannot show. Two separate phases, not one flooded run: a depth-1 latency phase (1,000,000 events; the producer waits for the consumer's receipt ack before dispatching the next one, so a sample is real transport cost, not queueing backlog) and an unthrottled throughput phase (9,000,000 events, maximum sustained rate) — conflating the two would report queueing delay under saturation as "dispatch latency."
+
+**Latency (depth-1 phase, producer→consumer, cross-core):**
+
+| Percentile | Latency | Range across 3 runs |
+|---|---|---|
+| min | 45.5 ns | 39.7 – 45.5 ns |
+| **p50 (median)** | **53.3 ns** | 52.5 – 53.3 ns |
+| p90 | 57.9 ns | 56.6 – 57.9 ns |
+| p99 | 64.9 ns | 62.4 – 64.9 ns |
+| p99.9 | 111.6 ns | 88.5 – 113.7 ns |
+
+**Throughput (unthrottled flood phase):**
+
+| Metric | Representative run | Range across 3 runs |
+|---|---|---|
+| **Sustained throughput** | **47.306 M msgs/sec** | 47.306 – 49.497 M msgs/sec |
+
+*This is SPSC (one producer, one consumer, zero compare-exchange contention) with a consumer actively draining concurrently — not directly comparable to the 8-producer MPMC contention figure above (different contention model) or the single-threaded, no-cross-core-hop figures elsewhere in this document (different workload entirely). Max latency runs into the hundreds of microseconds across all 3 runs, reflecting OS scheduling noise (context switches, timer interrupts) on the pinned cores rather than the transport itself; p50/p90/p99 are the steady-state figures.*
+
 ---
 
 ## 3. System Diagram
