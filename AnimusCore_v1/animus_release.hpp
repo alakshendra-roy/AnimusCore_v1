@@ -5,7 +5,7 @@
 // GENERATED FILE -- do not edit directly. Produced by amalgamate.py from
 // the four source headers below; re-run `python amalgamate.py` after any
 // change to those originals and commit the regenerated output alongside.
-// Generated: 2026-08-30
+// Generated: 2026-09-03
 //
 // Sections:
 //   - animus.hpp (portable) -- Phase 1-7: Core Engine, Ring Buffer, Rule Engine, Broker/Execution Interop
@@ -1756,6 +1756,24 @@ extern "C" {
     ANIMUS_API bool animus_shm_ring_order_try_pop(void* ring, animus::OrderRequest* out);
     ANIMUS_API size_t animus_shm_ring_order_push_batch(void* ring, const animus::OrderRequest* orders, size_t count);
     ANIMUS_API size_t animus_shm_ring_order_pop_batch(void* ring, animus::OrderRequest* out, size_t max_count);
+
+    // Every ANIMUS_API function above catches any C++ exception that
+    // reaches it (see animus_engine.cpp's abi_guard/abi_guard_void) rather
+    // than letting one unwind across this extern "C" boundary -- undefined
+    // behavior for a ctypes caller, and in practice an unrecoverable
+    // process crash. On such a catch, the function still returns its
+    // ordinary "operation failed" sentinel (false / 0 / nullptr), so
+    // existing callers that already check for failure need no changes.
+    // This function returns the most recent such exception's message for
+    // the calling thread, or an empty string if none has occurred yet on
+    // it -- call it after another ANIMUS_API call returns a failure
+    // sentinel to distinguish an ordinary failure from an escaped
+    // exception. thread_local on the native side: safe to call from
+    // multiple Python/ctypes threads without one clobbering another's
+    // error text. The returned pointer is owned by the native library and
+    // valid only until the next ANIMUS_API call on the same thread --
+    // copy the string out immediately on the Python side.
+    ANIMUS_API const char* animus_get_last_error(void);
 }
 
 // -------------------------------------------------------------------------

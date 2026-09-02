@@ -56,7 +56,9 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <exception>
 #include <fstream>
+#include <utility>
 #include <vector>
 
 // GENERATED public key, embedded at build time -- see
@@ -261,60 +263,139 @@ namespace {
 
 } // namespace
 
+namespace {
+
+    // Thread-local last-error message, set only when a C-ABI entry point
+    // below (every ANIMUS_API function, wrapped via abi_guard/abi_guard_void)
+    // catches an exception that would otherwise unwind across the
+    // extern "C" boundary -- undefined behavior per the C++ standard, and in
+    // practice an unrecoverable std::terminate() crash with nothing for a
+    // ctypes caller to catch. Exposed read-only via animus_get_last_error so
+    // a Python caller that gets back a "safe failure" return value
+    // (false / 0 / nullptr) can find out *why*, not just *that* something
+    // failed. thread_local, not a single global: concurrent callers on
+    // different threads must not see or clobber each other's error text.
+    thread_local std::string g_last_error;
+
+    void set_last_error(const char* what) noexcept {
+        try {
+            g_last_error.assign(what ? what : "unknown error");
+        } catch (...) {
+            // Assigning the error message itself must never throw further.
+            // If even this allocation fails (e.g. std::bad_alloc during the
+            // original failure), give up silently rather than risk another
+            // unhandled exception at the ABI boundary.
+        }
+    }
+
+    // Runs `func` and returns its result; if `func` throws, catches it,
+    // records the message via set_last_error, and returns `fallback`
+    // instead. This is the one mechanism behind every value-returning
+    // ANIMUS_API function below. `fallback` is always the same sentinel
+    // that function already returns for an ordinary (non-exceptional)
+    // failure -- false for animus_init, 0 for animus_record_events_batch,
+    // nullptr for animus_shm_create, etc. -- so this is purely additive: a
+    // caller that already checks the return value for failure sees no new
+    // contract, just a more complete set of paths that can produce one.
+    template <typename Fallback, typename Func>
+    auto abi_guard(Fallback fallback, Func&& func) noexcept -> decltype(func()) {
+        try {
+            return func();
+        } catch (const std::exception& e) {
+            set_last_error(e.what());
+            return fallback;
+        } catch (...) {
+            set_last_error("unknown non-standard exception");
+            return fallback;
+        }
+    }
+
+    // Same, for the handful of ANIMUS_API functions that return void --
+    // there is no fallback value to produce, only the exception to stop
+    // from propagating.
+    template <typename Func>
+    void abi_guard_void(Func&& func) noexcept {
+        try {
+            func();
+        } catch (const std::exception& e) {
+            set_last_error(e.what());
+        } catch (...) {
+            set_last_error("unknown non-standard exception");
+        }
+    }
+
+} // namespace
+
 extern "C" {
     // Cold path: guarded by a mutex since it runs once at startup. The hot
     // record/logging paths below never take a lock.
     ANIMUS_API bool animus_init(size_t buffer_capacity) {
-        std::lock_guard<std::mutex> lock(g_init_mutex);
-        if (!g_engine) {
-            g_engine = animus::Engine::Create(buffer_capacity);
-        }
-        return g_engine != nullptr;
+        return abi_guard(false, [&]() {
+            std::lock_guard<std::mutex> lock(g_init_mutex);
+            if (!g_engine) {
+                g_engine = animus::Engine::Create(buffer_capacity);
+            }
+            return g_engine != nullptr;
+        });
     }
 
     ANIMUS_API bool animus_record_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) {
-        animus::Engine* engine = g_engine.get();
-        if (!engine) return false;
-        return engine->record(event_id, trace_id, metric_value);
+        return abi_guard(false, [&]() {
+            animus::Engine* engine = g_engine.get();
+            if (!engine) return false;
+            return engine->record(event_id, trace_id, metric_value);
+        });
     }
 
     ANIMUS_API size_t animus_record_events_batch(const animus::RawEvent* events, size_t count) {
-        animus::Engine* engine = g_engine.get();
-        if (!engine || !events) return 0;
-        return engine->record_batch(events, count);
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            animus::Engine* engine = g_engine.get();
+            if (!engine || !events) return 0;
+            return engine->record_batch(events, count);
+        });
     }
 
     ANIMUS_API void animus_start_logging(const char* filepath) {
-        animus::Engine* engine = g_engine.get();
-        if (engine && filepath) {
-            engine->start_persistence(std::string(filepath));
-        }
+        abi_guard_void([&]() {
+            animus::Engine* engine = g_engine.get();
+            if (engine && filepath) {
+                engine->start_persistence(std::string(filepath));
+            }
+        });
     }
 
     ANIMUS_API void animus_stop_logging() {
-        animus::Engine* engine = g_engine.get();
-        if (engine) {
-            engine->stop_persistence();
-        }
+        abi_guard_void([&]() {
+            animus::Engine* engine = g_engine.get();
+            if (engine) {
+                engine->stop_persistence();
+            }
+        });
     }
 
     ANIMUS_API bool animus_add_rule(uint32_t rule_id, uint32_t event_id, uint64_t threshold, uint8_t comparator, uint32_t severity) {
-        animus::Engine* engine = g_engine.get();
-        if (!engine) return false;
-        return engine->add_rule(rule_id, event_id, threshold, comparator, severity);
+        return abi_guard(false, [&]() {
+            animus::Engine* engine = g_engine.get();
+            if (!engine) return false;
+            return engine->add_rule(rule_id, event_id, threshold, comparator, severity);
+        });
     }
 
     ANIMUS_API bool animus_add_cep_rule(uint32_t rule_id, uint32_t event_id, uint8_t window_type, uint64_t window_size,
         uint8_t aggregation, uint8_t comparator, uint64_t threshold, uint32_t severity) {
-        animus::Engine* engine = g_engine.get();
-        if (!engine) return false;
-        return engine->add_cep_rule(rule_id, event_id, window_type, window_size, aggregation, comparator, threshold, severity);
+        return abi_guard(false, [&]() {
+            animus::Engine* engine = g_engine.get();
+            if (!engine) return false;
+            return engine->add_cep_rule(rule_id, event_id, window_type, window_size, aggregation, comparator, threshold, severity);
+        });
     }
 
     ANIMUS_API size_t animus_poll_signals(animus::ThreatSignal* out, size_t max_count) {
-        animus::Engine* engine = g_engine.get();
-        if (!engine || !out) return 0;
-        return engine->poll_signals(out, max_count);
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            animus::Engine* engine = g_engine.get();
+            if (!engine || !out) return 0;
+            return engine->poll_signals(out, max_count);
+        });
     }
 
     // Cold path, same mutex-guarded lazy-init pattern as animus_init above --
@@ -323,45 +404,51 @@ extern "C" {
     // animus_verify_license) -- fails closed, not open, if no license has
     // been verified in this process yet.
     ANIMUS_API bool animus_spsc_init(size_t capacity) {
-        if (!g_license_verified.load(std::memory_order_acquire)) return false;
-        std::lock_guard<std::mutex> lock(g_spsc_init_mutex);
-        if (!g_spsc_ring) {
-            g_spsc_ring = std::make_unique<animus::SpscRingBuffer<animus::TelemetryPayload>>(capacity);
-        }
-        return g_spsc_ring != nullptr;
+        return abi_guard(false, [&]() {
+            if (!g_license_verified.load(std::memory_order_acquire)) return false;
+            std::lock_guard<std::mutex> lock(g_spsc_init_mutex);
+            if (!g_spsc_ring) {
+                g_spsc_ring = std::make_unique<animus::SpscRingBuffer<animus::TelemetryPayload>>(capacity);
+            }
+            return g_spsc_ring != nullptr;
+        });
     }
 
     // Hot path: producer-thread-only, per SpscRingBuffer's contract (see
     // animus.hpp). Same batch semantics as animus_record_events_batch --
     // stops at the first push that fails, returns the count actually pushed.
     ANIMUS_API size_t animus_spsc_record_events_batch(const animus::RawEvent* events, size_t count) {
-        auto* ring = g_spsc_ring.get();
-        if (!ring || !events) return 0;
-        size_t pushed = 0;
-        for (size_t i = 0; i < count; ++i) {
-            animus::TelemetryPayload payload{
-                animus::read_cycle_counter(),
-                events[i].event_id,
-                events[i].trace_id,
-                events[i].metric_value
-            };
-            if (!ring->push(payload)) {
-                break; // full; no concurrent consumer will free space within this call
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            auto* ring = g_spsc_ring.get();
+            if (!ring || !events) return 0;
+            size_t pushed = 0;
+            for (size_t i = 0; i < count; ++i) {
+                animus::TelemetryPayload payload{
+                    animus::read_cycle_counter(),
+                    events[i].event_id,
+                    events[i].trace_id,
+                    events[i].metric_value
+                };
+                if (!ring->push(payload)) {
+                    break; // full; no concurrent consumer will free space within this call
+                }
+                ++pushed;
             }
-            ++pushed;
-        }
-        return pushed;
+            return pushed;
+        });
     }
 
     // Consumer-thread-only, per SpscRingBuffer's contract.
     ANIMUS_API size_t animus_spsc_drain(animus::TelemetryPayload* out, size_t max_count) {
-        auto* ring = g_spsc_ring.get();
-        if (!ring || !out) return 0;
-        size_t count = 0;
-        while (count < max_count && ring->pop(out[count])) {
-            ++count;
-        }
-        return count;
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            auto* ring = g_spsc_ring.get();
+            if (!ring || !out) return 0;
+            size_t count = 0;
+            while (count < max_count && ring->pop(out[count])) {
+                ++count;
+            }
+            return count;
+        });
     }
 
     // Gated on a verified license: core_id must be strictly less than the
@@ -371,10 +458,12 @@ extern "C" {
     // Fails closed if no license has been verified in this process yet --
     // there is no unlicensed default (not even core 0).
     ANIMUS_API bool animus_pin_current_thread_to_core(int core_id) {
-        if (core_id < 0) return false;
-        if (!g_license_verified.load(std::memory_order_acquire)) return false;
-        if (static_cast<uint32_t>(core_id) >= g_license_max_cores.load(std::memory_order_acquire)) return false;
-        return animus::sys::pin_current_thread_to_core(static_cast<size_t>(core_id));
+        return abi_guard(false, [&]() {
+            if (core_id < 0) return false;
+            if (!g_license_verified.load(std::memory_order_acquire)) return false;
+            if (static_cast<uint32_t>(core_id) >= g_license_max_cores.load(std::memory_order_acquire)) return false;
+            return animus::sys::pin_current_thread_to_core(static_cast<size_t>(core_id));
+        });
     }
 
     // Same entitlement gate as animus_pin_current_thread_to_core -- realtime/
@@ -387,266 +476,379 @@ extern "C" {
     // never throws, so a caller on a host that denies realtime scheduling
     // (e.g. no CAP_SYS_NICE) still runs, just without the priority boost.
     ANIMUS_API void animus_set_thread_high_priority(void) {
-        if (!g_license_verified.load(std::memory_order_acquire)) return;
-        animus::sys::set_thread_high_priority();
+        abi_guard_void([&]() {
+            if (!g_license_verified.load(std::memory_order_acquire)) return;
+            animus::sys::set_thread_high_priority();
+        });
     }
 
     ANIMUS_API unsigned animus_get_cpu_count(void) {
-        unsigned n = std::thread::hardware_concurrency();
-        return n > 0 ? n : 1;
+        return abi_guard(1u, [&]() {
+            unsigned n = std::thread::hardware_concurrency();
+            return n > 0 ? n : 1;
+        });
     }
 
     ANIMUS_API void* animus_shm_create(const char* name, uint64_t capacity) {
-        if (!name) return nullptr;
-        return animus::SharedTelemetryChannel::create(name, capacity).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::SharedTelemetryChannel::create(name, capacity).release();
+        });
     }
 
     ANIMUS_API void* animus_shm_attach(const char* name) {
-        if (!name) return nullptr;
-        return animus::SharedTelemetryChannel::attach(name).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::SharedTelemetryChannel::attach(name).release();
+        });
     }
 
     ANIMUS_API void animus_shm_close(void* channel) {
-        delete static_cast<animus::SharedTelemetryChannel*>(channel);
+        abi_guard_void([&]() {
+            delete static_cast<animus::SharedTelemetryChannel*>(channel);
+        });
     }
 
     ANIMUS_API bool animus_shm_unlink(const char* name) {
-        if (!name) return false;
-        return animus::SharedTelemetryChannel::unlink(name);
+        return abi_guard(false, [&]() {
+            if (!name) return false;
+            return animus::SharedTelemetryChannel::unlink(name);
+        });
     }
 
     ANIMUS_API uint64_t animus_shm_capacity(void* channel) {
-        if (!channel) return 0;
-        return static_cast<animus::SharedTelemetryChannel*>(channel)->capacity();
+        return abi_guard(uint64_t{0}, [&]() -> uint64_t {
+            if (!channel) return 0;
+            return static_cast<animus::SharedTelemetryChannel*>(channel)->capacity();
+        });
     }
 
     ANIMUS_API bool animus_shm_push(void* channel, uint32_t event_id, uint32_t trace_id, uint64_t metric_value) {
-        if (!channel) return false;
-        return static_cast<animus::SharedTelemetryChannel*>(channel)->push(event_id, trace_id, metric_value);
+        return abi_guard(false, [&]() {
+            if (!channel) return false;
+            return static_cast<animus::SharedTelemetryChannel*>(channel)->push(event_id, trace_id, metric_value);
+        });
     }
 
     ANIMUS_API bool animus_shm_pop(void* channel, animus::SharedTelemetryRecord* out) {
-        if (!channel || !out) return false;
-        return static_cast<animus::SharedTelemetryChannel*>(channel)->pop(*out);
+        return abi_guard(false, [&]() {
+            if (!channel || !out) return false;
+            return static_cast<animus::SharedTelemetryChannel*>(channel)->pop(*out);
+        });
     }
 
     ANIMUS_API void* animus_feed_create(size_t l2_capacity, size_t trade_capacity) {
-        return animus::MarketDataFeed::create(l2_capacity, trade_capacity).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            return animus::MarketDataFeed::create(l2_capacity, trade_capacity).release();
+        });
     }
 
     ANIMUS_API void animus_feed_close(void* feed) {
-        delete static_cast<animus::MarketDataFeed*>(feed);
+        abi_guard_void([&]() {
+            delete static_cast<animus::MarketDataFeed*>(feed);
+        });
     }
 
     ANIMUS_API size_t animus_feed_l2_capacity(void* feed) {
-        if (!feed) return 0;
-        return static_cast<animus::MarketDataFeed*>(feed)->l2_capacity();
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!feed) return 0;
+            return static_cast<animus::MarketDataFeed*>(feed)->l2_capacity();
+        });
     }
 
     ANIMUS_API size_t animus_feed_trade_capacity(void* feed) {
-        if (!feed) return 0;
-        return static_cast<animus::MarketDataFeed*>(feed)->trade_capacity();
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!feed) return 0;
+            return static_cast<animus::MarketDataFeed*>(feed)->trade_capacity();
+        });
     }
 
     ANIMUS_API bool animus_feed_push_l2_update(void* feed, uint32_t instrument_id, uint8_t side, uint8_t action,
         uint32_t level, uint64_t price_ticks, uint64_t quantity, uint64_t sequence_number, uint64_t exchange_timestamp_ns) {
-        if (!feed) return false;
-        return static_cast<animus::MarketDataFeed*>(feed)->push_l2_update(
-            instrument_id, side, action, level, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+        return abi_guard(false, [&]() {
+            if (!feed) return false;
+            return static_cast<animus::MarketDataFeed*>(feed)->push_l2_update(
+                instrument_id, side, action, level, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+        });
     }
 
     ANIMUS_API bool animus_feed_push_trade(void* feed, uint32_t instrument_id, uint64_t trade_id, uint8_t aggressor_side,
         uint64_t price_ticks, uint64_t quantity, uint64_t sequence_number, uint64_t exchange_timestamp_ns) {
-        if (!feed) return false;
-        return static_cast<animus::MarketDataFeed*>(feed)->push_trade(
-            instrument_id, trade_id, aggressor_side, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+        return abi_guard(false, [&]() {
+            if (!feed) return false;
+            return static_cast<animus::MarketDataFeed*>(feed)->push_trade(
+                instrument_id, trade_id, aggressor_side, price_ticks, quantity, sequence_number, exchange_timestamp_ns);
+        });
     }
 
     ANIMUS_API size_t animus_feed_poll_l2_updates(void* feed, animus::L2Update* out, size_t max_count) {
-        if (!feed || !out) return 0;
-        return static_cast<animus::MarketDataFeed*>(feed)->poll_l2_updates(out, max_count);
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!feed || !out) return 0;
+            return static_cast<animus::MarketDataFeed*>(feed)->poll_l2_updates(out, max_count);
+        });
     }
 
     ANIMUS_API size_t animus_feed_poll_trades(void* feed, animus::TradeTick* out, size_t max_count) {
-        if (!feed || !out) return 0;
-        return static_cast<animus::MarketDataFeed*>(feed)->poll_trades(out, max_count);
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!feed || !out) return 0;
+            return static_cast<animus::MarketDataFeed*>(feed)->poll_trades(out, max_count);
+        });
     }
 
     ANIMUS_API void* animus_shm_ring_create(const char* name, size_t requested_capacity) {
-        if (!name) return nullptr;
-        return animus::sys::ipc::ShmRing<animus::RawEvent>::create(name, requested_capacity).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::sys::ipc::ShmRing<animus::RawEvent>::create(name, requested_capacity).release();
+        });
     }
 
     ANIMUS_API void* animus_shm_ring_open(const char* name) {
-        if (!name) return nullptr;
-        return animus::sys::ipc::ShmRing<animus::RawEvent>::open(name).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::sys::ipc::ShmRing<animus::RawEvent>::open(name).release();
+        });
     }
 
     ANIMUS_API void animus_shm_ring_close(void* ring) {
-        delete static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+        abi_guard_void([&]() {
+            delete static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_unlink(const char* name) {
-        if (!name) return false;
-        return animus::sys::ipc::ShmRing<animus::RawEvent>::unlink(name);
+        return abi_guard(false, [&]() {
+            if (!name) return false;
+            return animus::sys::ipc::ShmRing<animus::RawEvent>::unlink(name);
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_capacity(void* ring) {
-        if (!ring) return 0;
-        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->capacity();
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring) return 0;
+            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->capacity();
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_try_push(void* ring, const animus::RawEvent* event) {
-        if (!ring || !event) return false;
-        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_push(*event);
+        return abi_guard(false, [&]() {
+            if (!ring || !event) return false;
+            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_push(*event);
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_try_pop(void* ring, animus::RawEvent* out) {
-        if (!ring || !out) return false;
-        return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_pop(*out);
+        return abi_guard(false, [&]() {
+            if (!ring || !out) return false;
+            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_pop(*out);
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count) {
-        if (!ring || !events) return 0;
-        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
-        size_t pushed = 0;
-        for (; pushed < count; ++pushed) {
-            if (!r->try_push(events[pushed])) break;
-        }
-        return pushed;
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring || !events) return 0;
+            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+            size_t pushed = 0;
+            for (; pushed < count; ++pushed) {
+                if (!r->try_push(events[pushed])) break;
+            }
+            return pushed;
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count) {
-        if (!ring || !out) return 0;
-        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
-        size_t popped = 0;
-        for (; popped < max_count; ++popped) {
-            if (!r->try_pop(out[popped])) break;
-        }
-        return popped;
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring || !out) return 0;
+            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+            size_t popped = 0;
+            for (; popped < max_count; ++popped) {
+                if (!r->try_pop(out[popped])) break;
+            }
+            return popped;
+        });
     }
 
     ANIMUS_API void* animus_shm_ring_order_create(const char* name, size_t requested_capacity) {
-        if (!name) return nullptr;
-        return animus::sys::ipc::ShmRing<animus::OrderRequest>::create(name, requested_capacity).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::sys::ipc::ShmRing<animus::OrderRequest>::create(name, requested_capacity).release();
+        });
     }
 
     ANIMUS_API void* animus_shm_ring_order_open(const char* name) {
-        if (!name) return nullptr;
-        return animus::sys::ipc::ShmRing<animus::OrderRequest>::open(name).release();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            if (!name) return nullptr;
+            return animus::sys::ipc::ShmRing<animus::OrderRequest>::open(name).release();
+        });
     }
 
     ANIMUS_API void animus_shm_ring_order_close(void* ring) {
-        delete static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+        abi_guard_void([&]() {
+            delete static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_order_unlink(const char* name) {
-        if (!name) return false;
-        return animus::sys::ipc::ShmRing<animus::OrderRequest>::unlink(name);
+        return abi_guard(false, [&]() {
+            if (!name) return false;
+            return animus::sys::ipc::ShmRing<animus::OrderRequest>::unlink(name);
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_order_capacity(void* ring) {
-        if (!ring) return 0;
-        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->capacity();
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring) return 0;
+            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->capacity();
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_order_try_push(void* ring, const animus::OrderRequest* order) {
-        if (!ring || !order) return false;
-        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_push(*order);
+        return abi_guard(false, [&]() {
+            if (!ring || !order) return false;
+            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_push(*order);
+        });
     }
 
     ANIMUS_API bool animus_shm_ring_order_try_pop(void* ring, animus::OrderRequest* out) {
-        if (!ring || !out) return false;
-        return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_pop(*out);
+        return abi_guard(false, [&]() {
+            if (!ring || !out) return false;
+            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_pop(*out);
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_order_push_batch(void* ring, const animus::OrderRequest* orders, size_t count) {
-        if (!ring || !orders) return 0;
-        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
-        size_t pushed = 0;
-        for (; pushed < count; ++pushed) {
-            if (!r->try_push(orders[pushed])) break;
-        }
-        return pushed;
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring || !orders) return 0;
+            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+            size_t pushed = 0;
+            for (; pushed < count; ++pushed) {
+                if (!r->try_push(orders[pushed])) break;
+            }
+            return pushed;
+        });
     }
 
     ANIMUS_API size_t animus_shm_ring_order_pop_batch(void* ring, animus::OrderRequest* out, size_t max_count) {
-        if (!ring || !out) return 0;
-        auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
-        size_t popped = 0;
-        for (; popped < max_count; ++popped) {
-            if (!r->try_pop(out[popped])) break;
-        }
-        return popped;
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ring || !out) return 0;
+            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+            size_t popped = 0;
+            for (; popped < max_count; ++popped) {
+                if (!r->try_pop(out[popped])) break;
+            }
+            return popped;
+        });
     }
 
     ANIMUS_API bool animus_verify_license(const char* license_path) {
+        return abi_guard(false, [&]() {
 #if defined(_WIN32)
-        return compute_license_status(license_path) == animus::LicenseStatus::Valid;
+            return compute_license_status(license_path) == animus::LicenseStatus::Valid;
 #else
-        // No implementation on this platform yet -- see animus.hpp's
-        // declaration for why returning false here (never faking success)
-        // is the deliberate choice, same as animus_pin_current_thread_to_core.
-        (void)license_path;
-        return false;
+            // No implementation on this platform yet -- see animus.hpp's
+            // declaration for why returning false here (never faking success)
+            // is the deliberate choice, same as animus_pin_current_thread_to_core.
+            (void)license_path;
+            return false;
 #endif
+        });
     }
 
     ANIMUS_API animus::LicenseStatus animus_check_license_status(const char* license_path) {
+        // Fallback is Malformed, not a new/repurposed enum value: an
+        // exception here means something about the attempt itself broke
+        // (e.g. an I/O failure reading license_path), which "the license
+        // data could not be validated" already covers -- adding a new enum
+        // member would also require updating animus/bindings.py's mirrored
+        // LicenseStatus IntEnum, a wider change than this fix calls for.
+        return abi_guard(animus::LicenseStatus::Malformed, [&]() {
 #if defined(_WIN32)
-        return compute_license_status(license_path);
+            return compute_license_status(license_path);
 #else
-        (void)license_path;
-        return animus::LicenseStatus::UnsupportedPlatform;
+            (void)license_path;
+            return animus::LicenseStatus::UnsupportedPlatform;
 #endif
+        });
     }
 
     ANIMUS_API bool animus_is_licensed(void) {
-        return g_license_verified.load(std::memory_order_acquire);
+        return abi_guard(false, [&]() {
+            return g_license_verified.load(std::memory_order_acquire);
+        });
     }
 
     ANIMUS_API uint32_t animus_licensed_max_cores(void) {
-        return g_license_verified.load(std::memory_order_acquire) ? g_license_max_cores.load(std::memory_order_acquire) : 0;
+        return abi_guard(uint32_t{0}, [&]() -> uint32_t {
+            return g_license_verified.load(std::memory_order_acquire) ? g_license_max_cores.load(std::memory_order_acquire) : 0;
+        });
     }
 
     ANIMUS_API void* animus_security_create_context(void) {
-        return new SecurityContext();
+        return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
+            return new SecurityContext();
+        });
     }
 
     ANIMUS_API void animus_security_close_context(void* ctx) {
-        delete static_cast<SecurityContext*>(ctx);
+        abi_guard_void([&]() {
+            delete static_cast<SecurityContext*>(ctx);
+        });
     }
 
     ANIMUS_API bool animus_security_create_tenant(void* ctx, const animus::security::AccessToken* token,
         uint32_t new_tenant_id, size_t buffer_capacity) {
-        if (!ctx || !token) return false;
-        auto* sc = static_cast<SecurityContext*>(ctx);
-        return sc->telemetry.create_tenant(*token, new_tenant_id, buffer_capacity);
+        return abi_guard(false, [&]() {
+            if (!ctx || !token) return false;
+            auto* sc = static_cast<SecurityContext*>(ctx);
+            return sc->telemetry.create_tenant(*token, new_tenant_id, buffer_capacity);
+        });
     }
 
     ANIMUS_API bool animus_security_create_execution_tenant(void* ctx, const animus::security::AccessToken* token,
         uint32_t tenant_id) {
-        if (!ctx || !token) return false;
-        auto* sc = static_cast<SecurityContext*>(ctx);
-        return sc->execution.create_execution_tenant(*token, tenant_id);
+        return abi_guard(false, [&]() {
+            if (!ctx || !token) return false;
+            auto* sc = static_cast<SecurityContext*>(ctx);
+            return sc->execution.create_execution_tenant(*token, tenant_id);
+        });
     }
 
     ANIMUS_API bool animus_security_submit_order(void* ctx, const animus::security::AccessToken* token,
         const animus::OrderRequest* request, animus::ExecutionReport* out) {
-        if (!ctx || !token || !request || !out) return false;
-        auto* sc = static_cast<SecurityContext*>(ctx);
-        return sc->execution.submit(*token, *request, *out);
+        return abi_guard(false, [&]() {
+            if (!ctx || !token || !request || !out) return false;
+            auto* sc = static_cast<SecurityContext*>(ctx);
+            return sc->execution.submit(*token, *request, *out);
+        });
     }
 
     ANIMUS_API size_t animus_security_poll_execution_audit_log(void* ctx, animus::security::AuditEvent* out, size_t max_count) {
-        if (!ctx || !out) return 0;
-        auto* sc = static_cast<SecurityContext*>(ctx);
-        return sc->execution.poll_execution_audit_log(out, max_count);
+        return abi_guard(size_t{0}, [&]() -> size_t {
+            if (!ctx || !out) return 0;
+            auto* sc = static_cast<SecurityContext*>(ctx);
+            return sc->execution.poll_execution_audit_log(out, max_count);
+        });
     }
 
     ANIMUS_API void animus_security_set_execution_license_required(void* ctx, bool required) {
-        if (!ctx) return;
-        auto* sc = static_cast<SecurityContext*>(ctx);
-        sc->execution.set_execution_license_required(required);
+        abi_guard_void([&]() {
+            if (!ctx) return;
+            auto* sc = static_cast<SecurityContext*>(ctx);
+            sc->execution.set_execution_license_required(required);
+        });
+    }
+
+    // Additive, not gating anything: returns the calling thread's most
+    // recent ABI-boundary exception message (see abi_guard/abi_guard_void
+    // and set_last_error above), or an empty string if none has occurred
+    // yet on this thread. Meant to be called after another ANIMUS_API
+    // function returns its "safe failure" sentinel (false / 0 / nullptr),
+    // to distinguish an ordinary failure from one that was actually an
+    // escaped exception. The returned pointer is valid until the next
+    // ANIMUS_API call on the same thread (backed by a thread_local
+    // std::string) -- copy it out on the Python side before that, same
+    // convention ctypes c_char_p callers already follow for any
+    // library-owned string pointer.
+    ANIMUS_API const char* animus_get_last_error(void) {
+        return g_last_error.c_str();
     }
 }
