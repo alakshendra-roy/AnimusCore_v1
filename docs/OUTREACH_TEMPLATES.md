@@ -39,13 +39,7 @@
 
 ---
 
-## 3. Telegram DM
-
-> Hey [First Name] — built a zero-copy telemetry engine, p99 64.9ns cross-core (RDTSC-measured), Python SDK drains it at ~4.5ns/event, no IPC/socket hop into your strategy code. If IPC overhead is costing your desk latency budget, we run a paid 30-day PoP — historical replay + live shadow execution on your own hardware, no rewrite required. Worth a look?
-
----
-
-## 4. Follow-Up Bump (Day 5, no response)
+## 3. Follow-Up Bump (Day 5, no response)
 
 ### Email
 
@@ -63,6 +57,10 @@
 
 > [First Name] — following up in case this got buried. Happy to just send the datasheet + reproduction commands if that's an easier first step than a call. No worries either way.
 
-### Telegram
+---
 
-> Hey [First Name] — bumping this in case it got lost. Can send the benchmark writeup if that's easier than a call for now.
+## 4. Follow-Up Bump (Day 12, no response)
+
+### LinkedIn
+
+> [First Name] — last nudge from me on this one. If tail latency / IPC overhead isn't an active priority for the desk right now, no worries at all — I'll leave it here. If it becomes relevant later, the datasheet's public and the offer stands whenever the timing's better.
