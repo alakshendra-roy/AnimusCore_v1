@@ -72,10 +72,10 @@ FIELD_MAP = {
     "topmostSubform[0].Page1[0].f_7[0]":  ("mailing_city_state_postal", "Line 4 -- City/town, state/province, postal code"),
     "topmostSubform[0].Page1[0].f_8[0]":  ("mailing_country", "Line 4 -- Country"),
     "topmostSubform[0].Page1[0].f_9[0]":  ("us_tin", "Line 5 -- U.S. taxpayer identification number (SSN or ITIN), if any"),
-    "topmostSubform[0].Page1[0].f_10[0]": ("foreign_tin", "Line 6a -- Foreign tax identifying number (PAN)"),
+    "topmostSubform[0].Page1[0].f_10[0]": ("foreign_tin", "Line 6a -- Foreign tax identifying number (PAN) -- populated, not exempted via 6b: most withholding agents treat this as a precondition for processing the Line 10 treaty claim at all (see docs/W8BEN_GUIDE.md Sec 3)"),
     "topmostSubform[0].Page1[0].c1_01[0]": ("ftin_not_required", "Line 6b -- checkbox: FTIN not legally required"),
     "topmostSubform[0].Page1[0].f_11[0]": ("reference_number", "Line 7 -- Reference number(s), optional"),
-    "topmostSubform[0].Page1[0].f_12[0]": ("date_of_birth", "Line 8 -- Date of birth (MM-DD-YYYY)"),
+    "topmostSubform[0].Page1[0].f_12[0]": ("date_of_birth", "Line 8 -- Date of birth, MUST be MM-DD-YYYY (the form's own required format -- DD/MM/YYYY risks automated-intake/OCR misreads, see docs/W8BEN_GUIDE.md Sec 3)"),
     "topmostSubform[0].Page1[0].f_13[0]": ("treaty_country", "Line 9 -- Country claiming treaty benefits"),
     "topmostSubform[0].Page1[0].f_14[0]": ("treaty_article_paragraph", "Line 10 -- Treaty article/paragraph"),
     "topmostSubform[0].Page1[0].f_15[0]": ("treaty_rate_percent", "Line 10 -- Withholding rate claimed (%)"),
@@ -90,6 +90,13 @@ FIELD_MAP = {
 
 TREATY_POSITIONS = {
     "article7": {
+        # Displaces the Internal Revenue Code Chapter 3 default 30% gross
+        # withholding rate with 0%, per DTAA Article 7 -- but only if the
+        # underlying facts genuinely support "business profits, no US PE."
+        # The explanation text below is OUR certification of OUR own
+        # operating facts, made under penalty of perjury on the actual
+        # form -- confirm it's true for a given engagement before signing,
+        # not just before running this script. See docs/W8BEN_GUIDE.md Sec 2.
         "treaty_article_paragraph": "7",
         "treaty_rate_percent": "0",
         "treaty_income_type": "business profits",
