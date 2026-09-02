@@ -79,3 +79,16 @@ AnimusCore_v1/license_tools/private/
 scripts/.w8ben_config.json
 docs/W8BEN_*_prefilled.pdf
 .cache/
+# Broadened 2026-09-03 pre-flight audit: a real, signed W8BEN was found
+# sitting untracked at AnimusCore_v1/W8BEN_Alakshendra_Roy_(Official
+# Document).pdf -- outside the docs/*_prefilled.pdf pattern above, so a
+# careless `git add -A` would have staged it. Catch any W8BEN-named PDF
+# anywhere in the tree, not just the generator's own output path.
+**/W8BEN_*.pdf
+**/*W8BEN*Official*.pdf
+
+# Local benchmark-reproduction output (benchmarks/telemetry_benchmark.cpp
+# writes this to the invocation directory per BENCHMARK_DATASHEET.md's own
+# documented repro commands) -- not a deliverable, shouldn't get committed
+# by anyone following those instructions.
+/telemetry_benchmarks.json
