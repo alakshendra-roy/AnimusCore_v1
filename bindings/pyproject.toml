@@ -11,19 +11,22 @@ requires-python = ">=3.8"
 license = { text = "Proprietary" }
 authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
 
-# Deliberately its own installable unit, separate from the root
-# animus-engine-sdk package (the existing zero-dependency ctypes SDK) --
-# `pip install ./bindings` builds and installs this on its own. Installing
-# both into the same environment currently means both provide a top-level
-# `animus` import; until/unless that's merged into one package, install
-# only one of the two per environment (see bindings/CMakeLists.txt's top
-# comment).
+# Its own installable unit -- `pip install ./bindings` builds and installs
+# just the compiled _animus_native extension, into the same animus/
+# package the root animus-engine-sdk project owns. No wheel.packages
+# entry below on purpose: this wheel ships no .py files of its own (those
+# are animus/consumer.py etc., part of the main package's own build) --
+# only CMake's install(TARGETS _animus_native LIBRARY DESTINATION animus)
+# contributes to this wheel's contents. Safe to install alongside
+# animus-engine-sdk in the same environment: the two wheels never
+# contribute the same file, so there's nothing to conflict over (see
+# bindings/CMakeLists.txt's top comment for the full reasoning).
 dependencies = []
 
 [tool.scikit-build]
 minimum-version = "0.10"
 build-dir = "build"
-wheel.packages = ["../python/animus"]
+wheel.packages = []
 
 [tool.scikit-build.cmake.define]
 CMAKE_BUILD_TYPE = "Release"

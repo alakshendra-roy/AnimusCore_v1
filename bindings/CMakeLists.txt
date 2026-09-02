@@ -3,12 +3,36 @@
 # A standalone CMake project deliberately kept separate from the root
 # CMakeLists.txt (which builds animus_native, the C-ABI shim for the
 # existing zero-dependency ctypes SDK): this extension pulls in nanobind
-# and, at the Python packaging layer, targets python/animus/ as a distinct,
-# optional install (`pip install ./bindings`), not a change to the existing
-# animus-engine-sdk package's build or its "zero third-party Python
-# dependencies" contract. Build directly with CMake for local iteration
-# (see README below) or via `pip install ./bindings`, which drives this
-# through scikit-build-core (see pyproject.toml alongside this file).
+# and, at the Python packaging layer, installs *only* the compiled
+# _animus_native module into the existing animus/ package directory --
+# not a change to animus-engine-sdk's own build, and not a second copy of
+# animus/*.py. animus.consumer (animus/consumer.py, shipped by the main
+# package) simply raises a clear ImportError until this extension has
+# actually been built, rather than requiring a second, differently-named
+# package.
+#
+# Verified combination: `pip install .` (a normal, non-editable install
+# of the main package) followed by `pip install ./bindings` copies both
+# sets of files into the *same* physical site-packages/animus/ directory
+# and works exactly as intended -- confirmed by actually installing both
+# and importing animus.consumer alongside animus.bindings, not assumed.
+#
+# NOT verified to work: `pip install -e .` (editable) followed by
+# `pip install ./bindings`. Empirically, that combination left `animus`
+# resolving as an empty namespace package pointing at site-packages'
+# physical (bindings-only) animus/ directory, silently losing
+# animus.bindings/.core/etc. entirely -- setuptools' PEP 660 editable
+# finder did not take priority over the real directory the bindings
+# wheel had already placed in site-packages. For local development, use
+# the direct-CMake loop below instead (copy the built extension straight
+# into the repo's own animus/ directory, next to consumer.py) rather
+# than layering a separate `pip install ./bindings` on top of an
+# editable main-package install.
+#
+# Build directly with CMake for local iteration (see the bottom of this
+# file) or via `pip install ./bindings`, which drives this through
+# scikit-build-core
+# (see pyproject.toml alongside this file).
 cmake_minimum_required(VERSION 3.15)
 project(animus_native_ext LANGUAGES CXX)
 
@@ -57,7 +81,7 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(_animus_native PRIVATE Threads::Threads)
 
-# Installed as animus/_animus_native(.pyd|.so) -- python/animus/consumer.py
+# Installed as animus/_animus_native(.pyd|.so) -- animus/consumer.py
 # imports it as a sibling module (`from . import _animus_native`).
 install(TARGETS _animus_native LIBRARY DESTINATION animus)
 
@@ -69,9 +93,11 @@ install(TARGETS _animus_native LIBRARY DESTINATION animus)
 #   cmake --build bindings/build --config Release
 #
 # The resulting _animus_native(.pyd|.so) lands in bindings/build/ (or
-# bindings/build/Release/ on multi-config generators) -- copy or symlink it
-# into python/animus/ next to consumer.py to import it directly, or just
-# add that build directory to PYTHONPATH for a quick local test. For an
-# installable package (stages python/animus/ + the compiled extension into
-# one wheel), use `pip install ./bindings` instead -- see pyproject.toml.
+# bindings/build/Release/ on multi-config generators) -- copy it into the
+# repo's animus/ directory (next to consumer.py) to import it directly
+# against an editable install (`pip install -e .` for the main package),
+# or add that build directory to PYTHONPATH for a quick local test. For a
+# proper installable wheel that stages just the compiled extension into
+# an already-installed animus/ package, use `pip install ./bindings`
+# instead -- see pyproject.toml.
 # ---------------------------------------------------------------------

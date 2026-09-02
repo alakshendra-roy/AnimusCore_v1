@@ -16,7 +16,17 @@ from __future__ import annotations
 import struct
 from typing import Iterator, List, NamedTuple, Optional
 
-from . import _animus_native as _native
+try:
+    from . import _animus_native as _native
+except ImportError as exc:
+    raise ImportError(
+        "animus.consumer requires the compiled _animus_native extension, "
+        "which the base animus-engine-sdk install does not build (it stays "
+        "on the zero-dependency ctypes path -- see animus/bindings.py). "
+        "Build it locally: `pip install ./bindings` from a full source "
+        "checkout (see bindings/CMakeLists.txt), or for fast iteration, "
+        "the direct-CMake steps documented at the bottom of that file."
+    ) from exc
 
 WIRE_FORMAT = _native.WIRE_FORMAT           # "<QIIQ" -- matches animus::SharedTelemetryRecord / animus.shm
 WIRE_RECORD_SIZE = _native.WIRE_RECORD_SIZE  # 24 bytes

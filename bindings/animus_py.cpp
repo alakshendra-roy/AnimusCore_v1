@@ -147,7 +147,7 @@ public:
     // struct.unpack_from, numpy.frombuffer(...).copy(), ...) before
     // calling drain() again if the data must outlive that call. This is
     // the standard tradeoff a reused-buffer zero-copy design makes; see
-    // python/animus/consumer.py for the idiomatic way to consume it.
+    // animus/consumer.py for the idiomatic way to consume it.
     nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> drain(size_t max_count) {
         const size_t limit = max_count < scratch_.size() ? max_count : scratch_.size();
         size_t n = 0;
