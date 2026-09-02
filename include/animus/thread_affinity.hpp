@@ -147,11 +147,29 @@ namespace animus {
 
         // Pins the thread identified by `handle` to logical core `core_id`.
         //
-        // `handle` must be a valid std::thread::native_handle_type for the
-        // running platform (HANDLE on Windows, pthread_t on Linux) -- e.g.
-        // obtained from std::thread::native_handle(), GetCurrentThread(), or
-        // pthread_self(). Returns false (and logs a best-effort diagnostic)
-        // on any failure; never throws.
+        // `handle` is typed as std::thread::native_handle_type for signature
+        // portability, but on Windows it must actually be (or have
+        // originated as) a genuine Win32 HANDLE -- e.g. from
+        // ::GetCurrentThread(), as pin_current_thread_to_core supplies
+        // below. That distinction matters because the two Windows toolchains
+        // this codebase supports disagree about what
+        // std::thread::native_handle_type even is: under MSVC's STL it IS
+        // HANDLE (a pointer typedef), so passing one through is a no-op; but
+        // under MinGW-w64's libstdc++ (POSIX-threads runtime, winpthreads)
+        // it is an integer pthread_t-style type that is NOT bit-compatible
+        // with a Win32 HANDLE. The reinterpret_cast below is only safe
+        // because every call site in this codebase round-trips a genuine
+        // Win32 HANDLE through this parameter -- do NOT pass an actual
+        // std::thread object's .native_handle() here on Windows; under
+        // MinGW that is a winpthreads handle, not a Win32 HANDLE, and this
+        // cast would silently misinterpret it (SetThreadAffinityMask would
+        // receive garbage, not a real thread handle).
+        //
+        // Linux: `handle` is a genuine pthread_t (from pthread_self() or a
+        // std::thread's native_handle(), which are the same type there).
+        //
+        // Returns false (and logs a best-effort diagnostic) on any failure;
+        // never throws.
         //
         // Windows note: the affinity mask is a single machine word, so only
         // core_id < 64 is addressable without also targeting a specific
@@ -159,12 +177,18 @@ namespace animus {
         // groups, since Animus Core's target hosts are single-group.
         inline bool pin_thread_to_core(std::thread::native_handle_type handle, size_t core_id) noexcept {
 #if defined(_WIN32)
+            // See the doc comment above: safe only because `handle` always
+            // originated as a genuine Win32 HANDLE. Under MSVC this cast is
+            // a no-op (native_handle_type already IS HANDLE); under
+            // MinGW-w64 it reinterprets the integer pthread_t-style value
+            // back to the HANDLE it was cast from at the call site.
+            const HANDLE win32_handle = reinterpret_cast<HANDLE>(handle);
             if (core_id >= 64) {
                 detail::log_failure("pin_thread_to_core", "core_id out of range for a single processor group", static_cast<long>(core_id));
                 return false;
             }
             const DWORD_PTR mask = (static_cast<DWORD_PTR>(1) << core_id);
-            const DWORD_PTR previous_mask = ::SetThreadAffinityMask(handle, mask);
+            const DWORD_PTR previous_mask = ::SetThreadAffinityMask(win32_handle, mask);
             if (previous_mask == 0) {
                 detail::log_failure("pin_thread_to_core", "SetThreadAffinityMask", static_cast<long>(::GetLastError()));
                 return false;
@@ -172,7 +196,7 @@ namespace animus {
             // Ideal processor is only a scheduler hint on top of the hard
             // affinity mask already set above; a failure here does not
             // undo the pin, so it is not treated as an overall failure.
-            ::SetThreadIdealProcessor(handle, static_cast<DWORD>(core_id));
+            ::SetThreadIdealProcessor(win32_handle, static_cast<DWORD>(core_id));
             return true;
 #elif defined(__linux__)
             if (core_id >= static_cast<size_t>(CPU_SETSIZE)) {
@@ -199,7 +223,13 @@ namespace animus {
         // Convenience wrapper: pins the calling thread to `core_id`.
         inline bool pin_current_thread_to_core(size_t core_id) noexcept {
 #if defined(_WIN32)
-            return pin_thread_to_core(::GetCurrentThread(), core_id);
+            // Round-trip the genuine Win32 HANDLE through
+            // std::thread::native_handle_type -- see pin_thread_to_core's
+            // doc comment above for why this is safe here specifically
+            // (MSVC: no-op, same type; MinGW-w64: integer<->pointer
+            // reinterpret_cast of a pointer-sized value, standard-permitted
+            // and lossless on the 64-bit targets this project builds for).
+            return pin_thread_to_core(reinterpret_cast<std::thread::native_handle_type>(::GetCurrentThread()), core_id);
 #elif defined(__linux__)
             return pin_thread_to_core(::pthread_self(), core_id);
 #else
