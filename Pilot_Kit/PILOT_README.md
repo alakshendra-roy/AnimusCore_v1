@@ -6,7 +6,9 @@ or need the full API surface (CEP rules, mTLS, clustering, market data
 feeds, ...), see [`AnimusCore_v1/QUICKSTART.md`](../AnimusCore_v1/QUICKSTART.md)
 and [`AnimusCore_v1/BENCHMARKS.md`](../AnimusCore_v1/BENCHMARKS.md) instead
 -- this kit covers only what's needed to get a first real ingestion call
-running end to end.
+running end to end. For a curated, client-facing performance summary
+(latency and throughput tables with sources and reproduction commands),
+see [`BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md).
 
 ## What's in this kit
 
@@ -81,7 +83,11 @@ pseudocode:
    `AnimusCore_v1/BENCHMARKS.md` Phase 11/13/26 for numbers gathered
    across many runs) -- the script reports what your machine actually
    measures rather than asserting a fixed number, since batch size, CPU,
-   and background load all affect it.
+   and background load all affect it. That figure includes Python/ctypes
+   call overhead; for the native transport cost underneath it -- genuine
+   cross-core producer/consumer handoff through the lock-free ring, at
+   RDTSC resolution -- see `BENCHMARK_DATASHEET.md`'s "Cross-core SPSC
+   dispatch latency" section (§2).
 6. Drains and reports the threat signals the registered rule matched.
 
 ## Evaluation licenses
@@ -129,4 +135,7 @@ This is a proprietary, pre-release evaluation build (see `LICENSE` at the
 repository root) -- reach out to your Animus Core contact with any
 questions about this pilot. Full architecture and verified performance
 numbers: [`AnimusCore_v1/QUICKSTART.md`](../AnimusCore_v1/QUICKSTART.md),
-[`AnimusCore_v1/BENCHMARKS.md`](../AnimusCore_v1/BENCHMARKS.md).
+[`AnimusCore_v1/BENCHMARKS.md`](../AnimusCore_v1/BENCHMARKS.md),
+[`BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) (see its "Cross-core
+SPSC dispatch latency" section for RDTSC-resolution native transport
+numbers).
