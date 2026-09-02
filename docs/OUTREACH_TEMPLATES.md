@@ -25,8 +25,9 @@ Each channel below has three lead-hook variants — same claims, different openi
 > Worth a 20-minute call to see if it's a fit? Happy to send the full datasheet and reproduction commands first if that's a faster path for your team.
 >
 > Alakshendra Roy
-> Founder & Engineer — Animus Core
-> royrichie006@gmail.com
+> Founder & Chief Architect — Animus Core
+> alakshendra@animusinfra.com | +91 9891161189
+> animusinfra.com
 
 ---
 
@@ -45,8 +46,9 @@ Each channel below has three lead-hook variants — same claims, different openi
 > Worth 20 minutes to see where your current numbers sit against this?
 >
 > Alakshendra Roy
-> Founder & Engineer — Animus Core
-> royrichie006@gmail.com
+> Founder & Chief Architect — Animus Core
+> alakshendra@animusinfra.com | +91 9891161189
+> animusinfra.com
 
 ---
 
@@ -65,8 +67,9 @@ Each channel below has three lead-hook variants — same claims, different openi
 > Worth a quick call to see if it's a fit?
 >
 > Alakshendra Roy
-> Founder & Engineer — Animus Core
-> royrichie006@gmail.com
+> Founder & Chief Architect — Animus Core
+> alakshendra@animusinfra.com | +91 9891161189
+> animusinfra.com
 
 ---
 
