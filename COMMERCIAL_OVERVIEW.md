@@ -61,6 +61,8 @@ Adoption risk is the single biggest objection to any new hot-path infrastructure
 | What's measured | Your own workload, your own hardware, your own numbers |
 | What's gated by license | Opt-in tuning features only; core ingestion is never gated |
 
+> **Ready to go further than a self-serve check?** For desks deciding whether to put Animus Core into production, the **Institutional Pilot Program** is a paid, four-week engagement — historical replay, shadow-live evaluation, and a tail-latency characterization run on *your own* hardware by our engineering team, ending in a formal sign-off. See [`docs/PILOT_PROGRAM.md`](docs/PILOT_PROGRAM.md).
+
 ---
 
 ## 4. Commercial Engagement Tiers
