@@ -319,39 +319,65 @@ tailwind.config = {
             <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
               <path d="M0,0 L10,5 L0,10 z" fill="#475569"></path>
             </marker>
+            <!-- Light-beam pulse: a short gradient segment with tapered, transparent
+                 edges (fully replaces the old traveling-dot markers below) -->
+            <linearGradient id="beam-green" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#00ff88" stop-opacity="0"></stop>
+              <stop offset="50%" stop-color="#00ff88" stop-opacity="1"></stop>
+              <stop offset="100%" stop-color="#00ff88" stop-opacity="0"></stop>
+            </linearGradient>
+            <linearGradient id="beam-red" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stop-color="#ff4444" stop-opacity="0"></stop>
+              <stop offset="50%" stop-color="#ff8844" stop-opacity="0.95"></stop>
+              <stop offset="100%" stop-color="#ff4444" stop-opacity="0"></stop>
+            </linearGradient>
+            <filter id="glow-green" x="-150%" y="-400%" width="400%" height="900%">
+              <feGaussianBlur stdDeviation="1.6" result="blur"></feGaussianBlur>
+              <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+            </filter>
+            <filter id="glow-red" x="-150%" y="-400%" width="400%" height="900%">
+              <feGaussianBlur stdDeviation="1.1" result="blur"></feGaussianBlur>
+              <feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge>
+            </filter>
           </defs>
 
-          <!-- Row 1: cache hierarchy -> ring buffer -> python heap (zero-copy) -->
+          <!-- Row 1: cache hierarchy -> ring buffer -> python heap -> zero-copy handoff
+               Shares the same 4-column grid (x=20/210/400/590, gaps at
+               170-205/360-395/550-585) as Row 2 below, so every stage and
+               connector lines up vertically between the two rows. -->
           <g font-family="IBM Plex Mono, monospace">
-            <rect x="20" y="15" width="150" height="60" rx="3" fill="rgba(0,240,255,0.03)" stroke="#1E293D" stroke-width="2"></rect>
-            <rect x="35" y="25" width="120" height="40" rx="2" fill="rgba(0,240,255,0.05)" stroke="#3a4b6b" stroke-width="1.5"></rect>
-            <rect x="50" y="35" width="90" height="20" rx="2" fill="rgba(0,255,102,0.10)" stroke="#00FF66" stroke-width="1.5"></rect>
-            <text x="95" y="20" text-anchor="middle" font-size="9" fill="#64748b">L3 &middot; 32MB</text>
-            <text x="95" y="70" text-anchor="middle" font-size="9" fill="#00FF66" font-weight="700">L1 &middot; 32KB (cache line)</text>
+            <rect x="20" y="15" width="150" height="72" rx="3" fill="rgba(0,240,255,0.03)" stroke="#1E293D" stroke-width="2"></rect>
+            <rect x="35" y="24" width="120" height="36" rx="2" fill="rgba(0,240,255,0.05)" stroke="#3a4b6b" stroke-width="1.5"></rect>
+            <rect x="50" y="32" width="90" height="20" rx="2" fill="rgba(0,255,102,0.10)" stroke="#00FF66" stroke-width="1.5"></rect>
+            <text x="95" y="21" text-anchor="middle" font-size="8" fill="#64748b">L3 &middot; 32MB</text>
+            <text x="95" y="69" text-anchor="middle" font-size="7.5" fill="#00FF66" font-weight="700">L1 Data Cache (32 KB)</text>
+            <text x="95" y="79" text-anchor="middle" font-size="7.5" fill="#00FF66">&middot; 64B line-aligned</text>
 
             <line x1="170" y1="45" x2="205" y2="45" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"></line>
 
-            <rect x="210" y="20" width="180" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
-            <text x="300" y="41" text-anchor="middle" font-size="11" fill="#e2e8f0" font-weight="700">RING BUFFER</text>
-            <text x="300" y="56" text-anchor="middle" font-size="9" fill="#00FF66">mmap &middot; lock-free MPMC</text>
+            <rect x="210" y="20" width="150" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
+            <text x="285" y="41" text-anchor="middle" font-size="11" fill="#e2e8f0" font-weight="700">RING BUFFER</text>
+            <text x="285" y="56" text-anchor="middle" font-size="8" fill="#00FF66">mmap &middot; lock-free SPSC / MPMC</text>
 
-            <line x1="390" y1="45" x2="425" y2="45" stroke="#00FF66" stroke-width="2" marker-end="url(#arrow)"></line>
+            <line x1="360" y1="45" x2="395" y2="45" stroke="#00FF66" stroke-width="2" marker-end="url(#arrow)"></line>
 
-            <rect x="430" y="20" width="200" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
-            <text x="530" y="41" text-anchor="middle" font-size="11" fill="#e2e8f0" font-weight="700">PYTHON RUNTIME HEAP</text>
-            <text x="530" y="56" text-anchor="middle" font-size="9" fill="#00FF66">ctypes zero-copy view</text>
+            <rect x="400" y="20" width="150" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
+            <text x="475" y="41" text-anchor="middle" font-size="10" fill="#e2e8f0" font-weight="700">PYTHON RUNTIME HEAP</text>
+            <text x="475" y="56" text-anchor="middle" font-size="8" fill="#00FF66">ctypes zero-copy view</text>
 
-            <text x="655" y="41" font-size="10" fill="#00FF66" font-weight="700">0 COPIES</text>
-            <text x="655" y="54" font-size="9" fill="#64748b">pointer pass-through</text>
+            <line x1="550" y1="45" x2="585" y2="45" stroke="#00FF66" stroke-width="2" marker-end="url(#arrow)"></line>
 
-            <circle id="ring-marker-a" cx="390" cy="45" r="4" fill="#00FF66" opacity="0"></circle>
-            <circle id="ring-marker-b" cx="430" cy="45" r="4" fill="#00FF66" opacity="0"></circle>
+            <rect x="590" y="20" width="200" height="50" rx="3" fill="rgba(0,255,102,0.06)" stroke="#00FF66" stroke-width="2"></rect>
+            <text x="690" y="41" text-anchor="middle" font-size="11" fill="#00FF66" font-weight="700">0 COPIES</text>
+            <text x="690" y="56" text-anchor="middle" font-size="8" fill="#64748b">pointer pass-through</text>
+
+            <rect id="beam-zero-copy" x="152" y="43.5" width="36" height="3" rx="1.5" fill="url(#beam-green)" filter="url(#glow-green)" opacity="0"></rect>
           </g>
 
-          <text x="20" y="105" font-size="10" fill="#00FF66" font-family="IBM Plex Mono, monospace" font-weight="700">ZERO-COPY PATH &mdash; latency independent of concurrency</text>
+          <text x="20" y="103" font-size="10" fill="#00FF66" font-family="IBM Plex Mono, monospace" font-weight="700">ZERO-COPY PATH &mdash; latency independent of concurrency</text>
           <line x1="20" y1="113" x2="880" y2="113" stroke="#1E293D" stroke-width="1" stroke-dasharray="2 4"></line>
 
-          <!-- Row 2: traditional serialized IPC path -->
+          <!-- Row 2: traditional serialized IPC path -- same 4-column grid as Row 1 -->
           <g font-family="IBM Plex Mono, monospace">
             <rect x="20" y="130" width="150" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
             <text x="95" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">CPU CACHE (L1&ndash;L3)</text>
@@ -372,7 +398,7 @@ tailwind.config = {
             <rect x="590" y="130" width="200" height="45" rx="3" fill="rgba(148,163,184,0.04)" stroke="#1E293D" stroke-width="2"></rect>
             <text x="690" y="156" text-anchor="middle" font-size="10" fill="#94a3b8">PYTHON HEAP (deserialized)</text>
 
-            <circle id="trad-marker" cx="190" cy="152" r="5" fill="#94a3b8" opacity="0"></circle>
+            <rect id="beam-socket" x="152" y="150.5" width="36" height="3" rx="1.5" fill="url(#beam-red)" filter="url(#glow-red)" opacity="0"></rect>
           </g>
           <text x="20" y="205" font-size="10" fill="#FF4B4B" font-family="IBM Plex Mono, monospace" font-weight="700">TRADITIONAL SERIALIZED IPC &mdash; drop rate scales with concurrency</text>
         </svg>
@@ -381,7 +407,7 @@ tailwind.config = {
       <!-- Concurrency slider -->
       <div class="mt-8 border-t border-border pt-6">
         <div class="flex items-center justify-between text-xs font-mono text-slate-500 mb-2 uppercase tracking-wider">
-          <span>Concurrency: 1,000 msgs/sec</span>
+          <span>Message Ingestion Load: 1,000 msgs/sec</span>
           <span id="concurrency-readout" class="text-white font-bold text-sm normal-case">128,000 msgs/sec</span>
           <span>1,000,000 msgs/sec</span>
         </div>
@@ -807,9 +833,8 @@ tailwind.config = {
   var nativeDropRate = document.getElementById('nativeDropRate');
   var nativeDropPct = document.getElementById('nativeDropPct');
   var nativeLatency = document.getElementById('nativeLatency');
-  var tradMarker = document.getElementById('trad-marker');
-  var ringMarkerA = document.getElementById('ring-marker-a');
-  var ringMarkerB = document.getElementById('ring-marker-b');
+  var beamSocket = document.getElementById('beam-socket');
+  var beamZeroCopy = document.getElementById('beam-zero-copy');
 
   var currentRate = 128000;
 
@@ -843,62 +868,91 @@ tailwind.config = {
   currentRate = rateFromSlider(Number(slider.value));
   updateReadouts();
 
-  function animatePoint(el, x1, y1, x2, y2, duration, cb){
+  // Light-beam pulse animation: a short glowing gradient segment (see
+  // #beam-green/#beam-red defs) slides across one connector gap at a time,
+  // rather than a dot traveling the whole path -- matches "flowing across
+  // connectors," not "a ball crossing the diagram." Both rows share the
+  // same 3 connector gaps (see the SVG's 4-column grid comment above).
+  var BEAM_WIDTH = 36;
+  var CONNECTOR_GAPS = [[170, 205], [360, 395], [550, 585]];
+
+  function animateBeamAcrossGap(el, x1, x2, duration, stepped, cb){
     var start = null;
+    var bx1 = x1 - BEAM_WIDTH / 2, bx2 = x2 - BEAM_WIDTH / 2;
     function step(ts){
       if (start === null) start = ts;
       var t = Math.min(1, (ts - start) / duration);
-      el.setAttribute('cx', (x1 + (x2 - x1) * t).toFixed(2));
-      el.setAttribute('cy', (y1 + (y2 - y1) * t).toFixed(2));
+      // "stepped" quantizes progress into visible jumps instead of a smooth
+      // glide -- the stutter effect for the slower socket path.
+      var p = stepped ? Math.floor(t * 6) / 6 : t;
+      el.setAttribute('x', (bx1 + (bx2 - bx1) * p).toFixed(2));
       if (t < 1) requestAnimationFrame(step); else if (cb) cb();
     }
     requestAnimationFrame(step);
   }
 
-  function runTraditionalCycle(){
+  // Fast, smooth, neon-green -- zero-copy path. One full pass across all
+  // three connector gaps runs well under a second; latency here doesn't
+  // scale with the slider, so speed stays constant regardless of load.
+  function runZeroCopyCycle(){
+    var i = 0;
+    function nextGap(){
+      if (i >= CONNECTOR_GAPS.length){ setTimeout(runZeroCopyCycle, 220); return; }
+      var g = CONNECTOR_GAPS[i];
+      beamZeroCopy.setAttribute('opacity', '1');
+      animateBeamAcrossGap(beamZeroCopy, g[0], g[1], 130, false, function(){
+        beamZeroCopy.setAttribute('opacity', '0');
+        i++;
+        setTimeout(nextGap, 55);
+      });
+    }
+    nextGap();
+  }
+  runZeroCopyCycle();
+
+  // Slower, muted red/orange, visibly stepped -- traditional socket path.
+  // Per-gap duration scales up with the slider's load (same relationship
+  // the old dot-based cycle used), and the drop simulation still fires at
+  // the SOCKET BUFFER checkpoint (after gap 2) exactly as before -- only
+  // the traveling element and its pacing changed, not the underlying
+  // load/drop model driving the readouts.
+  function runSocketCycle(){
     var p = dropProb(currentRate);
-    var totalDuration = 900 + (currentRate / 1000000) * 1800;
-    var leg1 = totalDuration * 0.55, leg2 = totalDuration - leg1;
-
-    tradMarker.setAttribute('fill', '#94a3b8');
-    tradMarker.setAttribute('opacity', '1');
-    tradMarker.style.transition = 'none';
-    animatePoint(tradMarker, 190, 152, 475, 152, leg1, function(){
-      var dropped = Math.random() < p;
-      if (dropped){
-        tradMarker.setAttribute('fill', '#FF4B4B');
-        tradMarker.style.transition = 'opacity .4s ease';
-        tradMarker.setAttribute('opacity', '0');
-        setTimeout(function(){
-          tradMarker.style.transition = 'none';
-          runTraditionalCycle();
-        }, 480);
-      } else {
-        animatePoint(tradMarker, 475, 152, 590, 152, leg2, function(){
-          tradMarker.setAttribute('fill', '#00FF66');
-          tradMarker.style.transition = 'opacity .3s ease';
-          tradMarker.setAttribute('opacity', '0');
+    var perGap = 480 + (currentRate / 1000000) * 950; // several times slower per-gap than the zero-copy beam's fixed 130ms
+    var i = 0;
+    function nextGap(){
+      if (i >= 2){ // reached the SOCKET BUFFER checkpoint -- roll for a drop
+        var dropped = Math.random() < p;
+        if (dropped){
+          beamSocket.setAttribute('fill', '#FF4B4B');
+          beamSocket.setAttribute('opacity', '1');
+          beamSocket.setAttribute('x', (550 - BEAM_WIDTH / 2).toFixed(2));
           setTimeout(function(){
-            tradMarker.style.transition = 'none';
-            runTraditionalCycle();
-          }, 220);
+            beamSocket.setAttribute('opacity', '0');
+            beamSocket.setAttribute('fill', 'url(#beam-red)');
+            setTimeout(runSocketCycle, 420);
+          }, 300);
+          return;
+        }
+        var g = CONNECTOR_GAPS[2];
+        beamSocket.setAttribute('opacity', '1');
+        animateBeamAcrossGap(beamSocket, g[0], g[1], perGap, true, function(){
+          beamSocket.setAttribute('opacity', '0');
+          setTimeout(runSocketCycle, 350);
         });
+        return;
       }
-    });
+      var g = CONNECTOR_GAPS[i];
+      beamSocket.setAttribute('opacity', '1');
+      animateBeamAcrossGap(beamSocket, g[0], g[1], perGap, true, function(){
+        beamSocket.setAttribute('opacity', '0');
+        i++;
+        setTimeout(nextGap, 160);
+      });
+    }
+    nextGap();
   }
-  runTraditionalCycle();
-
-  function pulseRing(){
-    ringMarkerA.setAttribute('opacity', '1');
-    ringMarkerB.setAttribute('opacity', '1');
-    ringMarkerA.style.transition = 'opacity .5s ease';
-    ringMarkerB.style.transition = 'opacity .5s ease';
-    setTimeout(function(){
-      ringMarkerA.setAttribute('opacity', '0');
-      ringMarkerB.setAttribute('opacity', '0');
-    }, 140);
-  }
-  setInterval(pulseRing, 650);
+  runSocketCycle();
 
   /* ---------- Native SDK Code Explorer: tabs + copy-to-clipboard ---------- */
   var tabBtns = document.querySelectorAll('.tab-btn');
