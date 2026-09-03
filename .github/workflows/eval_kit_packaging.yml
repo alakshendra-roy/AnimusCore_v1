@@ -1,0 +1,59 @@
+name: Eval Kit Packaging (Linux)
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'eval_kit/**'
+      - 'benchmarks/harness_benchmark.cpp'
+      - 'bindings/**'
+      - 'include/animus/**'
+      - '.github/workflows/eval_kit_packaging.yml'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  package-and-smoke-test:
+    name: package_kit.sh + run_demo.sh (ubuntu-22.04, real /dev/shm)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          g++ --version
+          cmake --version
+          python3 --version
+          uname -a
+
+      - name: Run eval_kit/scripts/package_kit.sh
+        run: |
+          chmod +x eval_kit/scripts/package_kit.sh
+          bash eval_kit/scripts/package_kit.sh
+
+      - name: Inspect the compiled producer binary (must be a real Linux ELF)
+        run: |
+          file eval_kit/dist/animus-eval-kit-linux-x86_64/bin/harness_benchmark
+          ldd eval_kit/dist/animus-eval-kit-linux-x86_64/bin/harness_benchmark
+
+      - name: Inspect the packaged wheels (must carry real Linux platform tags)
+        run: |
+          tar tzf eval_kit/dist/animus-eval-kit-linux-x86_64.tar.gz
+          echo
+          ls -la eval_kit/dist/animus-eval-kit-linux-x86_64/wheels/
+          cat eval_kit/dist/animus-eval-kit-linux-x86_64/MANIFEST.txt
+
+      - name: Extract the tarball to a clean directory and run run_demo.sh end-to-end
+        run: |
+          mkdir -p /tmp/eval_kit_extract
+          tar -C /tmp/eval_kit_extract -xzf eval_kit/dist/animus-eval-kit-linux-x86_64.tar.gz
+          cd /tmp/eval_kit_extract/animus-eval-kit-linux-x86_64
+          chmod +x run_demo.sh
+          ./run_demo.sh
+
+      - name: Upload the packaged tarball as a build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: animus-eval-kit-linux-x86_64
+          path: eval_kit/dist/animus-eval-kit-linux-x86_64.tar.gz
