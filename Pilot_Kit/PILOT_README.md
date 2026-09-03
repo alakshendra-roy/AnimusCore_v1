@@ -10,6 +10,13 @@ running end to end. For a curated, client-facing performance summary
 (latency and throughput tables with sources and reproduction commands),
 see [`BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md).
 
+**Evaluating on Linux, or specifically the shared-memory transport rather
+than the Windows DLL/ctypes path this kit covers?** See
+[`eval_kit/README.md`](../eval_kit/README.md) instead -- a turnkey Linux
+x86_64 tarball with a prebuilt binary and both Python wheels bundled in,
+no `AnimusNative.dll`/ctypes setup of its own, running end to end in
+under three minutes via `./run_demo.sh`.
+
 ## What's in this kit
 
 | File | Purpose | Who runs it |
@@ -138,4 +145,5 @@ numbers: [`AnimusCore_v1/QUICKSTART.md`](../AnimusCore_v1/QUICKSTART.md),
 [`AnimusCore_v1/BENCHMARKS.md`](../AnimusCore_v1/BENCHMARKS.md),
 [`BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) (see its "Cross-core
 SPSC dispatch latency" section for RDTSC-resolution native transport
-numbers).
+numbers). For the Linux shared-memory transport specifically, see
+[`eval_kit/README.md`](../eval_kit/README.md).

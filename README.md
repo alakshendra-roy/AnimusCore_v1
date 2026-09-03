@@ -57,6 +57,11 @@ Running a pilot evaluation? See [`Pilot_Kit/`](Pilot_Kit/PILOT_README.md)
 for a minimal customer-facing quickstart -- setup, a runnable
 sub-microsecond ingestion example, and how 30-day evaluation licenses work.
 
+Evaluating on Linux, or specifically the shared-memory IPC ring above?
+See [`eval_kit/`](eval_kit/README.md) instead -- a turnkey tarball with a
+prebuilt binary and both Python wheels bundled in, running end to end via
+`./run_demo.sh` with no compiler on the evaluation machine.
+
 ## Benchmark Performance
 * **Peak Throughput:** >238 Million ops/sec
 * **Latency Profile:** Sub-millisecond batch ingestion
