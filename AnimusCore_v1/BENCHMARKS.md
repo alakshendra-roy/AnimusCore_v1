@@ -955,4 +955,52 @@ Real MSVC (`cl /std:c++latest /EHsc /O2`) and MinGW GCC 15.2 (`g++ -std=c++23 -O
   ```
 
 * **Status:** Phase 28 C++23 Telemetry Dispatch Benchmark Harness Verified
+
+## Phase 29: Cross-Process Shared-Memory Producer -- Real Linux CI Verification (`benchmarks/harness_benchmark.cpp`, `eval_kit/`)
+
+### Target System
+
+`benchmarks/harness_benchmark.cpp` -- the C++ producer half of the client-facing `eval_kit/` evaluation package, exercising `animus::sys::ipc::ShmRing<animus::ExecutionEvent>` (Phase 20's `ShmRing<T>` primitive, `include/animus/shm_ipc.hpp`) against a genuine second OS process (`eval_kit/scripts/verify_stream.py`'s nanobind consumer) over real POSIX `/dev/shm`, rather than the two-process-on-one-Windows-machine setup Phase 20 itself used. Run via `.github/workflows/eval_kit_packaging.yml` on a real `ubuntu-22.04` GitHub Actions runner -- [run 33806378357](https://github.com/alakshendra-roy/AnimusCore_v1/actions/runs/33806378357) -- not a container claiming Linux compatibility, not cross-compiled, not emulated. This is the first time this specific header's POSIX code path had ever actually executed, on any machine, in this repository's history; every prior verification of `ShmRing<T>` (Phase 20 above) ran the Windows branch (`CreateFileMappingA`/`OpenFileMappingA`) exclusively.
+
+### Method
+
+10,000,000 synthetic `ExecutionEvent` records, decoupled/non-blocking overwrite mode (`--mode overwrite`) -- the producer never waits on a consumer, so it completes and reports numbers with no consumer attached at all, a direct demonstration of the "producer must not block the core execution thread" requirement `ShmRing::push_overwrite()` exists to satisfy. Built `-O3 -march=x86-64-v3` (Ubuntu clang 14.0.0), `eval_kit/scripts/package_kit.sh` probing for that instruction-set level rather than assuming it, with `-march=native` as a documented fallback for older compilers. Per-event enqueue latency is a serialized RDTSC read (`_mm_lfence()` before and after `__rdtsc()`) immediately before and after each `push_overwrite()` call, converted to nanoseconds via a 200ms wall-clock calibration performed once at process startup -- same methodology as Phase 20 and Phase 28 above, applied to this transport for the first time on real Linux.
+
+### Results
+
+**Per-event enqueue latency (decoupled overwrite mode):**
+
+| Percentile | Latency |
+|---|---|
+| min | 20.0 ns |
+| p50 | 30.3 ns |
+| p90 | 40.1 ns |
+| p99 | 40.1 ns |
+| p99.9 | 2,695.2 ns |
+| max | 32,470.5 ns |
+
+**Throughput:**
+
+| Metric | Result |
+|---|---|
+| Sustained throughput | 13.856 M events/sec |
+| Wall time | 0.722 s (10,000,000 events) |
+
+* **A real bug this exact run caught and fixed -- the whole reason this verification was worth doing, not a formality:** `include/animus/shm_ipc.hpp`'s `SharedMemoryRegion::open()` (the consumer/attach side, POSIX branch) called the raw `::open(name, O_RDWR)` syscall instead of `shm_open(name, O_RDWR, 0600)`. `::open()` on a bare name like `"animus_eval_demo_1916"` performs an ordinary filesystem lookup relative to the current working directory; the segment `create()`'s own (correct) `shm_open()` call actually put there resolves through the shared-memory namespace to `/dev/shm/animus_eval_demo_1916` instead. Every C++ or nanobind consumer calling `ShmRing::open()` on Linux has been silently unable to find a real segment since this file was written -- invisible until now because every earlier POSIX-adjacent test used either the Windows branch (unaffected -- `OpenFileMappingA` has no equivalent bug) or `benchmarks/consumer.py`'s pure-Python `multiprocessing.shared_memory` path, which performs its own correct `shm_open` internally and never touches this C++ code at all. First exposed as `eval_kit/scripts/verify_stream.py` failing with `ShmRing::open('...') failed -- no such segment` immediately after a successful producer run on the CI runner; fixed in one line, re-verified on the same CI job (the results above are from the passing re-run).
+* **Verified two independent ways, not just "the job went green":** (1) the CI run's own inspection steps confirmed `bin/harness_benchmark` is a genuine `ELF 64-bit LSB pie executable, x86-64, ... for GNU/Linux` (not a stray `.exe` or a misidentified artifact) and that the packaged wheel carries a real `cp310-cp310-linux_x86_64` tag, not a Windows one; (2) independently, downloading the produced tarball after the fact (`gh run download 33806378357`) and recomputing its SHA-256 locally reproduced the exact checksum CI itself reported byte-for-byte: `24f0902f0b28eda5d34ed05cd686765ff39b3bca02ff5a35c1c12675aa1ba1fd`.
+* **A second, independent bug this same verification effort caught, in the consumer's own self-check, not the transport:** `eval_kit/scripts/verify_stream.py` originally reported `Gaps == dropped_count? NO -- investigate` on this exact run despite it being completely correct -- its gap-counting only looked at spans between records it actually received, never the block of records dropped *before* the very first one it ever saw. Since `run_demo.sh`'s own documented flow runs the producer to completion in overwrite mode before the consumer ever attaches, every drop in a 10,000,000-event overwrite run precedes the first record the consumer observes, so the original logic reported zero gaps against a real `dropped_count` of 8,951,424. Fixed by seeding the gap-tracking sequence counter at -1 instead of `None` (valid because this producer always numbers events starting at sequence 0); re-verified on Linux showing `Sequence gaps seen: 8,951,424` exactly matching `Producer dropped_count: 8,951,424`.
+* **Also present-tense pip/toolchain finding, unrelated to this repo's own code:** a stock `ubuntu-22.04` runner's apt-installed system `pip` (22.0.2, still on the long-deprecated vendored `pep517` build backend) failed to resolve a mutually-compatible `scikit-build-core`/`packaging` combination when building the nanobind wheel, raising `AttributeError: module 'packaging.utils' has no attribute 'InvalidName'` from deep inside `scikit-build-core`'s vendored metadata parser -- a pip-version compatibility issue, not a defect in either `pyproject.toml` in this repository. Fixed in `eval_kit/scripts/package_kit.sh` by building both wheels inside a throwaway venv with a freshly upgraded pip rather than trusting the packaging machine's system pip.
+* **Build/run commands:**
+
+  ```bash
+  # Via the eval kit (builds the binary + both wheels, runs the full demo):
+  bash eval_kit/scripts/package_kit.sh
+  cd eval_kit/dist/animus-eval-kit-linux-x86_64 && ./run_demo.sh
+
+  # Or directly, with a pre-built toolchain:
+  g++ -std=c++17 -O3 -march=x86-64-v3 -Iinclude benchmarks/harness_benchmark.cpp -o harness_benchmark -lpthread
+  ./harness_benchmark --events 10000000 --mode overwrite
+  ```
+
+* **Status:** Phase 29 Cross-Process Shared-Memory Producer, Real Linux CI Verified -- genuine `ubuntu-22.04` ELF binary and `linux_x86_64` wheel confirmed, tarball SHA-256 independently reproduced locally, and two real bugs (one in `shm_ipc.hpp`'s POSIX attach path, one in the eval kit's own consumer self-check) caught and fixed by this exact verification effort, not left latent.
 * **Status:** Phase 27 Re-Verification Run Recorded -- `fintech_tail_latency.py` remains fixed and functional; this run's numbers extend, rather than contradict, the pinned-vs-unpinned behavior already characterized in Phase 14/26.
