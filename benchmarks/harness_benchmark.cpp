@@ -31,6 +31,7 @@
 
 #include "animus/shm_ipc.hpp"
 #include "animus/shm_lifecycle.hpp"
+#include "animus/execution_event.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -64,25 +65,16 @@
 
 namespace animus_harness {
 
-// Wire record pushed through the shared-memory ring. Every field is a
-// fixed-width, natively-aligned integer at a fixed offset with no compiler
-// padding inserted (verified below by the static_assert), so consumer.py
-// can decode it with the plain struct format string documented at this
-// struct's every field and in that script's own header comment -- no IDL,
-// no schema negotiation, just an agreed-upon byte layout, the same
-// approach animus.hpp's SharedTelemetryRecord / animus/shm.py already use
-// for their own (different, unrelated) wire format.
-struct ExecutionEvent {
-    uint64_t sequence;        // offset 0:  monotonically increasing dispatch sequence number
-    uint64_t dispatch_ts_raw; // offset 8:  raw clock sample (RDTSC ticks or clock_gettime ns) at enqueue time
-    int64_t  price_ticks;     // offset 16: synthetic instrument price, in ticks
-    int64_t  quantity;        // offset 24: synthetic order/quote quantity
-    uint32_t instrument_id;   // offset 32: synthetic instrument identifier
-    uint32_t flags;           // offset 36: reserved, always 0 -- kept for 8-byte struct alignment, not currently used
-};
-static_assert(sizeof(ExecutionEvent) == 40, "consumer.py's struct format assumes exactly 40 bytes, no padding");
-static_assert(std::is_trivially_copyable<ExecutionEvent>::value, "ShmRing<T> places T directly in shared memory");
-constexpr const char* kWireFormat = "<QQqqII"; // struct.calcsize/struct.unpack_from format, matches ExecutionEvent exactly
+// Wire record pushed through the shared-memory ring -- animus::ExecutionEvent
+// (include/animus/execution_event.hpp), the single shared definition also
+// used by bindings/animus_shm_py.cpp's nanobind consumer, so the producer
+// here and any consumer attaching to the same segment agree on the exact
+// byte layout by construction rather than by two hand-copied definitions
+// staying in sync. benchmarks/consumer.py is the one exception (no C++
+// toolchain at runtime) and hardcodes the matching struct format instead.
+using animus::ExecutionEvent;
+using animus::kExecutionEventWireFormat;
+constexpr const char* kWireFormat = kExecutionEventWireFormat;
 
 using Ring = animus::sys::ipc::ShmRing<ExecutionEvent>;
 
@@ -173,17 +165,32 @@ Options parse_args(int argc, char** argv) {
         else if (arg == "--capacity") o.ring_capacity = static_cast<size_t>(std::strtoull(next("--capacity").c_str(), nullptr, 10));
         else if (arg == "--core") o.producer_core = std::atoi(next("--core").c_str());
         else if (arg == "--backpressure") o.backpressure = true;
+        else if (arg == "--mode") {
+            // Preferred, explicit spelling of the same choice --backpressure
+            // toggles; kept as a separate branch (not just an alias table)
+            // so an unrecognized mode value fails loudly instead of
+            // silently doing nothing, which --unknown-flag already does not.
+            const std::string mode = next("--mode");
+            if (mode == "overwrite") o.backpressure = false;
+            else if (mode == "backpressure") o.backpressure = true;
+            else {
+                std::fprintf(stderr, "unknown --mode '%s' (expected 'overwrite' or 'backpressure')\n", mode.c_str());
+                std::exit(2);
+            }
+        }
         else if (arg == "--unlink-when-done") o.unlink_when_done = true;
         else if (arg == "--json") o.json_path = next("--json");
         else if (arg == "--help") {
             std::printf(
                 "usage: harness_benchmark [--name NAME] [--events N] [--capacity SLOTS]\n"
-                "                          [--core CPU] [--backpressure] [--unlink-when-done]\n"
+                "                          [--core CPU] [--mode overwrite|backpressure] [--unlink-when-done]\n"
                 "                          [--json PATH]\n"
                 "  --name             shared-memory segment name consumer.py must match (default: animus_harness_shm)\n"
                 "  --events           synthetic events to inject (default: 10000000)\n"
                 "  --capacity         ring capacity in slots, rounded up to a power of two (default: 1048576)\n"
-                "  --backpressure     use bounded-retry push_spin() instead of the default push_overwrite()\n"
+                "  --mode             'overwrite' (default, decoupled/lossy, self-contained) or\n"
+                "                     'backpressure' (bounded-retry push_spin(), needs a live consumer)\n"
+                "  --backpressure     shorthand for --mode backpressure\n"
                 "  --unlink-when-done destroy the segment after the run (default: leave it for consumer.py)\n");
             std::exit(0);
         } else {

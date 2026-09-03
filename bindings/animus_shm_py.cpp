@@ -14,11 +14,16 @@
 // stated zero-copy contract (see that file's header comment) rather than
 // promising something stronger.
 //
-// Wire format: WireRecord below is animus::SharedTelemetryRecord
-// (animus.hpp) -- the same 24-byte <QIIQ> layout animus.shm and
-// animus_py.cpp already use, reused here rather than inventing a fourth
-// record shape, so animus/consumer.py's existing decode()/decode_iter()/
-// to_numpy() work unchanged against a poll() result from this module too.
+// Wire format: WireRecord below is animus::ExecutionEvent
+// (include/animus/execution_event.hpp) -- the same 40-byte layout
+// benchmarks/harness_benchmark.cpp writes into the ring and
+// benchmarks/consumer.py decodes by hand. This binding must use that
+// exact type, not animus.hpp's unrelated SharedTelemetryRecord: T's size
+// fixes the ring's slot stride at ShmRing::create()/open() time, so
+// attaching with the wrong T silently misreads every record at the wrong
+// offset instead of failing loudly -- there is no cross-check possible
+// from inside ShmRing itself, only from both ends agreeing on one shared
+// header, which is exactly what execution_event.hpp is for.
 //
 // GIL discipline (Milestone 3's explicit requirement): poll()'s spin-wait
 // over the shared ring runs entirely inside a nb::gil_scoped_release
@@ -44,15 +49,16 @@
 
 #include "animus.hpp"
 #include "animus/shm_ipc.hpp"
+#include "animus/execution_event.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace {
 
-using WireRecord = animus::SharedTelemetryRecord;
-static_assert(sizeof(WireRecord) == 24, "must stay wire-compatible with animus::SharedTelemetryRecord");
-constexpr const char* kWireFormat = "<QIIQ";
+using WireRecord = animus::ExecutionEvent;
+static_assert(sizeof(WireRecord) == 40, "must stay wire-compatible with animus::ExecutionEvent");
+constexpr const char* kWireFormat = animus::kExecutionEventWireFormat;
 
 using Ring = animus::sys::ipc::ShmRing<WireRecord>;
 
@@ -92,9 +98,15 @@ public:
 
     // Producer-side. Never blocks; False means the ring was full and the
     // event was refused (bounded-backpressure contract -- see push_overwrite
-    // for the decoupled/lossy alternative).
-    bool push(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) noexcept {
-        const WireRecord rec{animus::read_cycle_counter(), event_id, trace_id, metric_value};
+    // for the decoupled/lossy alternative). dispatch_ts_raw is stamped here
+    // via animus::read_cycle_counter() (the same RDTSC-or-monotonic-clock
+    // helper animus.hpp uses throughout) -- not a serialized/calibrated
+    // read the way harness_benchmark.cpp's own sample_clock() is, so
+    // latencies computed against a Python-side push() are directly
+    // comparable to each other but not bit-for-bit comparable to a run
+    // produced by the C++ harness.
+    bool push(uint64_t sequence, int64_t price_ticks, int64_t quantity, uint32_t instrument_id) noexcept {
+        const WireRecord rec{sequence, animus::read_cycle_counter(), price_ticks, quantity, instrument_id, 0};
         return ring_->try_push(rec);
     }
 
@@ -102,8 +114,8 @@ public:
     // reclaims the oldest unconsumed slot and increments dropped_count()
     // instead -- see ShmRing::push_overwrite's own doc comment
     // (include/animus/shm_ipc.hpp) for the exact concurrency contract.
-    void push_overwrite(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) noexcept {
-        const WireRecord rec{animus::read_cycle_counter(), event_id, trace_id, metric_value};
+    void push_overwrite(uint64_t sequence, int64_t price_ticks, int64_t quantity, uint32_t instrument_id) noexcept {
+        const WireRecord rec{sequence, animus::read_cycle_counter(), price_ticks, quantity, instrument_id, 0};
         ring_->push_overwrite(rec);
     }
 
@@ -193,7 +205,7 @@ private:
 } // namespace
 
 NB_MODULE(_animus_shm_native, m) {
-    m.doc() = "Animus Engine -- nanobind zero-copy interop over animus::sys::ipc::ShmRing<WireRecord> "
+    m.doc() = "Animus Engine -- nanobind zero-copy interop over animus::sys::ipc::ShmRing<ExecutionEvent> "
                "(cross-process, OS shared-memory backed; see bindings/animus_shm_py.cpp)";
     m.attr("WIRE_FORMAT") = kWireFormat;
     m.attr("WIRE_RECORD_SIZE") = sizeof(WireRecord);
@@ -207,10 +219,11 @@ NB_MODULE(_animus_shm_native, m) {
              "name"_a, "drain_batch_capacity"_a = 8192,
              "Attach to an existing named OS shared-memory ring created by another "
              "process's create() call (C++ or Python -- same wire format either way).")
-        .def("push", &SharedExecutionChannel::push, "event_id"_a, "trace_id"_a, "metric_value"_a,
+        .def("push", &SharedExecutionChannel::push,
+             "sequence"_a, "price_ticks"_a, "quantity"_a, "instrument_id"_a,
              "Producer-side. Never blocks; returns False if the ring is full.")
         .def("push_overwrite", &SharedExecutionChannel::push_overwrite,
-             "event_id"_a, "trace_id"_a, "metric_value"_a,
+             "sequence"_a, "price_ticks"_a, "quantity"_a, "instrument_id"_a,
              "Producer-side, decoupled/overwrite mode: never blocks and never refuses -- "
              "reclaims the oldest unconsumed slot on a full ring instead. See dropped_count.")
         .def("poll", &SharedExecutionChannel::poll, "max_count"_a, "max_spins"_a = 200000,
