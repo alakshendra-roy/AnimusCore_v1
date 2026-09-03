@@ -122,7 +122,18 @@ def main() -> int:
 
     consumed = 0
     gaps = 0
-    last_sequence: "int | None" = None
+    # -1, not None: harness_benchmark.cpp's producer always numbers events
+    # starting at sequence 0 (see its make_synthetic_event), so treating the
+    # very first received record as following a virtual sequence -1 makes
+    # the gap arithmetic below count the block of records dropped *before*
+    # this consumer ever attached -- not just gaps between records it did
+    # see. Without this, a producer that runs to completion in overwrite
+    # mode before any consumer attaches (exactly what run_demo.sh's own
+    # documented Quickstart does) would report zero gaps despite millions
+    # of dropped_count, since every one of those drops precedes the first
+    # record this loop ever observes -- a false "Gaps == dropped_count? NO"
+    # alarm on the kit's own default path, not a real integrity problem.
+    last_sequence = -1
     integrity_ok = True
     interrupted = False
     idle_since: "float | None" = None
@@ -164,13 +175,12 @@ def main() -> int:
 
                 consumed += 1
 
-                if last_sequence is not None:
-                    if sequence <= last_sequence:
-                        print(f"INTEGRITY FAILURE: sequence went backwards or repeated "
-                              f"({sequence} after {last_sequence})", file=sys.stderr)
-                        integrity_ok = False
-                    else:
-                        gaps += sequence - last_sequence - 1
+                if sequence <= last_sequence:
+                    print(f"INTEGRITY FAILURE: sequence went backwards or repeated "
+                          f"({sequence} after {last_sequence})", file=sys.stderr)
+                    integrity_ok = False
+                else:
+                    gaps += sequence - last_sequence - 1
                 last_sequence = sequence
 
             now_t = time.perf_counter()
