@@ -114,3 +114,25 @@ endif()
 set_target_properties(telemetry_benchmark PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# harness_benchmark -- cross-process shared-memory producer harness
+# (Milestone 4). C++17 (matching include/animus/shm_ipc.hpp's own
+# standard, not telemetry_benchmark's C++23 opt-in above) so this builds
+# with the same toolchains as animus_native itself. Unlike
+# telemetry_benchmark, this is one half of a two-*process* demo -- see
+# benchmarks/consumer.py for the other half, and benchmarks/build.sh for
+# the POSIX ASan/UBSan build path this CMake target does not replace.
+add_executable(harness_benchmark
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/harness_benchmark.cpp
+)
+target_include_directories(harness_benchmark PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(harness_benchmark PRIVATE cxx_std_17)
+target_link_libraries(harness_benchmark PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(harness_benchmark PRIVATE rt)
+endif()
+set_target_properties(harness_benchmark PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)

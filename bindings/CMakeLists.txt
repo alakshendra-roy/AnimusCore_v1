@@ -85,6 +85,33 @@ target_link_libraries(_animus_native PRIVATE Threads::Threads)
 # imports it as a sibling module (`from . import _animus_native`).
 install(TARGETS _animus_native LIBRARY DESTINATION animus)
 
+# _animus_shm_native (animus_shm_py.cpp) -- the cross-process counterpart
+# to _animus_native above: binds animus::sys::ipc::ShmRing<T>
+# (include/animus/shm_ipc.hpp), a ring living in a *named OS shared-memory
+# segment*, not an in-process std::array. Needs both animus.hpp (for the
+# wire-format WireRecord type) and include/ (for shm_ipc.hpp itself, which
+# in turn pulls in shm_lifecycle.hpp from the same directory) -- kept as a
+# second target rather than folded into _animus_native so the two remain
+# independently buildable and importable.
+nanobind_add_module(_animus_shm_native
+    NB_STATIC
+    animus_shm_py.cpp
+)
+target_include_directories(_animus_shm_native PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../AnimusCore_v1
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+if(WIN32)
+    target_compile_definitions(_animus_shm_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+target_link_libraries(_animus_shm_native PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    # shm_open/shm_unlink on glibc < 2.34 -- see the matching comment in
+    # the root CMakeLists.txt's animus_native target.
+    target_link_libraries(_animus_shm_native PRIVATE rt)
+endif()
+install(TARGETS _animus_shm_native LIBRARY DESTINATION animus)
+
 # ---------------------------------------------------------------------
 # Local build without scikit-build-core, for fast iteration:
 #
