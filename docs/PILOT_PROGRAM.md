@@ -3,7 +3,7 @@
 **30-Day Paid Proof-of-Performance (PoP) for proprietary trading desks and latency-sensitive market makers**
 
 > **Audience:** Heads of Trading Technology, Quant Desk Leads, and Latency Engineering evaluating Animus Core for a production execution or risk-monitoring path.
-> **Companion documents:** [`../COMMERCIAL_OVERVIEW.md`](../COMMERCIAL_OVERVIEW.md) — business case and engagement tiers; [`../BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) — the measured figures cited throughout this program; [`../Pilot_Kit/PILOT_README.md`](../Pilot_Kit/PILOT_README.md) — the free, self-serve 30-day evaluation kit this program is *not* (see below).
+> **Companion documents:** [`../COMMERCIAL_OVERVIEW.md`](../COMMERCIAL_OVERVIEW.md) — business case and engagement tiers; [`../BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) — the measured figures cited throughout this program; [`../Pilot_Kit/PILOT_README.md`](../Pilot_Kit/PILOT_README.md) — the free, self-serve 30-day evaluation kit this program is *not* (see below); [`../eval_kit/README.md`](../eval_kit/README.md) — the same free, self-serve tier, but for the Linux shared-memory transport specifically, as a turnkey tarball rather than a source checkout.
 
 ---
 
