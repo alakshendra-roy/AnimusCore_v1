@@ -11,7 +11,7 @@ Pick the one that matches your integration:
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
 | [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
 | [6. Market data feed adapters](#6-market-data-feed-adapters-l2l3-book--trade-ticks) | Live L2/L3 order book + trade tick ingestion (`proprietary-edition` branch only) | Any (Windows/Linux/macOS) |
-| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes (no Python interop) | Windows + MSVC (verified); POSIX path implemented, not yet build-verified in this repo |
+| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes, now also reachable from Python | Windows + MSVC and Linux (both verified; see the Evaluation Kit link below) |
 
 All seven PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
@@ -22,6 +22,16 @@ Running a pilot evaluation rather than integrating from source? See
 minimal customer-facing quickstart covering just Guide 1's Python
 interop path, a runnable sub-microsecond ingestion example, and how
 30-day evaluation licenses work.
+
+Evaluating Guide 7's shared-memory transport specifically, on Linux, with
+zero build step at all? See
+[`eval_kit/README.md`](../eval_kit/README.md) -- a turnkey tarball
+(`eval_kit/scripts/package_kit.sh` builds it) bundling a prebuilt
+`-march=x86-64-v3` Linux binary, both Python wheels, and a zero-copy
+nanobind consumer script; `./run_demo.sh` runs the whole thing end to
+end, no compiler or `cmake` required on the evaluation machine. This is
+the actual Linux verification Guide 7 references below -- run on a real
+`ubuntu-22.04` CI box, not just compiled and assumed.
 
 ---
 
@@ -1009,11 +1019,21 @@ their own cache line, eliminating false sharing between them. Reach for
 this when the two ends are both native C++ processes and raw latency
 matters more than being able to swap in a Python producer or consumer.
 
-**No Python binding today.** Unlike every other shared-memory primitive in
-this document, `ShmRing<T>` has no C-ABI export and no ctypes wrapper --
-it's currently C++-only. If you need a Python-reachable cross-process
-channel, guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` is what
-you want instead.
+**Python binding, via nanobind rather than the ctypes/C-ABI path every
+other primitive in this document uses.** `bindings/animus_shm_py.cpp`
+binds `ShmRing<animus::ExecutionEvent>` (`include/animus/execution_event.hpp`
+-- the one shared record layout both the C++ producer and this binding
+build against, so the two can never silently drift onto different byte
+offsets) directly, with no ctypes marshalling tax: `SharedExecutionChannel.poll()`
+spin-waits for new records with Python's GIL released, reacquiring it
+only to hand back a zero-copy buffer-protocol view of whatever arrived.
+See `eval_kit/scripts/verify_stream.py` for a complete consumer built on
+it, or guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` if you
+want the ctypes-based, wire-compatible-with-pure-Python alternative
+instead -- that one trades this binding's zero-copy/GIL-released design
+for interchangeability with a pure-Python producer or consumer, which
+`ShmRing<T>` deliberately does not offer (see the tradeoff stated at the
+top of this guide).
 
 **Standalone, not part of `animus.hpp`:** `shm_ipc.hpp` has no dependency
 on `animus.hpp` or `animus_release.hpp` -- it only includes
@@ -1155,12 +1175,24 @@ the pipeline.
 
 **Platform coverage, stated precisely:** the Windows path
 (`CreateFileMappingA`/`MapViewOfFile`/`OpenFileMappingA`) is what every
-number above was measured against. The POSIX path (`shm_open`/`mmap`)
-follows the identical approach already verified in `animus.hpp`'s
-`SharedMemorySegment` (guide 1/2), but this specific header has not yet
-been build-verified on Linux/macOS in this repo -- treat it as
-implemented-but-unverified there until a real POSIX build confirms it,
-the same honesty bar guide 5 applies to its own Windows-only limitation.
+latency number above was measured against. The POSIX path
+(`shm_open`/`mmap`) is now genuinely build- *and* run-verified too --
+`.github/workflows/eval_kit_packaging.yml` builds `harness_benchmark.cpp`
+and runs it against `eval_kit/scripts/verify_stream.py`'s nanobind
+consumer end to end on a real `ubuntu-22.04` GitHub Actions runner over
+real `/dev/shm`, not a container claiming Linux compatibility. That CI
+run is also what caught a real bug the very first time this path
+actually ran on Linux: `SharedMemoryRegion::open()`'s POSIX branch (the
+consumer/attach side) called the raw `::open(name, O_RDWR)` syscall
+instead of `shm_open()`, so it looked for an ordinary file relative to
+the current directory instead of resolving through `/dev/shm/` --
+`create()`'s own `shm_open()` call was always correct, only `open()` had
+this bug, and it was invisible until something actually exercised this
+exact C++ attach path on Linux (every earlier POSIX-adjacent test used
+either the pure-Python `multiprocessing.shared_memory` path, which does
+its own correct `shm_open` internally, or the Windows branch). Fixed in
+`include/animus/shm_ipc.hpp`; see the eval kit link above for the
+easiest way to exercise this path yourself.
 
 ---
 
@@ -1181,7 +1213,9 @@ the same honesty bar guide 5 applies to its own Windows-only limitation.
   multiple venue connections at once? **Guide 6** (`proprietary-edition`
   branch only for now; portable and independent of Guide 5's licensing).
 - Need the lowest-latency cross-process transport between two native C++
-  processes, and don't need Python interop? **Guide 7** (a different
-  tradeoff than Guide 1/2's `SharedTelemetryChannel`/`SharedTelemetryRing`
-  -- no wire-compatibility constraint, so it cache-line-pads the
-  producer/consumer cursors instead).
+  processes, with a zero-copy (not ctypes-marshalled) Python consumer
+  optional on top? **Guide 7** (a different tradeoff than Guide 1/2's
+  `SharedTelemetryChannel`/`SharedTelemetryRing` -- no wire-compatibility
+  constraint, so it cache-line-pads the producer/consumer cursors
+  instead). Evaluating just this transport on Linux? Skip straight to the
+  [Evaluation Kit](../eval_kit/README.md) instead of building from source.
