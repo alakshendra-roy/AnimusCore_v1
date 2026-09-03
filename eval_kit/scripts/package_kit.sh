@@ -96,9 +96,28 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-echo "--- Building wheels ---"
-python3 -m pip wheel "$REPO_ROOT" -w "$STAGE_DIR/wheels" --no-deps
-python3 -m pip wheel "$REPO_ROOT/bindings" -w "$STAGE_DIR/wheels" --no-deps
+# Build inside a throwaway venv with a freshly upgraded pip, rather than
+# whatever system pip happens to be on this packaging machine's PATH.
+# Concretely hit in CI on a stock ubuntu-22.04 runner: its apt-installed
+# system pip (pip 22.0.2, still using the long-deprecated vendored pep517
+# module) resolved a scikit-build-core/packaging combination whose vendored
+# pyproject_metadata called packaging.utils.canonicalize_name(...,
+# validate=True) against a packaging version that doesn't accept that
+# kwarg -- a pip-version compatibility bug, not anything in this repo's
+# own pyproject.toml files. A modern pip's dependency resolver picks a
+# mutually-compatible combination instead; pinning an exact "known good"
+# version here would just trade one day's problem for a future one, so
+# this simply upgrades pip and lets its resolver do its job.
+BUILD_VENV_DIR="$DIST_DIR/.build-venv"
+rm -rf "$BUILD_VENV_DIR"
+python3 -m venv "$BUILD_VENV_DIR"
+BUILD_PIP="$BUILD_VENV_DIR/bin/pip"
+"$BUILD_PIP" install --quiet --upgrade pip
+
+echo "--- Building wheels (pip $("$BUILD_PIP" --version | awk '{print $2}') in a throwaway build venv) ---"
+"$BUILD_PIP" wheel "$REPO_ROOT" -w "$STAGE_DIR/wheels" --no-deps
+"$BUILD_PIP" wheel "$REPO_ROOT/bindings" -w "$STAGE_DIR/wheels" --no-deps
+rm -rf "$BUILD_VENV_DIR"
 echo
 ls -la "$STAGE_DIR/wheels"
 echo
