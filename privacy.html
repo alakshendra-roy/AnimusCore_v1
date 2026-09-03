@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy | Animus Engine</title>
+<meta name="description" content="Privacy Policy for animuscore.com: what data is collected through the benchmark-access request form, why, who it is shared with, and the standing commitment that telemetry and personal data are never sold.">
+<meta name="robots" content="noindex, follow">
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="shortcut icon" type="image/png" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+      },
+      colors: {
+        void: '#020408',
+        panel: '#0A0F1D',
+        border: '#1E293D',
+        cyan: '#00F0FF',
+        emerald: '#00FF66',
+        danger: '#FF4B4B'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root{ --void:#020408; --panel:#0A0F1D; --border:#1E293D; --cyan:#00F0FF; }
+  html,body{ background:var(--void); }
+  .legal h2{ scroll-margin-top: 6rem; }
+</style>
+</head>
+<body class="bg-void text-slate-300 font-sans antialiased">
+
+  <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
+    <div class="max-w-5xl mx-auto py-4 px-6 flex items-center justify-between gap-6">
+      <a href="/" class="flex items-center gap-3 min-w-0">
+        <img src="/logo.png" alt="Animus Engine" class="h-10 w-auto object-contain" onerror="this.style.display='none';">
+        <span class="font-bold text-sm tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
+      </a>
+      <a href="/" class="text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-cyan transition">&larr; Back to Home</a>
+    </div>
+  </nav>
+
+  <main class="legal max-w-3xl mx-auto px-6 pt-32 pb-24">
+    <div class="inline-flex items-center gap-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-sm text-cyan text-[11px] font-bold mb-6 font-mono uppercase tracking-widest">
+      Legal
+    </div>
+    <h1 class="text-3xl md:text-4xl font-extrabold text-white font-sans">Privacy Policy</h1>
+    <p class="mt-3 text-sm text-slate-500 font-mono">Effective date: [EFFECTIVE DATE] &middot; Applies to animuscore.com.</p>
+
+    <div class="mt-6 border border-emerald/30 bg-emerald/5 rounded-sm p-4">
+      <p class="text-sm leading-relaxed text-slate-200">
+        <strong class="text-emerald">Standing commitment:</strong> Animus Infra does not sell, rent, trade, or otherwise monetize telemetry data or personal data, to anyone, under any circumstances. Nothing below changes that.
+      </p>
+    </div>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">1. What This Site Collects</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        This site does not use cookies, third-party analytics, or ad-tracking scripts of any kind. The only personal data collected is what you voluntarily submit through the <strong class="text-slate-200">Request Benchmark Access</strong> form:
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-slate-500 uppercase tracking-wider border-b border-border font-mono">
+              <th class="p-3">Field</th>
+              <th class="p-3">Purpose</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60"><td class="p-3">Name, email</td><td class="p-3 text-slate-400">Identify and respond to your request</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3">Organization, organization type</td><td class="p-3 text-slate-400">Qualify institutional-evaluation eligibility</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3">Intended core footprint, use case</td><td class="p-3 text-slate-400">Scope the evaluation build and license terms</td></tr>
+            <tr><td class="p-3">IP address, submission timestamp</td><td class="p-3 text-slate-400">Abuse/spam prevention, request audit trail</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-sm leading-relaxed">
+        We do not collect payment information on this site; commercial billing, where applicable, is handled separately under an executed order form.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">2. How It's Processed</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        A benchmark-access submission is sent to <code class="font-mono text-cyan">inquiries@animusinfra.com</code> via our transactional email provider (Resend), and a structured record is written to our hosting provider's (Vercel) private serverless function logs as the durable record of the request. If an internal notification webhook is configured, the same submission is also forwarded there. No submission is used for advertising, profiling, or any purpose other than evaluating and responding to that specific request.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">3. Who We Share It With</h2>
+      <p class="mt-4 text-sm leading-relaxed">We use a small number of infrastructure subprocessors to operate this site and process requests, each solely as a data processor acting on our instructions, never as an independent recipient free to use your data for its own purposes:</p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed list-disc list-inside marker:text-cyan">
+        <li><strong class="text-slate-200">Vercel</strong> &mdash; hosting and serverless request handling.</li>
+        <li><strong class="text-slate-200">Resend</strong> &mdash; transactional email delivery for benchmark-access notifications.</li>
+      </ul>
+      <p class="mt-4 text-sm leading-relaxed">
+        We do not share, sell, or disclose your data to any other third party, except where required by law, subpoena, or valid legal process, or to protect the rights, property, or safety of Animus Infra, our users, or the public.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. Telemetry Processed Through the Software</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Under the Pilot Evaluation &amp; Commercial License Agreement, Customer retains all rights in the telemetry data, event streams, and other content Customer processes through the Software during an evaluation or production engagement. Animus Infra claims no ownership interest in that data and does not access, retain, or sell it beyond what is strictly necessary to deliver support the Customer has requested.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Retention</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Benchmark-access request records are retained only as long as necessary to evaluate and respond to the request, maintain a record of issued evaluation licenses, and meet our own legal/audit obligations, after which they are deleted or anonymized.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">6. Your Rights</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        You may request access to, correction of, or deletion of the personal data we hold about you by emailing <a href="mailto:inquiries@animusinfra.com" class="text-cyan hover:underline">inquiries@animusinfra.com</a>. We will respond within a reasonable time and in accordance with applicable data-protection law in your jurisdiction.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">7. Children's Privacy</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        This site is directed at institutional trading and infrastructure evaluators and is not intended for, nor knowingly directed at, children.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">8. Changes to This Policy</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        This policy may be updated from time to time; the effective date above reflects the most recent revision. Material changes will be reflected here.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">9. Contact</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Privacy questions or data requests: <a href="mailto:inquiries@animusinfra.com" class="text-cyan hover:underline">inquiries@animusinfra.com</a>.
+      </p>
+    </section>
+
+    <p class="mt-16 text-xs text-slate-600 italic leading-relaxed border-t border-border pt-6">
+      Draft prepared with AI assistance as a structural starting point, following the same convention already used for this project's Pilot Evaluation &amp; Commercial License Agreement (<code class="font-mono not-italic">LEGAL_EULA.md</code>). It has not been reviewed by a qualified attorney and should be reviewed by counsel for compliance with data-protection law in the jurisdictions you operate in (e.g. GDPR, CCPA) before being relied upon.
+    </p>
+  </main>
+
+  <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
+    &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
+    <nav class="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wider">
+      <a href="/terms" class="text-slate-500 hover:text-cyan transition">Terms of Service</a>
+      <span class="text-border">&middot;</span>
+      <a href="/privacy" class="text-cyan">Privacy Policy</a>
+    </nav>
+  </footer>
+
+</body>
+</html>

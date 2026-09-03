@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service | Animus Engine</title>
+<meta name="description" content="Terms of Service for animuscore.com and Animus Engine evaluation access: institutional non-production evaluation license, zero liability for trading/execution outcomes, and no sale of telemetry data.">
+<meta name="robots" content="noindex, follow">
+<link rel="icon" type="image/png" href="/logo.png">
+<link rel="shortcut icon" type="image/png" href="/logo.png">
+<link rel="apple-touch-icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+      },
+      colors: {
+        void: '#020408',
+        panel: '#0A0F1D',
+        border: '#1E293D',
+        cyan: '#00F0FF',
+        emerald: '#00FF66',
+        danger: '#FF4B4B'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root{ --void:#020408; --panel:#0A0F1D; --border:#1E293D; --cyan:#00F0FF; }
+  html,body{ background:var(--void); }
+  .legal h2{ scroll-margin-top: 6rem; }
+</style>
+</head>
+<body class="bg-void text-slate-300 font-sans antialiased">
+
+  <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
+    <div class="max-w-5xl mx-auto py-4 px-6 flex items-center justify-between gap-6">
+      <a href="/" class="flex items-center gap-3 min-w-0">
+        <img src="/logo.png" alt="Animus Engine" class="h-10 w-auto object-contain" onerror="this.style.display='none';">
+        <span class="font-bold text-sm tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
+      </a>
+      <a href="/" class="text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-cyan transition">&larr; Back to Home</a>
+    </div>
+  </nav>
+
+  <main class="legal max-w-3xl mx-auto px-6 pt-32 pb-24">
+    <div class="inline-flex items-center gap-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-sm text-cyan text-[11px] font-bold mb-6 font-mono uppercase tracking-widest">
+      Legal
+    </div>
+    <h1 class="text-3xl md:text-4xl font-extrabold text-white font-sans">Terms of Service</h1>
+    <p class="mt-3 text-sm text-slate-500 font-mono">Effective date: [EFFECTIVE DATE] &middot; Applies to animuscore.com and any Animus Engine evaluation access requested through it.</p>
+
+    <div class="mt-6 border border-border bg-panel rounded-sm p-4 text-xs text-slate-400 leading-relaxed">
+      This page governs use of this website and of any Software provided for institutional evaluation as described below. It is a summary of terms for site visitors and evaluation requesters &mdash; it does not replace, and is superseded by, any signed Pilot Evaluation &amp; Commercial License Agreement or production order form executed between Animus Infra and a Customer, which controls for that engagement.
+    </div>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">1. Institutional Evaluation License Only</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Any access to the Animus Engine software, benchmark binaries, SDK, or associated materials ("<strong class="text-slate-200">Software</strong>") granted through a benchmark-access request on this site is provided solely as a <strong class="text-slate-200">non-production, institutional evaluation license</strong> &mdash; for internal technical evaluation by a qualified quantitative trading desk, fintech infrastructure team, or similar institutional counterparty, and for no other purpose.
+      </p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed list-disc list-inside marker:text-cyan">
+        <li>Evaluation access is <strong class="text-slate-200">not</strong> a production license and may not be used to process live orders, route live execution traffic, or otherwise support a revenue-generating or customer-facing system.</li>
+        <li>Evaluation access is time-limited, revocable, and (where a hardware-locked License File is issued) bound to a single fingerprinted machine, as described in the Pilot Evaluation &amp; Commercial License Agreement issued alongside it.</li>
+        <li>Production use requires a separate, executed commercial license (Production Node License or Custom Source License) under a written order form. No production right is created by this Terms of Service page or by the act of submitting a benchmark-access request.</li>
+        <li>Reverse engineering, redistribution, resale, or sublicensing of the Software is prohibited, consistent with the Restrictions section of the governing license agreement.</li>
+      </ul>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">2. Zero Liability for Trading &amp; Execution Outcomes</h2>
+      <div class="mt-4 border border-danger/30 bg-danger/5 rounded-sm p-4">
+        <p class="text-sm leading-relaxed text-slate-200">
+          <strong class="text-danger">To the maximum extent permitted by applicable law, Animus Infra bears zero financial liability, of any kind, for any trading or execution outcome arising from use of the Software</strong> &mdash; whether during an evaluation, a benchmark, a proof-of-concept, or any other non-production engagement. This includes, without limitation: slippage, missed or delayed fills, rejected or duplicated orders, incorrect order routing, mismatched position or P&amp;L state, market data staleness or loss, or any other execution-path error or omission, however caused, including by a defect in the Software itself.
+        </p>
+      </div>
+      <p class="mt-4 text-sm leading-relaxed">
+        This is a stricter, absolute exclusion specific to trading and execution outcomes, layered on top of &mdash; not a replacement for &mdash; the general warranty disclaimer and capped limitation of liability set out in the Pilot Evaluation &amp; Commercial License Agreement governing any executed engagement. Nothing in this Section 2 is intended to exclude liability that cannot lawfully be excluded in the applicable jurisdiction (for example, liability for fraud or willful misconduct).
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        The Software is benchmarking and telemetry infrastructure. It is not investment advice, a broker-dealer service, an order-management or execution-management system of record, or a substitute for a counterparty's own risk controls, and no benchmark figure published on this site (latency, throughput, or otherwise) is a guarantee of performance on any customer's hardware, network, or workload.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">3. No Sale of Telemetry or Personal Data</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Animus Infra does not sell, rent, or trade telemetry data, benchmark data, or personal data submitted through this site or processed by the Software, to any third party, for any purpose, at any time. See the <a href="/privacy" class="text-cyan hover:underline">Privacy Policy</a> for the full detail on what is collected, why, and who (if anyone) it is shared with.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. Intellectual Property</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        This site and the Software are the property of Animus Infra (or its licensors) and are protected by applicable intellectual property law. No rights are granted to you by browsing this site or submitting a benchmark-access request other than the limited evaluation license described in Section 1, once actually issued.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Site Disclaimer &amp; Availability</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        This site and the benchmark figures, code samples, and documentation published on it are provided "as is," without warranty of any kind, and may be changed or taken down at any time without notice. Submitting the benchmark-access form does not guarantee access will be granted.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">6. Governing Law</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        These Terms are governed by the laws of <strong class="text-slate-200">[GOVERNING JURISDICTION]</strong>, without regard to conflict-of-laws principles, and any dispute is subject to the exclusive jurisdiction of the courts located in <strong class="text-slate-200">[VENUE]</strong>, except where a separately executed license agreement specifies otherwise for that engagement.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">7. Changes to These Terms</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        These Terms may be updated from time to time; the effective date above reflects the most recent revision. Material changes affecting an active evaluation or commercial engagement will be communicated directly rather than through this page alone.
+      </p>
+    </section>
+
+    <section class="mt-10">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">8. Contact</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Questions about these Terms: <a href="mailto:inquiries@animusinfra.com" class="text-cyan hover:underline">inquiries@animusinfra.com</a>.
+      </p>
+    </section>
+
+    <p class="mt-16 text-xs text-slate-600 italic leading-relaxed border-t border-border pt-6">
+      Draft prepared with AI assistance as a structural starting point, following the same convention already used for this project's Pilot Evaluation &amp; Commercial License Agreement (<code class="font-mono not-italic">LEGAL_EULA.md</code>). It has not been reviewed by a qualified attorney and should be reviewed by counsel in the governing jurisdiction &mdash; in particular Sections 2 and 6 &mdash; before being relied upon in a dispute.
+    </p>
+  </main>
+
+  <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
+    &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
+    <nav class="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wider">
+      <a href="/terms" class="text-cyan">Terms of Service</a>
+      <span class="text-border">&middot;</span>
+      <a href="/privacy" class="text-slate-500 hover:text-cyan transition">Privacy Policy</a>
+    </nav>
+  </footer>
+
+</body>
+</html>

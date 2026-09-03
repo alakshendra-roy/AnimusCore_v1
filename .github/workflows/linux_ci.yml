@@ -1,0 +1,135 @@
+name: Linux CI (SHM Hardening)
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  shm-verification:
+    name: Linux (g++ / real /dev/shm) - build.sh, ASan/UBSan, 10M-event harness
+    runs-on: ubuntu-22.04
+    env:
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          ${CXX} --version
+          python3 --version
+
+      - name: Verify POSIX /dev/shm is available (Milestone 1/2 target)
+        run: |
+          test -d /dev/shm
+          df -h /dev/shm
+
+      # Builds benchmarks/build/harness_benchmark (-O3 -march=native) and
+      # benchmarks/build/harness_benchmark_sanitized (-fsanitize=address,undefined),
+      # exactly as documented in that script's own header comment.
+      - name: Run benchmarks/build.sh (release + ASan/UBSan targets)
+        run: |
+          chmod +x benchmarks/build.sh
+          ./benchmarks/build.sh
+
+      - name: Verify both binaries were produced
+        run: |
+          test -x benchmarks/build/harness_benchmark
+          test -x benchmarks/build/harness_benchmark_sanitized
+
+      # Correctness, not performance -- sanitizer instrumentation makes
+      # latency numbers meaningless (see build.sh), so this uses a small
+      # event count and checks for a clean exit, not the numbers printed.
+      # Exercises both push paths (Milestone 1's bounded and decoupled
+      # modes) under ASan+UBSan.
+      - name: ASan/UBSan target -- decoupled overwrite mode
+        working-directory: benchmarks
+        run: |
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            ./build/harness_benchmark_sanitized --name ci_asan_overwrite --events 200000 --capacity 4096 --unlink-when-done
+
+      - name: ASan/UBSan target -- bounded backpressure mode (with a live consumer)
+        working-directory: benchmarks
+        shell: bash
+        run: |
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            ./build/harness_benchmark_sanitized --name ci_asan_backpressure --events 200000 --capacity 4096 --backpressure &
+          producer_pid=$!
+          sleep 0.5
+          python3 consumer.py --name ci_asan_backpressure --events 200000 --idle-timeout-s 5
+          consumer_status=$?
+          wait "$producer_pid"
+          producer_status=$?
+          echo "producer_status=$producer_status consumer_status=$consumer_status"
+          [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
+
+      # Milestone 2: SIGINT must detach this process's view cleanly (unmap,
+      # no unlink while the segment name is still in use) with no
+      # ASan-reported leak or use-after-free from the teardown path --
+      # exactly the check benchmarks/build.sh's own usage output suggests.
+      # A large --events count with no consumer keeps the producer spinning
+      # in push_overwrite() long enough for the SIGINT to land mid-loop
+      # rather than after natural completion.
+      - name: ASan/UBSan target -- SIGINT clean-teardown check
+        working-directory: benchmarks
+        shell: bash
+        run: |
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            ./build/harness_benchmark_sanitized --name ci_asan_sigint --events 100000000 --capacity 65536 &
+          pid=$!
+          sleep 1
+          kill -INT "$pid"
+          wait "$pid"
+          status=$?
+          echo "exit status after SIGINT: $status"
+          # A clean, caught SIGINT exits 0 (main() returns after the loop
+          # observes shutdown_requested()); a sanitizer-reported fault
+          # would exit non-zero instead.
+          [ "$status" -eq 0 ]
+
+      # The actual Milestone 4 deliverable: two independent OS processes
+      # (the release, non-sanitized C++ producer and a separate Python
+      # interpreter) exchanging 10,000,000 records through real POSIX
+      # shared memory under /dev/shm, with zero loss and validated
+      # integrity end to end. Uses the release build, not the sanitized
+      # one, so the numbers reflect real performance, not instrumented
+      # overhead.
+      - name: Cross-process 10,000,000-event harness (backpressure, zero-loss)
+        working-directory: benchmarks
+        shell: bash
+        run: |
+          ./build/harness_benchmark --name ci_harness_10m --events 10000000 --capacity 1048576 \
+            --backpressure --json harness_10m.json &
+          producer_pid=$!
+          sleep 0.5
+          python3 consumer.py --name ci_harness_10m --events 10000000 --idle-timeout-s 10 | tee consumer_10m.log
+          consumer_status=${PIPESTATUS[0]}
+          wait "$producer_pid"
+          producer_status=$?
+          echo "producer_status=$producer_status consumer_status=$consumer_status"
+          grep -q "events consumed:     10000000" consumer_10m.log
+          grep -q "sequence gaps seen:  0 " consumer_10m.log
+          grep -q "data integrity:      OK (monotonic, no repeats/reversals)" consumer_10m.log
+          [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
+
+      # Standalone decoupled-overwrite run at full scale (no live consumer)
+      # -- proves the producer's own claim in harness_benchmark.cpp's file
+      # header: it is fully self-contained and never blocks even with
+      # nothing draining the ring, and dropped_count() deterministically
+      # accounts for every record that didn't survive.
+      - name: Cross-process 10,000,000-event harness (standalone overwrite mode)
+        working-directory: benchmarks
+        run: |
+          ./build/harness_benchmark --name ci_harness_10m_overwrite --events 10000000 \
+            --unlink-when-done --json harness_10m_overwrite.json
+
+      - name: Upload benchmark JSON + consumer log
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-shm-harness-results
+          path: |
+            benchmarks/harness_10m.json
+            benchmarks/harness_10m_overwrite.json
+            benchmarks/consumer_10m.log
