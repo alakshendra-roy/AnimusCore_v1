@@ -174,7 +174,17 @@ namespace ipc {
             out.size_ = mbi.RegionSize;
             return true;
 #else
-            int fd = ::open(name, O_RDWR);
+            // Bug fixed here (caught on real Linux CI, never on the Windows
+            // branch above or on the pure-Python multiprocessing.shared_memory
+            // path, which does its own correct shm_open internally): this
+            // must be shm_open(), not the raw ::open() syscall. shm_open()
+            // resolves `name` through the shared-memory namespace (glibc:
+            // strips a leading '/' if present, then looks under /dev/shm/)
+            // the exact same way create()'s shm_open() call above does --
+            // ::open() on a bare name like "my_ring" instead performs an
+            // ordinary filesystem lookup relative to the current working
+            // directory, which is never where create() actually put it.
+            int fd = shm_open(name, O_RDWR, 0600);
             if (fd < 0) return false;
             struct stat st{};
             if (fstat(fd, &st) != 0 || st.st_size <= 0) {
