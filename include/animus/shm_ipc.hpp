@@ -32,6 +32,7 @@
 //     discovery on the attach side.
 
 #include "thread_affinity.hpp"
+#include "shm_lifecycle.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -329,7 +330,9 @@ namespace ipc {
         size_t capacity() const noexcept { return header_ ? static_cast<size_t>(header_->capacity) : 0; }
 
         // Producer-side only (one process). Never blocks; returns false
-        // if the ring is full.
+        // if the ring is full. Use this when a full ring should be treated
+        // as backpressure the caller reacts to (retry, spill elsewhere,
+        // count as a hard drop at the call site).
         bool try_push(const T& value) noexcept {
             const uint64_t head = header_->head.load(std::memory_order_relaxed);
             const uint64_t tail = header_->tail.load(std::memory_order_acquire);
@@ -337,6 +340,52 @@ namespace ipc {
             slots_[head & header_->mask] = value;
             header_->head.store(head + 1, std::memory_order_release);
             return true;
+        }
+
+        // Producer-side only. Decoupled/overwrite mode: never blocks and
+        // never refuses -- if the ring is full, forcibly reclaims the
+        // oldest not-yet-consumed slot (the one at the current `tail`) by
+        // advancing tail past it and incrementing dropped_count(), then
+        // writes the new value. This is the "producer must not block the
+        // core execution thread" contract: a lagging or dead consumer can
+        // never slow the producer down, only cause it to lose visibility
+        // into old data it hasn't consumed yet -- deterministically counted,
+        // not silently lost.
+        //
+        // Concurrency note: reclaiming the oldest slot while a consumer may
+        // concurrently be mid-try_pop()/pop_spin() on that exact slot is a
+        // deliberate, documented race, not an oversight -- the consumer's
+        // acquire-load of `head` and relaxed-load of `tail` give it no
+        // way to distinguish "genuinely empty" from "just overwritten out
+        // from under me" in overwrite mode, so a concurrent reader can
+        // observe a torn record at the reclaim boundary. Only pair
+        // push_overwrite() with a consumer that tolerates occasional torn
+        // reads at that boundary (e.g. best-effort telemetry/sampling) --
+        // never with a channel that must never observe a torn record. A
+        // consumer that must see clean records with a lagging producer
+        // should use try_push()/push_spin() (bounded backpressure) instead.
+        void push_overwrite(const T& value) noexcept {
+            const uint64_t head = header_->head.load(std::memory_order_relaxed);
+            const uint64_t tail = header_->tail.load(std::memory_order_acquire);
+            if (head - tail >= header_->capacity) {
+                // Full: reclaim the oldest slot ourselves. fetch_add (not a
+                // plain store) so this stays correct even if a concurrent
+                // try_pop() on the consumer side has already moved tail
+                // past this exact value -- either way, tail ends up at
+                // least one slot further along than it started here.
+                header_->tail.fetch_add(1, std::memory_order_acq_rel);
+                header_->dropped_count.fetch_add(1, std::memory_order_relaxed);
+            }
+            slots_[head & header_->mask] = value;
+            header_->head.store(head + 1, std::memory_order_release);
+        }
+
+        // Count of records reclaimed by push_overwrite() because the ring
+        // was full when they were pushed -- the deterministic loss-tracking
+        // half of the decoupled overwrite contract. Always 0 for a ring
+        // whose producer only ever calls try_push()/push_spin().
+        uint64_t dropped_count() const noexcept {
+            return header_ ? header_->dropped_count.load(std::memory_order_relaxed) : 0;
         }
 
         // Consumer-side only (one process). Never blocks; returns false
@@ -376,6 +425,88 @@ namespace ipc {
             return false;
         }
 
+        // --- Lifecycle / zombie-state prevention ---------------------------
+        //
+        // Publishing a side's OS pid plus a monotonically-incrementing
+        // heartbeat into the header lets the *other* side detect an abrupt
+        // termination (kill -9, a segfault the crashed process never got to
+        // handle) without that detection depending on any atomic wait state
+        // that could itself deadlock: try_push/try_pop/push_spin/pop_spin
+        // already never block indefinitely (push_spin/pop_spin are bounded
+        // by max_spins and return false, not hang), so what a caller
+        // actually needs here is a way to tell "the peer is gone, stop
+        // retrying" apart from "the peer is just momentarily behind" --
+        // that's what is_producer_alive()/is_consumer_alive() answer.
+        //
+        // Call mark_producer_attached()/mark_consumer_attached() once, right
+        // after create()/open(), from whichever process is playing that
+        // role. Call the matching heartbeat() periodically (e.g. once per
+        // push()/pop() call, or on a timer) from the same process. A dead
+        // process's pid becomes instantly unambiguous to the OS (POSIX:
+        // kill(pid, 0) fails ESRCH; Windows: OpenProcess fails or the
+        // handle's exit code is no longer STILL_ACTIVE) even under kill -9,
+        // which gives no chance to run any cleanup of its own -- the
+        // heartbeat is a secondary, coarser signal for a peer that is alive
+        // but wedged (e.g. stopped under a debugger, deadlocked elsewhere).
+        void mark_producer_attached() noexcept {
+            header_->producer_pid.store(sys::lifecycle::current_process_id(), std::memory_order_release);
+            header_->producer_heartbeat.store(1, std::memory_order_release);
+        }
+        void mark_consumer_attached() noexcept {
+            header_->consumer_pid.store(sys::lifecycle::current_process_id(), std::memory_order_release);
+            header_->consumer_heartbeat.store(1, std::memory_order_release);
+        }
+        void producer_heartbeat() noexcept {
+            header_->producer_heartbeat.fetch_add(1, std::memory_order_relaxed);
+        }
+        void consumer_heartbeat() noexcept {
+            header_->consumer_heartbeat.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        // True unless the producer has attached and then either exited (its
+        // pid no longer refers to a live process) or gone silent for
+        // `stale_after` consecutive heartbeat() calls observed with no
+        // change -- a producer that never called mark_producer_attached()
+        // (pid still 0) is reported alive, since "no producer has shown up
+        // yet" is a different condition from "the producer died" and this
+        // function only answers the latter.
+        bool is_producer_alive(uint64_t stale_after = 0) const noexcept {
+            return peer_alive(header_->producer_pid, header_->producer_heartbeat,
+                               last_seen_producer_heartbeat_, producer_stall_count_, stale_after);
+        }
+        bool is_consumer_alive(uint64_t stale_after = 0) const noexcept {
+            return peer_alive(header_->consumer_pid, header_->consumer_heartbeat,
+                               last_seen_consumer_heartbeat_, consumer_stall_count_, stale_after);
+        }
+
+    private:
+        // Shared implementation for is_producer_alive/is_consumer_alive.
+        // `last_seen`/`stall_count` are this ShmRing instance's own mutable
+        // cache fields (not shared state) -- staleness is tracked
+        // per-caller, across successive is_*_alive() polls, deliberately
+        // not derived from wall-clock time so this stays free of any clock
+        // dependency and remains exact under a paused/single-stepped peer.
+        static bool peer_alive(const std::atomic<uint64_t>& pid_field,
+                               const std::atomic<uint64_t>& heartbeat_field,
+                               uint64_t& last_seen, uint64_t& stall_count, uint64_t stale_after) noexcept {
+            const uint64_t pid = pid_field.load(std::memory_order_acquire);
+            if (pid == 0) return true; // peer hasn't attached yet -- not a death
+            if (!sys::lifecycle::is_process_alive(pid)) return false;
+            if (stale_after == 0) return true; // pid-liveness only, no heartbeat staleness check requested
+            const uint64_t hb = heartbeat_field.load(std::memory_order_acquire);
+            if (hb != last_seen) {
+                last_seen = hb;
+                stall_count = 0;
+                return true;
+            }
+            return ++stall_count < stale_after;
+        }
+
+        mutable uint64_t last_seen_producer_heartbeat_ = 0;
+        mutable uint64_t last_seen_consumer_heartbeat_ = 0;
+        mutable uint64_t producer_stall_count_ = 0;
+        mutable uint64_t consumer_stall_count_ = 0;
+
     private:
         ShmRing() noexcept = default;
 
@@ -395,15 +526,28 @@ namespace ipc {
         struct alignas(ANIMUS_CACHE_LINE_SIZE) Header {
             uint64_t capacity = 0;
             uint64_t mask = 0;
-            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 }; // producer-only writes
-            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> tail{ 0 }; // consumer-only writes
+            // Producer-owned line: head plus every field only the producer
+            // ever writes (dropped_count via push_overwrite(), pid/heartbeat
+            // via mark_producer_attached()/producer_heartbeat()). Sharing
+            // this line among producer-only writes is free -- it's the same
+            // single writer, so there is no false sharing to avoid, unlike
+            // splitting head from tail (different writers) below.
+            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 };
+            std::atomic<uint64_t> dropped_count{ 0 };
+            std::atomic<uint64_t> producer_pid{ 0 };
+            std::atomic<uint64_t> producer_heartbeat{ 0 };
+            // Consumer-owned line: tail plus the consumer's own pid/heartbeat.
+            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> tail{ 0 };
+            std::atomic<uint64_t> consumer_pid{ 0 };
+            std::atomic<uint64_t> consumer_heartbeat{ 0 };
         };
         static_assert(std::atomic<uint64_t>::is_always_lock_free,
             "Header lives in memory shared across process boundaries -- a non-lock-free "
             "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
         static_assert(sizeof(Header) == 3 * ANIMUS_CACHE_LINE_SIZE,
-            "Header must be exactly 3 cache lines: metadata, head, tail -- if this fails, "
-            "the alignas(ANIMUS_CACHE_LINE_SIZE) members above aren't landing on distinct lines");
+            "Header must be exactly 3 cache lines: metadata, producer-owned, consumer-owned "
+            "-- if this fails, the alignas(ANIMUS_CACHE_LINE_SIZE) members above aren't "
+            "landing on distinct lines, or a line's fields grew past 64 bytes");
 
         static uint64_t round_up_pow2(size_t v) noexcept {
             uint64_t p = 1;
