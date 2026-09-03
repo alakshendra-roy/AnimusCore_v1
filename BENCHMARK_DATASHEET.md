@@ -96,6 +96,28 @@ A different methodology layer from every table above: one producer thread and on
 
 *This is SPSC (one producer, one consumer, zero compare-exchange contention) with a consumer actively draining concurrently — not directly comparable to the 8-producer MPMC contention figure above (different contention model) or the single-threaded, no-cross-core-hop figures elsewhere in this document (different workload entirely). Max latency runs into the hundreds of microseconds across all 3 runs, reflecting OS scheduling noise (context switches, timer interrupts) on the pinned cores rather than the transport itself; p50/p90/p99 are the steady-state figures.*
 
+### Cross-process shared-memory producer — real Linux CI verification
+
+*Source: `benchmarks/harness_benchmark.cpp`, run via `eval_kit/`'s `run_demo.sh` on a genuine `ubuntu-22.04` GitHub Actions runner (`.github/workflows/eval_kit_packaging.yml`, [run 33806378357](https://github.com/alakshendra-roy/AnimusCore_v1/actions/runs/33806378357)) — not a container claiming Linux compatibility, and not cross-compiled or emulated. Reproduce with `./run_demo.sh` from an extracted `eval_kit` tarball, or directly with `./bin/harness_benchmark --events 10000000 --mode overwrite`.*
+
+A different question again from the cross-core SPSC figures above: not thread-to-thread inside one process, but two independent OS processes — this producer and `eval_kit/scripts/verify_stream.py`'s nanobind consumer — over real POSIX `/dev/shm`. 10,000,000 synthetic events, decoupled/non-blocking overwrite mode (the producer never waits on a consumer; see §1), built `-O3 -march=x86-64-v3` with Ubuntu clang 14.0.0. Per-event enqueue latency below is a serialized RDTSC read immediately before and after each `push_overwrite()` call, calibrated against wall clock at process startup:
+
+| Percentile | Latency |
+|---|---|
+| min | 20.0 ns |
+| **p50 (median)** | **30.3 ns** |
+| p90 | 40.1 ns |
+| p99 | 40.1 ns |
+| p99.9 | 2.7 µs |
+| max | 32.5 µs |
+
+| Metric | Result |
+|---|---|
+| **Sustained throughput** | **13.856 M events/sec** |
+| Wall time | 0.722 s (10,000,000 events) |
+
+*A single representative run, not yet averaged across multiple runs the way the C++23 harness above is — this is the first real Linux execution of this transport, reported as measured rather than held back for more samples. Verified two ways: the CI run's own build/binary/wheel inspection steps (confirmed a genuine ELF executable and `linux_x86_64` wheel tags, not a cross-compiled or misidentified artifact), and independently by downloading the produced tarball (`gh run download 33806378357`) and recomputing its SHA-256 locally, which matched the checksum CI itself reported byte-for-byte (`24f0902f0b28eda5d34ed05cd686765ff39b3bca02ff5a35c1c12675aa1ba1fd`). This same CI run is what caught and fixed a real bug in `include/animus/shm_ipc.hpp`'s POSIX consumer-attach path — see `AnimusCore_v1/BENCHMARKS.md`'s Phase 29 for the full account.*
+
 ---
 
 ## 3. System Diagram
