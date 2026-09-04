@@ -37,19 +37,24 @@ from typing import NamedTuple, Optional
 # --- Header layout: must match ShmRing<ExecutionEvent>::RingHeader exactly -
 # (include/animus/shm_ipc.hpp). Milestone 1 grew the header with a
 # read-only wire-schema descriptor (schema_version_hash/payload_size/
-# stride/wire_format) ahead of the cursor lines -- on a 64-byte-cache-line
-# target that descriptor is itself 2 full lines (128 bytes: 40 bytes of
-# capacity/mask/schema_version_hash/payload_size/stride + an 88-byte
-# wire_format buffer), so head/tail moved from where they lived before this
-# milestone (offsets 64/128) out to 128/192. Four 64-byte cache lines total.
+# stride/wire_format) ahead of the cursor lines, and Milestone 2 added one
+# more field (ring_kind, distinguishing this SPSC header from
+# SpmcRingHeader) ahead of that -- on a 64-byte-cache-line target the
+# whole descriptor is 2 full lines (128 bytes: 48 bytes of
+# capacity/mask/ring_kind/schema_version_hash/payload_size/stride + an
+# 80-byte wire_format buffer), so head/tail still land at 128/192 (the
+# descriptor's total size hasn't changed since Milestone 1, only which
+# bytes within it are which field). Four 64-byte cache lines total.
 _HEADER_SIZE = 256
 _CAPACITY_OFF = 0
 _MASK_OFF = 8
-_SCHEMA_VERSION_HASH_OFF = 16
-_PAYLOAD_SIZE_OFF = 24
-_STRIDE_OFF = 32
-_WIRE_FORMAT_OFF = 40
-_WIRE_FORMAT_SIZE = 88
+_RING_KIND_OFF = 16
+_SCHEMA_VERSION_HASH_OFF = 24
+_PAYLOAD_SIZE_OFF = 32
+_STRIDE_OFF = 40
+_WIRE_FORMAT_OFF = 48
+_WIRE_FORMAT_SIZE = 80
+_RING_KIND_SPSC = 0
 _HEAD_OFF = 128
 _DROPPED_COUNT_OFF = 136
 _PRODUCER_PID_OFF = 144
@@ -128,6 +133,18 @@ class ShmExecutionConsumer:
         self._shm = shared_memory.SharedMemory(name=name, create=False)
         self.capacity = _read_u64(self._shm.buf, _CAPACITY_OFF)
         self.mask = _read_u64(self._shm.buf, _MASK_OFF)
+        # Milestone 2 check, mirroring ShmRing<T>::open()'s own ring_kind
+        # validation: refuse to attach to an SpmcRing<T> broadcast segment
+        # (include/animus/shm_ipc.hpp) -- its header is a different shape
+        # past this point (no shared tail at all), so misreading one as an
+        # SPSC RingHeader would silently decode the wrong bytes as
+        # head/dropped_count/tail instead of failing loudly here.
+        ring_kind = _read_u64(self._shm.buf, _RING_KIND_OFF)
+        if ring_kind != _RING_KIND_SPSC:
+            raise ValueError(
+                f"segment '{name}' has ring_kind={ring_kind}, expected {_RING_KIND_SPSC} (SPSC) -- "
+                f"this script only understands ShmRing<T>'s single-producer/single-consumer ring, "
+                f"not SpmcRing<T>'s broadcast ring")
         # Milestone 1 schema check, mirroring ShmRing<T>::open()'s own
         # payload_size validation (shm_ipc.hpp) on the C++ side: refuse to
         # attach if the segment's stamped record size doesn't match this

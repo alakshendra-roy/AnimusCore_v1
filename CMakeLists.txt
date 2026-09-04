@@ -156,3 +156,23 @@ endif()
 set_target_properties(test_dynamic_schema PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# test_spmc -- Milestone 2 regression test (Single-Producer Multi-Consumer
+# Broadcast Ring). Same shape as test_dynamic_schema above; this binary is
+# all three roles (one producer, two independently-paced consumers),
+# selected by argv -- see tests/test_spmc.cpp's own header comment for how
+# to run it as three separate OS processes.
+add_executable(test_spmc
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_spmc.cpp
+)
+target_include_directories(test_spmc PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(test_spmc PRIVATE cxx_std_17)
+target_link_libraries(test_spmc PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(test_spmc PRIVATE rt)
+endif()
+set_target_properties(test_spmc PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
