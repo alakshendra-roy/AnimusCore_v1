@@ -176,3 +176,23 @@ endif()
 set_target_properties(test_spmc PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# test_telemetry -- Milestone 3 regression test (Non-Blocking Telemetry &
+# Observability Layer). Single-process (see tests/test_telemetry.cpp's own
+# header comment for why AnimusGetMetrics() doesn't need a second OS
+# process to exercise), same include/-only dependency shape as the other
+# tests above.
+add_executable(test_telemetry
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_telemetry.cpp
+)
+target_include_directories(test_telemetry PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(test_telemetry PRIVATE cxx_std_17)
+target_link_libraries(test_telemetry PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(test_telemetry PRIVATE rt)
+endif()
+set_target_properties(test_telemetry PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
