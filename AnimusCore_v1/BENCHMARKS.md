@@ -1046,3 +1046,48 @@ Seven consecutive dashboard frames, timestamps and values exactly as captured (n
 
 * **Status:** Phase 30 `animus_stat.py` Live Dashboard Manually Verified -- accurate real-time HEAD/rate/lag/producer-liveness tracking against a genuine actively-writing producer, confirmed across 7 live refresh cycles with correct 2-second cadence, and clean automatic segment teardown with no manual `unlink()` required.
 * **Status:** Phase 27 Re-Verification Run Recorded -- `fintech_tail_latency.py` remains fixed and functional; this run's numbers extend, rather than contradict, the pinned-vs-unpinned behavior already characterized in Phase 14/26.
+
+## Phase 31: `scripts/animus_stat.py --prometheus` -- Manual Verification Against Real SPSC and SPMC Rings, Side by Side
+
+### Target System
+
+`scripts/animus_stat.py --prometheus` (Milestone 3), sampled twice a few seconds apart against two simultaneously-live segments of different ring kinds: an `animus::sys::ipc::ShmRing<ExecutionEvent>` (SPSC, via `SharedExecutionChannel`) and an `animus::sys::ipc::SpmcRing<ExecutionEvent>` (broadcast, via `SpmcConsumerChannel`), both created and continuously written to through the compiled `_animus_shm_native` extension. Same machine/`venv` as Phase 30; follows directly from that demo, this time exercising the OpenMetrics/Prometheus output path instead of the live terminal dashboard.
+
+### Method
+
+Two producer processes launched as PowerShell background jobs within a single tool invocation (Phase 30's own finding about job lifetime applied directly here): one pushing to a deliberately small (`capacity=64`) SPSC ring every 5ms via `push()`, falling back to `push_overwrite()` whenever the ring is full -- capacity this small guarantees the ring fills and starts overwriting almost immediately, so `animus_ring_dropped_total`/`animus_ring_consumer_lag` would have real, nonzero values to check, not just an untested zero; the other broadcasting to a `capacity=1024` SPMC ring every 5ms via `broadcast()`. `animus_stat.py --name prom_demo_spsc prom_demo_spmc --prometheus` was run twice, 2 seconds apart, against both names in one invocation each time.
+
+### Results
+
+**First sample (~2s after producers started):**
+
+| Metric | `prom_demo_spsc` (spsc) | `prom_demo_spmc` (spmc) |
+|---|---|---|
+| `animus_ring_capacity` | 64 | 1024 |
+| `animus_ring_events_total` | 371 | 358 |
+| `animus_ring_dropped_total` | 307 | *(absent)* |
+| `animus_ring_consumer_lag` | 64 | *(absent)* |
+| `animus_ring_producer_alive` | 1 | 1 |
+
+**Second sample (2s later):**
+
+| Metric | `prom_demo_spsc` (spsc) | `prom_demo_spmc` (spmc) |
+|---|---|---|
+| `animus_ring_capacity` | 64 | 1024 |
+| `animus_ring_events_total` | 767 | 754 |
+| `animus_ring_dropped_total` | 703 | *(absent)* |
+| `animus_ring_consumer_lag` | 64 | *(absent)* |
+| `animus_ring_producer_alive` | 1 | 1 |
+
+Both producers finished their own full runs shortly after (unrelated to being sampled): `spsc producer done, pushed approx 2751`, `spmc producer done, broadcast approx 2752`. Both segments confirmed gone immediately afterward (`multiprocessing.shared_memory.SharedMemory(name=..., create=False)` raising `FileNotFoundError` for both) -- no manual `unlink()` needed, no leaked segment on either ring kind.
+
+* **Counters genuinely advance between real scrapes, not just at construction:** `events_total` 371→767 (spsc) and 358→754 (spmc); `dropped_total` 307→703 (spsc) -- all strictly increasing across the two samples, consistent with `animus_ring_events_total`/`animus_ring_dropped_total` being declared as OpenMetrics `counter` type (monotonic, never decreasing) in the exporter's own `# TYPE` lines.
+* **The SPSC-vs-SPMC metric-set difference is exactly as designed, confirmed with a real ring of each kind side by side in the same output, not just asserted in isolation the way `tests/test_animus_stat.py`'s unit tests already do:** `animus_ring_dropped_total` and `animus_ring_consumer_lag` are present with real, changing values for `prom_demo_spsc` and completely absent (no data line at all, `# HELP`/`# TYPE` family declarations notwithstanding -- those are always emitted per standard OpenMetrics practice) for `prom_demo_spmc`, matching `TelemetrySnapshot`/`RingSnapshot`'s own `has_dropped_count`/`has_consumer_lag` fields being false for a broadcast ring by design (no shared drop counter, no shared consumer cursor -- see `include/animus/shm_ipc.hpp`'s `SpmcRing<T>` class comment).
+* **`consumer_lag` pinned exactly at `capacity` (64) on both samples for the SPSC ring is the expected steady state, not a stuck reading:** with capacity deliberately smaller than the push rate and no consumer ever attached, `head - tail` converges to exactly `capacity` once the ring is continuously full (`events_total - dropped_total` is 371-307=64 and 767-703=64 on the two samples respectively, matching `consumer_lag` exactly both times).
+* **Command used:**
+
+  ```powershell
+  python scripts/animus_stat.py --name prom_demo_spsc prom_demo_spmc --prometheus
+  ```
+
+* **Status:** Phase 31 `animus_stat.py --prometheus` Manually Verified -- correct OpenMetrics plaintext against two simultaneously-live rings of different kinds, counters confirmed genuinely monotonic across two real scrapes, SPSC-only metrics correctly present/absent by ring kind, and clean automatic teardown of both segments with no manual `unlink()`.
