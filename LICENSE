@@ -1,21 +1,41 @@
-Proprietary License (Placeholder -- NOT Reviewed by Counsel)
+Animus Dual-License Gateway (Community & Enterprise)
 
 Copyright (c) 2026 Alakshendra Roy. All rights reserved.
 
-*** THIS IS A PLACEHOLDER, NOT A FINISHED LICENSE. ***
+This software is distributed under a dual-license model: a free
+Community grant for evaluation and research, and a separately licensed
+Enterprise track for commercial and production use.
 
-This branch ("proprietary-edition") diverges from the MIT-licensed
-`master` branch of this repository specifically to carry a commercial
-licensing/entitlement-enforcement layer (see AnimusCore_v1/animus_license.hpp
-and BENCHMARKS.md's Phase 17 section). Distributing that enforcement
-mechanism under the same MIT terms as `master` would be self-defeating --
-MIT already grants unrestricted use, copying, and redistribution, which
-would include the enforcement code itself.
+## Community Grant
 
-No rights are granted under this notice to use, copy, modify, merge,
-publish, distribute, sublicense, or sell this software or any portion of
-it. All rights are reserved to the copyright holder pending a real,
-counsel-reviewed commercial license agreement.
+Free, royalty-free use is granted for:
+
+  - Evaluation and technical due diligence;
+  - Benchmarking and performance testing;
+  - Non-commercial academic and personal research.
+
+This grant permits copying, building, and running the software for the
+purposes above, on your own systems, at no cost and without a signed
+agreement. It does not permit redistribution, sublicensing, resale, or
+incorporation into any product or service made available to a third
+party, and it does not extend to any use described under Enterprise
+Reservation below.
+
+## Enterprise Reservation
+
+All rights for commercial deployment are reserved. A separate,
+executed Enterprise Production License is required before this
+software, or any portion of it, may be used in:
+
+  - Any live trading, execution, or other production pipeline;
+  - Any revenue-generating execution node or multi-process IPC runtime;
+  - Any commercial, customer-facing, or third-party-serving deployment
+    of any kind.
+
+See `COMMERCIAL.md` for the enterprise licensing tiers and commercial
+packaging, and `LEGAL_EULA.md` for the governing license terms. No
+commercial right, production right, or fee obligation is created by
+this notice alone.
 
 ---
 
@@ -23,8 +43,3 @@ Copyright Holder / Founder: Alakshendra Roy
 Governing Jurisdiction:     India
 Commercial & Procurement:   royrichie006@gmail.com
 Technical Inquiries/Issues: https://github.com/alakshendra-roy/AnimusCore_v1/issues
-
-These identity, contact, and jurisdiction facts are current and final;
-they are distinct from -- and do not substitute for -- the substantive
-commercial license terms themselves, which remain a placeholder pending
-counsel review as stated above.
