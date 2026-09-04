@@ -16,6 +16,17 @@
 #pragma intrinsic(__rdtsc)
 #endif
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // "structure was padded due to alignment specifier" -- this whole file's
+                                // hot-path types (TelemetryPayload, LockFreeRingBuffer, SpscRingBuffer)
+                                // use alignas(64) deliberately, to keep a producer's and a consumer's
+                                // cursors on separate cache lines and avoid false sharing; the padding
+                                // MSVC is warning about is that design working as intended, not a bug.
+                                // Popped at the bottom of this file, so it doesn't leak into whatever
+                                // includes this header next.
+#endif
+
 // Cross-platform named shared-memory mapping, used by SharedMemorySegment
 // below. Unlike animus_transport.hpp's Schannel includes (a large,
 // Windows-only dependency chain deliberately kept out of this portable
@@ -1749,3 +1760,7 @@ extern "C" {
     // copy the string out immediately on the Python side.
     ANIMUS_API const char* animus_get_last_error(void);
 }
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
