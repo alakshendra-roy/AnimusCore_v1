@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "animus-engine-sdk"
-version = "1.1.0"
+version = "1.2.0"
 description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine"
 readme = "README.md"
 requires-python = ">=3.8"
