@@ -219,6 +219,39 @@ jobs:
           grep -q "PASS: overrun correctly detected and accounted" slow.log
           [ "$producer_status" -eq 0 ] && [ "$fast_status" -eq 0 ] && [ "$slow_status" -eq 0 ]
 
+      # Milestone 3 (Non-Blocking Telemetry & Observability Layer, this
+      # conversation's own numbering -- see the Milestone 2 step above for
+      # why that's called out explicitly). Single-process (see
+      # tests/test_telemetry.cpp's own header comment for why
+      # AnimusGetMetrics() doesn't need a second OS process to exercise),
+      # so this builds and runs it directly, no producer/consumer
+      # orchestration needed -- release for a fast run, then the ASan/UBSan
+      # binary too since this header does its own reinterpret_cast'ing of
+      # raw shared-memory bytes, exactly the kind of code those sanitizers
+      # are worth running against.
+      - name: Build and run test_telemetry (release + ASan/UBSan)
+        run: |
+          g++ -O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_telemetry.cpp -o tests/build/test_telemetry -lpthread
+          g++ -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -std=c++17 \
+            -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_telemetry.cpp -o tests/build/test_telemetry_sanitized -lpthread
+          ./tests/build/test_telemetry
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+            ./tests/build/test_telemetry_sanitized
+
+      # scripts/animus_stat.py's own accuracy test: an independent,
+      # pure-Python reader (no C++ toolchain, no compiled extension --
+      # animus_stat.py works even where _animus_shm_native isn't built)
+      # sampling a ring's header, built directly with struct.pack_into,
+      # WHILE a background thread concurrently advances its write cursor
+      # -- see tests/test_animus_stat.py's own header comment. Uses
+      # unittest's stdlib discovery rather than pytest, since no Python
+      # test in this workflow has needed a third-party test runner before
+      # and this one shouldn't be the first to add that dependency.
+      - name: test_animus_stat -- accurate sampling while a producer is writing
+        run: python3 -m unittest discover -s tests -p "test_animus_stat.py" -v
+
       # The actual Milestone 4 deliverable: two independent OS processes
       # (the release, non-sanitized C++ producer and a separate Python
       # interpreter) exchanging 10,000,000 records through real POSIX
