@@ -31,7 +31,7 @@ from .bindings import (
 from .decorators import trace
 from .shm import SharedTelemetryRing, TelemetryRecordView
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 __all__ = [
     'EventEngine',
     'AnimusBindings',
