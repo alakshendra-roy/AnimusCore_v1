@@ -293,6 +293,15 @@ namespace ipc {
     //     free -- same single writer, so there is no false sharing to
     //     avoid, unlike splitting head from tail (different writers).
     //   - consumer-owned line: tail plus the consumer's own pid/heartbeat.
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable: 4324) // "structure was padded due to alignment specifier" -- the padding
+                                    // IS the point (cache-line separation between producer- and
+                                    // consumer-owned fields, this struct's whole reason for existing,
+                                    // per its own class-level comment above), not an accident /W4 should
+                                    // flag; MSVC has no way to distinguish that from unintentional
+                                    // padding, so this is the standard, correct way to acknowledge it.
+#endif
     struct alignas(ANIMUS_CACHE_LINE_SIZE) RingHeader {
         // 80 bytes is generous headroom for any realistic fixed wire
         // format string while keeping the whole read-only descriptor
@@ -317,6 +326,9 @@ namespace ipc {
         std::atomic<uint64_t> consumer_pid{ 0 };
         std::atomic<uint64_t> consumer_heartbeat{ 0 };
     };
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
     static_assert(std::atomic<uint64_t>::is_always_lock_free,
         "RingHeader lives in memory shared across process boundaries -- a non-lock-free "
         "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
@@ -766,6 +778,10 @@ namespace ipc {
     // contention over a shared cursor -- there is nothing here for them to
     // contend over, only one line (the producer's own) that only the
     // single producer ever writes.
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable: 4324) // intentional cache-line padding -- see RingHeader's identical pragma above
+#endif
     struct alignas(ANIMUS_CACHE_LINE_SIZE) SpmcRingHeader {
         static constexpr size_t kWireFormatBufSize = RingHeader::kWireFormatBufSize; // same 80 bytes, same reasoning
 
@@ -787,6 +803,9 @@ namespace ipc {
         std::atomic<uint64_t> producer_pid{ 0 };
         std::atomic<uint64_t> producer_heartbeat{ 0 };
     };
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
     static_assert(std::atomic<uint64_t>::is_always_lock_free,
         "SpmcRingHeader lives in memory shared across process boundaries -- a non-lock-free "
         "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
