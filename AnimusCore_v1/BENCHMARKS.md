@@ -263,7 +263,7 @@ what the numbers mean.
 
 ### Python SDK PyPI Packaging
 
-* **Target System:** `pyproject.toml` / `setup.py` / `MANIFEST.in` -- added an MIT `LICENSE` file, PyPI classifiers (`License :: OSI Approved :: MIT License`, `Development Status :: 4 - Beta`, audience/topic tags), keywords, and `Documentation`/`Issues` project URLs; `MANIFEST.in` extended to bundle `LICENSE`, `QUICKSTART.md`, and `animus_release.hpp` into the sdist
+* **Target System:** `pyproject.toml` / `setup.py` / `MANIFEST.in` -- added PyPI classifiers (`Development Status :: 4 - Beta`, audience/topic tags), keywords, and `Documentation`/`Issues` project URLs; `MANIFEST.in` extended to bundle `LICENSE`, `QUICKSTART.md`, and `animus_release.hpp` into the sdist. `pyproject.toml`'s `license` field and classifier are `Proprietary` / `License :: Other/Proprietary License`, consistent with the Animus Dual-License Gateway in `LICENSE`, not the MIT classifier this phase originally added
 * **Method:** a real `pip wheel . --no-deps` build (not a metadata-only check), followed by installing the resulting wheel into a **fresh, isolated venv** (no sibling source checkout present) and importing it -- the same bar Phase 6's wheel verification used
 
 | Check | Result |

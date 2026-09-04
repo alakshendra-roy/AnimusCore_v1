@@ -3,7 +3,7 @@ Name: animus-core
 Version: 1.0.0
 Summary: High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine
 Author-email: Alakshendra Roy <royrichie006@gmail.com>
-License: MIT
+License: Proprietary
 Project-URL: Homepage, https://github.com/alakshendra-roy/AnimusCore_v1
 Project-URL: Documentation, https://github.com/alakshendra-roy/AnimusCore_v1/blob/master/AnimusCore_v1/QUICKSTART.md
 Project-URL: Issues, https://github.com/alakshendra-roy/AnimusCore_v1/issues
@@ -12,7 +12,7 @@ Classifier: Development Status :: 4 - Beta
 Classifier: Programming Language :: Python :: 3
 Classifier: Programming Language :: Python :: 3.8
 Classifier: Programming Language :: C++
-Classifier: License :: OSI Approved :: MIT License
+Classifier: License :: Other/Proprietary License
 Classifier: Operating System :: OS Independent
 Classifier: Intended Audience :: Developers
 Classifier: Intended Audience :: System Administrators
@@ -26,7 +26,7 @@ Dynamic: license-file
 
 ﻿# Animus Core v1.0: High-Performance Event Processing Engine
 
-![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)
+![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 
@@ -151,7 +151,7 @@ Verified across 25 consecutive runs (100% pass): a 3-node cluster elects exactly
 Animus Core ships as a single distributable artifact per platform: one header for C++ integrators, one wheel for Python integrators, both regenerated from source rather than hand-maintained.
 
 * **Single-header release (`AnimusCore_v1/animus_release.hpp`):** `AnimusCore_v1/amalgamate.py` concatenates all four source headers (`animus.hpp`, `animus_security.hpp`, `animus_transport.hpp`, `animus_cluster.hpp`) into one self-contained file -- a client vendors one `#include`, not four with an inter-file include order to get right. The Windows-only transport/cluster sections are gated on `defined(_WIN32) && defined(_MSC_VER)`, not just `_WIN32`, so the same single header still compiles the portable core engine + RBAC layer under MinGW `g++` (verified with a real build and run) while correctly reserving the Schannel-based sections for MSVC, where their certificate loading actually works.
-* **Python SDK, PyPI-ready:** an MIT `LICENSE`, PyPI classifiers, and `Documentation`/`Issues` project URLs were added to `pyproject.toml`; a real `pip wheel . --no-deps` build was installed into a fresh isolated venv (no sibling source checkout) and imported successfully, with the native `AnimusCore_v1.dll` bundled inside the wheel.
+* **Python SDK, PyPI-ready:** PyPI classifiers and `Documentation`/`Issues` project URLs were added to `pyproject.toml` (`license` classifier now `Proprietary`, consistent with the Animus Dual-License Gateway in `LICENSE`); a real `pip wheel . --no-deps` build was installed into a fresh isolated venv (no sibling source checkout) and imported successfully, with the native `AnimusCore_v1.dll` bundled inside the wheel.
 * **Multi-node write-latency benchmark (`AnimusCore_v1/cluster_latency_bench.cpp`):** a new benchmark against the Phase 9 cluster, distinct from Phase 9's election/failover timing -- it measures the latency a client actually experiences on every write (`RaftNode::propose()`'s majority-commit latency) separately from full-cluster (not just majority) convergence latency, since conflating them would misrepresent both.
 * **Client quickstart guides (`AnimusCore_v1/QUICKSTART.md`):** four proof-of-concept guides -- Python SDK, C++ single header, secure multi-tenant + mTLS, and distributed cluster -- each layering on the previous, with every code sample either compiled and run for real or checked against the current method signatures in the source headers.
 
