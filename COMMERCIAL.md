@@ -4,7 +4,7 @@
 **Audience:** General Counsel, Procurement, Heads of Infrastructure, and Engineering Leadership evaluating Animus Core for production deployment.
 **Companion documents:** [`COMMERCIAL_OVERVIEW.md`](COMMERCIAL_OVERVIEW.md) (business case, ROI, and self-serve pilot mechanics) · [`LEGAL_EULA.md`](LEGAL_EULA.md) (governing license terms) · [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) / [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) (verified performance) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (technical design of the shared-memory IPC layer this document licenses) · [`docs/PILOT_PROGRAM.md`](docs/PILOT_PROGRAM.md) (paid Institutional Pilot Program).
 
-> *This document describes Animus Core's commercial packaging and licensing structure. It is not itself an executed agreement. Production rights, fees, and SLA commitments are established by the governing license agreement — see [`LEGAL_EULA.md`](LEGAL_EULA.md), which (per its own header) is a structural draft pending review by qualified counsel — together with a signed order form under Section 3 of that agreement. Where this document uses bracketed placeholders (`[LIKE THIS]`), those follow the same convention already established in this repository's [`LICENSE`](LICENSE) and [`LEGAL_EULA.md`](LEGAL_EULA.md) files: real values to be completed once the licensing entity and terms are finalized, not defaults to be assumed filled in.*
+> *This document describes Animus Core's commercial packaging and licensing structure. It is not itself an executed agreement. Production rights, fees, and SLA commitments are established by the governing license agreement — see [`LEGAL_EULA.md`](LEGAL_EULA.md), which (per its own header) is a structural draft pending review by qualified counsel — together with a signed order form under Section 3 of that agreement. Contact and entity details in Section 4.4 are current (Alakshendra Roy, India); deal-specific fields in [`LEGAL_EULA.md`](LEGAL_EULA.md) itself (counterparty identity, effective date, negotiated liability cap) remain bracketed placeholders by design, completed per customer at signing, not defaults to be assumed filled in.*
 
 ---
 
@@ -135,9 +135,10 @@ The output of this engagement is a decision point, not a production commitment: 
 
 | | |
 |---|---|
-| **Procurement / commercial inquiries** | `[COMMERCIAL CONTACT EMAIL]` |
-| **Security / audit inquiries (Section 3.2)** | `[SECURITY CONTACT EMAIL]` |
-| **Licensing entity** | `[VENDOR LEGAL ENTITY NAME]` — see `LEGAL_EULA.md` for the governing definition once finalized |
+| **Procurement / commercial inquiries** | royrichie006@gmail.com |
+| **Security / audit inquiries (Section 3.2)** | royrichie006@gmail.com |
+| **Technical inquiries / issues** | [GitHub Issues](https://github.com/alakshendra-roy/AnimusCore_v1/issues) — the repository's issue tracker |
+| **Licensing entity** | Alakshendra Roy, Founder — India; see `LEGAL_EULA.md` for the governing definition |
 | **OEM / Tier 3 distribution inquiries** | Route through Procurement above; scoped separately per Section 2 |
 
-*Contact details above are placeholders pending formal establishment of the licensing entity, consistent with `LICENSE` and `LEGAL_EULA.md`'s existing placeholder convention. Until populated with real, counsel-reviewed values, direct procurement inquiries to the repository's designated point of contact.*
+*Contact and entity details above are current. The substantive commercial license terms they route into — pricing, SLA response times, and the liability/warranty terms in `LEGAL_EULA.md` — remain subject to a signed order form and, per that agreement's own header, review by qualified counsel before any term is treated as binding.*
