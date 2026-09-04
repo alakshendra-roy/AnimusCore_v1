@@ -249,6 +249,24 @@ namespace ipc {
 #endif
     };
 
+    // Discriminates the two structurally different wire-header layouts
+    // this file defines (RingHeader below for ShmRing<T>'s SPSC ring,
+    // SpmcRingHeader further down for SpmcRing<T>'s broadcast ring).
+    // Their leading wire-descriptor fields (capacity through wire_format)
+    // are deliberately laid out identically -- same offsets, same sizes --
+    // so schema validation and inspection code can treat either header's
+    // prefix uniformly; but everything after that prefix differs (RingHeader
+    // has a shared tail cursor and per-consumer pid/heartbeat, SpmcRingHeader
+    // has neither -- see that struct's own comment), so a segment's actual
+    // ring_kind must still be checked before reading anything past
+    // wire_format: attaching the wrong ring kind to a segment would
+    // otherwise silently misinterpret the producer-owned line's fields
+    // and read the T array from the wrong offset (RingHeader and
+    // SpmcRingHeader are different total sizes), with no other check able
+    // to catch it -- payload_size/schema_version_hash alone are identical
+    // for the same T regardless of which ring kind created the segment.
+    enum class RingKind : uint64_t { Spsc = 0, SpmcBroadcast = 1 };
+
     // Wire descriptor + SPSC cursor header shared by every ShmRing<T>
     // instantiation (Milestone 1) -- factored out of the class template,
     // unlike the original design, because nothing in it actually depends
@@ -267,23 +285,24 @@ namespace ipc {
     // (2 on a 64-byte-line target, 1 on a 128-byte-line target such as
     // ARM64 -- see ANIMUS_CACHE_LINE_SIZE, thread_affinity.hpp) before the
     // producer- and consumer-owned lines that follow it.
-    //   - read-only wire descriptor: capacity, mask, schema_version_hash,
-    //     payload_size, stride, wire_format[] -- written once at create()
-    //     and never again.
+    //   - read-only wire descriptor: capacity, mask, ring_kind,
+    //     schema_version_hash, payload_size, stride, wire_format[] --
+    //     written once at create() and never again.
     //   - producer-owned line: head plus every field only the producer
     //     ever writes. Sharing this line among producer-only writes is
     //     free -- same single writer, so there is no false sharing to
     //     avoid, unlike splitting head from tail (different writers).
     //   - consumer-owned line: tail plus the consumer's own pid/heartbeat.
     struct alignas(ANIMUS_CACHE_LINE_SIZE) RingHeader {
-        // 88 bytes is generous headroom for any realistic fixed wire
+        // 80 bytes is generous headroom for any realistic fixed wire
         // format string while keeping the whole read-only descriptor
-        // section an exact multiple of a 64-byte cache line: the 5
-        // preceding uint64_t fields (40 bytes) + 88 == 128 == 2 lines.
-        static constexpr size_t kWireFormatBufSize = 88;
+        // section an exact multiple of a 64-byte cache line: the 6
+        // preceding uint64_t fields (48 bytes) + 80 == 128 == 2 lines.
+        static constexpr size_t kWireFormatBufSize = 80;
 
         uint64_t capacity = 0;
         uint64_t mask = 0;
+        uint64_t ring_kind = static_cast<uint64_t>(RingKind::Spsc);
         uint64_t schema_version_hash = 0; // animus::schema::Traits<T>::kVersionHash at create() time
         uint64_t payload_size = 0;        // sizeof(T), in bytes
         uint64_t stride = 0;              // bytes between consecutive slots (== payload_size; no per-slot padding today)
@@ -306,15 +325,21 @@ namespace ipc {
         "that isn't respecting the alignas(ANIMUS_CACHE_LINE_SIZE) boundaries above");
 
     // Bounded, NUL-terminating copy of a schema's wire format string into
-    // the header's fixed-size buffer -- truncates (rather than overflowing
-    // or asserting) an unrealistically long format string, since the
-    // numeric fields (payload_size/stride/schema_version_hash) remain the
-    // authoritative validation at open() time regardless; wire_format is
-    // documented as a best-effort convenience for dynamic NumPy dtype
-    // construction on the Python side, not a safety-critical field.
-    inline void set_wire_format(RingHeader& header, const char* src) noexcept {
+    // a wire-descriptor header's fixed-size buffer -- truncates (rather
+    // than overflowing or asserting) an unrealistically long format
+    // string, since the numeric fields (payload_size/stride/
+    // schema_version_hash) remain the authoritative validation at open()
+    // time regardless; wire_format is documented as a best-effort
+    // convenience for dynamic NumPy dtype construction on the Python
+    // side, not a safety-critical field. Templated on the header type (not
+    // just RingHeader) so RingHeader and SpmcRingHeader below can share
+    // this one implementation despite having differently-sized
+    // wire_format buffers -- both expose the same
+    // `char wire_format[kWireFormatBufSize]` shape.
+    template <typename Header>
+    inline void set_wire_format(Header& header, const char* src) noexcept {
         size_t i = 0;
-        for (; src && src[i] != '\0' && i + 1 < RingHeader::kWireFormatBufSize; ++i) {
+        for (; src && src[i] != '\0' && i + 1 < Header::kWireFormatBufSize; ++i) {
             header.wire_format[i] = src[i];
         }
         header.wire_format[i] = '\0';
@@ -373,6 +398,7 @@ namespace ipc {
             auto* header = new (region.data()) RingHeader();
             header->capacity = capacity;
             header->mask = capacity - 1;
+            header->ring_kind = static_cast<uint64_t>(RingKind::Spsc);
             // Milestone 1 wire descriptor: stamps this segment with T's
             // schema identity so a later open() (this process or another)
             // can refuse to attach with the wrong T -- see open() below.
@@ -407,6 +433,9 @@ namespace ipc {
                 return nullptr;
             }
             auto* header = reinterpret_cast<RingHeader*>(region.data());
+            if (header->ring_kind != static_cast<uint64_t>(RingKind::Spsc)) {
+                return nullptr; // this segment is an SpmcRing<T> broadcast ring, not an SPSC ShmRing<T>
+            }
             const uint64_t capacity = header->capacity;
             const bool capacity_is_pow2 = capacity != 0 && (capacity & (capacity - 1)) == 0;
             if (!capacity_is_pow2 || header->mask != capacity - 1) {
@@ -677,6 +706,9 @@ namespace ipc {
                 return nullptr;
             }
             auto* header = reinterpret_cast<RingHeader*>(region.data());
+            if (header->ring_kind != static_cast<uint64_t>(RingKind::Spsc)) {
+                return nullptr; // this segment is an SpmcRing<T> broadcast ring, not a RingHeader-shaped SPSC one
+            }
             const uint64_t capacity = header->capacity;
             const bool capacity_is_pow2 = capacity != 0 && (capacity & (capacity - 1)) == 0;
             if (!capacity_is_pow2 || header->mask != capacity - 1) {
@@ -720,6 +752,339 @@ namespace ipc {
     private:
         SharedMemoryRegion region_;
         RingHeader* header_ = nullptr;
+    };
+
+    // Wire descriptor + producer-only cursor header for SpmcRing<T>
+    // (Milestone 2). Same leading wire-descriptor fields as RingHeader
+    // above (capacity, mask, ring_kind, schema_version_hash, payload_size,
+    // stride, wire_format[]) at identical offsets -- see RingKind's own
+    // comment for why that matters -- but everything after that prefix is
+    // deliberately smaller: broadcast mode has no shared tail at all.
+    // Every consumer tracks its own read position in its own process
+    // memory (SpmcRing<T>::local_tail_), which is exactly what lets N
+    // independent consumers poll concurrently with no cross-process cache
+    // contention over a shared cursor -- there is nothing here for them to
+    // contend over, only one line (the producer's own) that only the
+    // single producer ever writes.
+    struct alignas(ANIMUS_CACHE_LINE_SIZE) SpmcRingHeader {
+        static constexpr size_t kWireFormatBufSize = RingHeader::kWireFormatBufSize; // same 80 bytes, same reasoning
+
+        uint64_t capacity = 0;
+        uint64_t mask = 0;
+        uint64_t ring_kind = static_cast<uint64_t>(RingKind::SpmcBroadcast);
+        uint64_t schema_version_hash = 0;
+        uint64_t payload_size = 0;
+        uint64_t stride = 0;
+        char wire_format[kWireFormatBufSize] = {};
+
+        // The only other line: head plus the producer's own pid/heartbeat.
+        // No dropped_count here either -- "dropped" is a per-consumer,
+        // local concept in broadcast mode (SpmcRing<T>::overrun_count_),
+        // since the producer never checks any consumer's position and so
+        // has no way to know how many there are or how far behind each one
+        // has fallen.
+        alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 };
+        std::atomic<uint64_t> producer_pid{ 0 };
+        std::atomic<uint64_t> producer_heartbeat{ 0 };
+    };
+    static_assert(std::atomic<uint64_t>::is_always_lock_free,
+        "SpmcRingHeader lives in memory shared across process boundaries -- a non-lock-free "
+        "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
+    static_assert(sizeof(SpmcRingHeader) % ANIMUS_CACHE_LINE_SIZE == 0,
+        "SpmcRingHeader must be a whole number of cache lines -- if this fails, a field was added "
+        "that isn't respecting the alignas(ANIMUS_CACHE_LINE_SIZE) boundaries above");
+
+    // Single-producer/multi-consumer broadcast ring (Milestone 2). One
+    // process creates and exclusively owns the shared `head` cursor
+    // (broadcast() below); any number of independent processes attach via
+    // open() and each poll at their own pace through a read cursor that
+    // lives only in that process's own memory, never in shared memory --
+    // the defining difference from ShmRing<T>'s SPSC ring, which has
+    // exactly one shared tail because it has exactly one consumer.
+    //
+    // Broadcast, not queue: broadcast() unconditionally overwrites the
+    // next slot and publishes it -- there is no "ring full" backpressure
+    // concept here at all, since with an unbounded number of possible
+    // consumers there is no single tail position that would even define
+    // "full". A consumer that cannot keep up simply loses visibility into
+    // records the producer has since overwritten; poll()/poll_spin()
+    // detect exactly that condition (this consumer has fallen more than
+    // capacity() behind head) and correct for it by jumping this
+    // consumer's cursor forward to head-capacity(), accounting the
+    // skipped span into overrun_count() -- the "detect the overrun,
+    // calculate dropped ticks, and jump to head - capacity" contract this
+    // ring exists to implement. A consumer that never falls behind (a
+    // tight poll_spin() loop against a producer within this consumer's
+    // own scheduling budget) never pays that correction and sees every
+    // record broadcast, in order, exactly once.
+    //
+    // T must be trivially copyable, same reasoning as ShmRing<T>.
+    template <typename T>
+    class SpmcRing {
+    public:
+        static_assert(std::is_trivially_copyable<T>::value,
+            "T must be trivially copyable -- SpmcRing<T> places T directly in shared memory "
+            "with no serialization step, so a naive byte-copy across the process boundary "
+            "must be a valid, complete copy of T");
+        static_assert(alignof(T) <= 64,
+            "T's alignment must not exceed 64 bytes -- SpmcRing<T> packs slots back-to-back with "
+            "no per-slot padding beyond T's own size (see SpmcRingHeader::stride), so an "
+            "over-aligned T could straddle the guarantee every slot after the first is validly "
+            "aligned for it");
+
+        SpmcRing(const SpmcRing&) = delete;
+        SpmcRing& operator=(const SpmcRing&) = delete;
+
+        // Producer-side: allocates a new named ring sized for at least
+        // `requested_capacity` slots (rounded up to a power of two, same
+        // masking rationale as ShmRing<T>::create()). Returns nullptr on
+        // failure, including a name collision.
+        static std::unique_ptr<SpmcRing> create(const char* name, size_t requested_capacity) noexcept {
+            const uint64_t capacity = round_up_pow2(requested_capacity < 2 ? 2 : requested_capacity);
+            const size_t total_size = sizeof(SpmcRingHeader) + static_cast<size_t>(capacity) * sizeof(T);
+
+            SharedMemoryRegion region;
+            if (!SharedMemoryRegion::create(name, total_size, region)) {
+                return nullptr;
+            }
+            auto* header = new (region.data()) SpmcRingHeader();
+            header->capacity = capacity;
+            header->mask = capacity - 1;
+            header->ring_kind = static_cast<uint64_t>(RingKind::SpmcBroadcast);
+            header->schema_version_hash = schema::Traits<T>::kVersionHash;
+            header->payload_size = static_cast<uint64_t>(sizeof(T));
+            header->stride = static_cast<uint64_t>(sizeof(T));
+            set_wire_format(*header, schema::Traits<T>::kWireFormat);
+
+            std::unique_ptr<SpmcRing> ring(new SpmcRing());
+            ring->region_ = std::move(region);
+            ring->header_ = header;
+            ring->slots_ = reinterpret_cast<T*>(header + 1);
+            return ring;
+        }
+
+        // Consumer-side (call once per independent consumer -- each call
+        // returns its OWN SpmcRing instance with its own local_tail_
+        // starting at 0, i.e. this consumer will see the full backlog
+        // still resident in the ring, self-correcting via the overrun
+        // logic in poll() if the producer has already advanced past
+        // capacity() by the time this consumer attaches). Also usable by
+        // the producer's own process to attach a second, independent
+        // read-only view of its own ring if ever needed. Returns nullptr
+        // if the segment doesn't exist, is too small, is a torn/foreign
+        // segment, is an SPSC ShmRing<T> segment rather than an SpmcRing<T>
+        // one, or was created for a different/mismatched schema (same
+        // checks as ShmRing<T>::open(), see that method's own comment).
+        static std::unique_ptr<SpmcRing> open(const char* name) noexcept {
+            SharedMemoryRegion region;
+            if (!SharedMemoryRegion::open(name, region)) {
+                return nullptr;
+            }
+            if (region.size() < sizeof(SpmcRingHeader)) {
+                return nullptr;
+            }
+            auto* header = reinterpret_cast<SpmcRingHeader*>(region.data());
+            if (header->ring_kind != static_cast<uint64_t>(RingKind::SpmcBroadcast)) {
+                return nullptr; // this segment is an SPSC ShmRing<T>, not an SpmcRing<T> broadcast ring
+            }
+            const uint64_t capacity = header->capacity;
+            const bool capacity_is_pow2 = capacity != 0 && (capacity & (capacity - 1)) == 0;
+            if (!capacity_is_pow2 || header->mask != capacity - 1) {
+                return nullptr;
+            }
+            if (header->payload_size != static_cast<uint64_t>(sizeof(T))) {
+                return nullptr; // wrong record size -- a different T (or ABI drift) than create() used
+            }
+            if (header->schema_version_hash != schema::Traits<T>::kVersionHash) {
+                return nullptr; // same size, different registered schema -- refuse rather than misread
+            }
+            if (region.size() < sizeof(SpmcRingHeader) + static_cast<size_t>(capacity) * sizeof(T)) {
+                return nullptr;
+            }
+
+            std::unique_ptr<SpmcRing> ring(new SpmcRing());
+            ring->region_ = std::move(region);
+            ring->header_ = header;
+            ring->slots_ = reinterpret_cast<T*>(header + 1);
+            return ring;
+        }
+
+        static bool unlink(const char* name) noexcept { return SharedMemoryRegion::unlink(name); }
+
+        bool valid() const noexcept { return header_ != nullptr; }
+        size_t capacity() const noexcept { return header_ ? static_cast<size_t>(header_->capacity) : 0; }
+        uint64_t schema_version_hash() const noexcept { return header_ ? header_->schema_version_hash : 0; }
+        size_t payload_size() const noexcept { return header_ ? static_cast<size_t>(header_->payload_size) : 0; }
+        size_t stride() const noexcept { return header_ ? static_cast<size_t>(header_->stride) : 0; }
+        const char* wire_format() const noexcept { return header_ ? header_->wire_format : ""; }
+        static constexpr const char* schema_name() noexcept { return schema::Traits<T>::kName; }
+
+        // Producer-side only (one process). Never blocks and never
+        // refuses: unconditionally writes into the next slot and
+        // publishes it via a release-store to the shared head, then
+        // advances this producer's own locally-tracked write position.
+        // producer_head_ is a plain (non-atomic) member because the
+        // producer is the sole writer of it -- there is no reason to pay
+        // an atomic load on every call just to read back a value only
+        // this same call sequence ever wrote; header_->head itself is
+        // still a proper atomic release-store, which is what every
+        // consumer's acquire-load actually synchronizes against.
+        void broadcast(const T& value) noexcept {
+            slots_[producer_head_ & header_->mask] = value;
+            header_->head.store(producer_head_ + 1, std::memory_order_release);
+            ++producer_head_;
+        }
+
+        void mark_producer_attached() noexcept {
+            header_->producer_pid.store(sys::lifecycle::current_process_id(), std::memory_order_release);
+            header_->producer_heartbeat.store(1, std::memory_order_release);
+        }
+        void producer_heartbeat() noexcept {
+            header_->producer_heartbeat.fetch_add(1, std::memory_order_relaxed);
+        }
+        // Same semantics as ShmRing<T>::is_producer_alive -- see that
+        // method's own comment. There is no is_consumer_alive() here: with
+        // broadcast fan-out to an arbitrary number of anonymous consumers,
+        // there is no single shared consumer identity for the producer to
+        // publish or for any one consumer to check on another's behalf.
+        bool is_producer_alive(uint64_t stale_after = 0) const noexcept {
+            return peer_alive(header_->producer_pid, header_->producer_heartbeat,
+                               last_seen_producer_heartbeat_, producer_stall_count_, stale_after);
+        }
+
+        // Consumer-side. Copies up to max_count records into `out`
+        // (caller-owned buffer of at least max_count T's), starting from
+        // THIS SpmcRing instance's own local_tail_ -- never shared with
+        // any other consumer or the producer. Returns the number of
+        // records actually copied (0 if this consumer has already caught
+        // up to the producer's current head; never blocks).
+        //
+        // Overrun handling: if head has advanced more than capacity()
+        // past local_tail_, the producer has already overwritten every
+        // slot this consumer hasn't read yet -- rather than reading stale
+        // or torn data, this jumps local_tail_ forward to head-capacity()
+        // and accounts the skipped span (new_tail - old local_tail_) into
+        // overrun_count(). A consumer that never falls behind never
+        // triggers this branch and pays only the one comparison's cost.
+        //
+        // Torn-read note, same honest tradeoff ShmRing<T>::push_overwrite
+        // already documents for its own overwrite mode: the overrun check
+        // above uses one head snapshot taken at the start of this call: if
+        // an extremely fast producer advances head by another full
+        // capacity() or more DURING this call's copy loop (not just before
+        // it), a slot already validated as "within capacity() of head" at
+        // the top of this function could still be overwritten out from
+        // under the copy that follows. This is bounded by how much a
+        // single poll()/poll_spin() call can fall behind within its own
+        // duration, not by how far this consumer has fallen behind overall
+        // -- and is the same class of race push_overwrite() already
+        // accepts, not a new one. Pair poll() with a consumer that
+        // tolerates an occasional torn record at that boundary; a
+        // consumer that must never observe one needs a bounded-
+        // backpressure primitive (ShmRing<T>::try_push/push_spin) instead,
+        // which broadcast fan-out to multiple readers cannot offer by
+        // construction.
+        size_t poll(T* out, size_t max_count) noexcept {
+            const uint64_t head = header_->head.load(std::memory_order_acquire);
+            last_poll_overran_ = false;
+            if (head - local_tail_ > header_->capacity) {
+                const uint64_t new_tail = head - header_->capacity;
+                overrun_count_ += (new_tail - local_tail_);
+                local_tail_ = new_tail;
+                last_poll_overran_ = true;
+            }
+            size_t n = 0;
+            while (n < max_count && local_tail_ < head) {
+                out[n++] = slots_[local_tail_ & header_->mask];
+                ++local_tail_;
+            }
+            return n;
+        }
+
+        // Spin-polling variant: retries poll() with animus::cpu_relax()
+        // between empty attempts (same fallback convention as
+        // ShmRing<T>::pop_spin) until at least one record is copied or
+        // max_spins attempts have been made. Still never blocks in the
+        // OS-scheduler sense.
+        size_t poll_spin(T* out, size_t max_count, uint64_t max_spins = kDefaultMaxSpins) noexcept {
+            for (uint64_t i = 0; i < max_spins; ++i) {
+                const size_t n = poll(out, max_count);
+                if (n > 0) return n;
+                cpu_relax();
+            }
+            return 0;
+        }
+
+        // Cumulative count of records THIS consumer has been forced to
+        // skip because it fell more than capacity() behind head -- the
+        // "dropped ticks" broadcast lossy mode calls for. Always 0 for a
+        // consumer that never falls behind. Purely local to this SpmcRing
+        // instance, like local_tail_ itself -- never visible to the
+        // producer or to any other consumer.
+        uint64_t overrun_count() const noexcept { return overrun_count_; }
+
+        // True if the MOST RECENT poll()/poll_spin() call detected and
+        // corrected an overrun -- the transient "overrun flag" companion
+        // to the cumulative overrun_count() above, for a caller that wants
+        // to react to a fresh overrun specifically (e.g. log it once)
+        // rather than only monitor the running total.
+        bool last_poll_overran() const noexcept { return last_poll_overran_; }
+
+        // This consumer's own current read position -- exposed mainly for
+        // diagnostics/tests; not meaningful to compare across different
+        // SpmcRing instances (including two opened by the same process),
+        // since each tracks its own independently.
+        uint64_t local_tail() const noexcept { return local_tail_; }
+
+        // The producer's current published position -- a fresh acquire-load
+        // each call, exposed mainly for diagnostics/tests.
+        uint64_t head() const noexcept { return header_->head.load(std::memory_order_acquire); }
+
+    private:
+        // Identical helper to ShmRing<T>::peer_alive -- kept as its own
+        // copy rather than shared, consistent with SharedMemoryRegion
+        // being the only piece of implementation this file shares between
+        // the SPSC and SPMC ring kinds; the two headers' layouts are
+        // different enough (see SpmcRingHeader's own comment) that little
+        // else safely generalizes across both without a template
+        // parameter for the header type, which isn't worth it for one
+        // small function.
+        static bool peer_alive(const std::atomic<uint64_t>& pid_field,
+                               const std::atomic<uint64_t>& heartbeat_field,
+                               uint64_t& last_seen, uint64_t& stall_count, uint64_t stale_after) noexcept {
+            const uint64_t pid = pid_field.load(std::memory_order_acquire);
+            if (pid == 0) return true; // peer hasn't attached yet -- not a death
+            if (!sys::lifecycle::is_process_alive(pid)) return false;
+            if (stale_after == 0) return true;
+            const uint64_t hb = heartbeat_field.load(std::memory_order_acquire);
+            if (hb != last_seen) {
+                last_seen = hb;
+                stall_count = 0;
+                return true;
+            }
+            return ++stall_count < stale_after;
+        }
+
+        mutable uint64_t last_seen_producer_heartbeat_ = 0;
+        mutable uint64_t producer_stall_count_ = 0;
+
+        SpmcRing() noexcept = default;
+
+        static constexpr uint64_t kDefaultMaxSpins = 200'000'000ull;
+
+        static uint64_t round_up_pow2(size_t v) noexcept {
+            uint64_t p = 1;
+            while (p < v) p <<= 1;
+            return p;
+        }
+
+        SharedMemoryRegion region_;
+        SpmcRingHeader* header_ = nullptr;
+        T* slots_ = nullptr;
+        uint64_t producer_head_ = 0; // producer-side-only local cache of its own head; unused by a consumer instance
+        uint64_t local_tail_ = 0;    // THIS consumer's own read cursor -- never written to shared memory
+        uint64_t overrun_count_ = 0;
+        bool last_poll_overran_ = false;
     };
 
 } // namespace ipc

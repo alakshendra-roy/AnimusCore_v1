@@ -161,6 +161,64 @@ jobs:
           grep -q "cross-schema open() with animus::ExecutionEvent correctly rejected" consumer_ob.log
           [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
 
+      # Milestone 2 (Single-Producer Multi-Consumer Broadcast Ring, this
+      # conversation's own numbering -- distinct from the pre-existing
+      # internal "Milestone 2/3/4" labels used elsewhere in this workflow
+      # for SIGINT handling / GIL discipline / the cross-process harness):
+      # builds tests/test_spmc.cpp the same way as test_dynamic_schema
+      # above (release + ASan/UBSan, direct g++, no CMake).
+      - name: Build test_spmc (release + ASan/UBSan)
+        run: |
+          g++ -O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_spmc.cpp -o tests/build/test_spmc -lpthread
+          g++ -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -std=c++17 \
+            -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_spmc.cpp -o tests/build/test_spmc_sanitized -lpthread
+
+      - name: Verify test_spmc binaries were produced
+        run: |
+          test -x tests/build/test_spmc
+          test -x tests/build/test_spmc_sanitized
+
+      # Genuinely cross-process (three separate OS processes): one
+      # producer broadcasting to two independently-paced consumers -- a
+      # spin-polling one that must receive every record with zero
+      # overruns, and a deliberately throttled one that must fall behind,
+      # correctly detect the overrun, and account every skipped record
+      # (received + overrun_count == total broadcast), all without
+      # stalling the producer or the fast consumer (proven by all three
+      # completing at all, not just their individual exit codes -- a stall
+      # would show up as this step timing out). The fast consumer owns
+      # ring creation (see tests/test_spmc.cpp's own header comment for
+      # why the producer, despite being the only producer, is not the
+      # right role to own it); the producer itself waits ~500ms after
+      # attaching before it starts broadcasting, giving both consumers
+      # room to open() first.
+      - name: test_spmc -- 1 producer, 1 fast consumer, 1 throttled consumer, ASan/UBSan
+        working-directory: tests
+        shell: bash
+        run: |
+          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          ./build/test_spmc_sanitized --consumer-fast ci_spmc 3000000 > fast.log 2>&1 &
+          fast_pid=$!
+          sleep 0.5
+          ./build/test_spmc_sanitized --consumer-slow ci_spmc 3000000 > slow.log 2>&1 &
+          slow_pid=$!
+          ./build/test_spmc_sanitized --producer ci_spmc 3000000 > producer.log 2>&1
+          producer_status=$?
+          wait "$fast_pid"
+          fast_status=$?
+          wait "$slow_pid"
+          slow_status=$?
+          cat producer.log
+          cat fast.log
+          cat slow.log
+          echo "producer_status=$producer_status fast_status=$fast_status slow_status=$slow_status"
+          grep -q "PASS: all 3000000 records received in order with zero overruns" fast.log
+          grep -q "PASS: overrun correctly detected and accounted" slow.log
+          [ "$producer_status" -eq 0 ] && [ "$fast_status" -eq 0 ] && [ "$slow_status" -eq 0 ]
+
       # The actual Milestone 4 deliverable: two independent OS processes
       # (the release, non-sanitized C++ producer and a separate Python
       # interpreter) exchanging 10,000,000 records through real POSIX
@@ -209,3 +267,6 @@ jobs:
             tests/producer_ee.log
             tests/consumer_ob.log
             tests/producer_ob.log
+            tests/producer.log
+            tests/fast.log
+            tests/slow.log
