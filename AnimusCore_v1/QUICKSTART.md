@@ -739,12 +739,13 @@ cluster_demo.exe
 
 ## 5. Enterprise Edition: Offline RSA-Signed Hardware Licensing
 
-**`proprietary-edition` branch only** -- not part of the MIT `master`
-tree, for the same reason a node-lock and open source don't mix: anyone
-with the source can delete a check baked into it. This branch replaces
-`LICENSE` with a placeholder "All Rights Reserved" notice (not reviewed
-by counsel -- don't ship it to a customer as-is) specifically to carry
-this feature.
+This is the enforcement mechanism behind the Enterprise track of the
+Animus Dual-License Gateway (see `LICENSE`): the Community Grant covers
+evaluation, benchmarking, and non-commercial research with no signed
+agreement required, but a hardware-locked license gate is what stands
+between that and commercial/production use -- see `COMMERCIAL.md` for
+the licensing tiers this gate enforces and `LEGAL_EULA.md` for the
+governing terms.
 
 `animus_verify_license(path)` validates a signed license file entirely
 offline -- no license server, no network call -- and gates two existing
