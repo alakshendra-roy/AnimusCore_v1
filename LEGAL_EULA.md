@@ -1,5 +1,7 @@
 # Animus Core — 30-Day Pilot Evaluation & Commercial License Agreement
 
+**Companion documents:** [`COMMERCIAL.md`](COMMERCIAL.md) (enterprise tiering and SLA guarantees) · [`COMPLIANCE_AND_RISK_MITIGATION.md`](COMPLIANCE_AND_RISK_MITIGATION.md) (operational protocol for the SLA/topology, cross-border tax, and IP-isolation terms referenced in Sections 7 and 9.4 below).
+
 ---
 
 **This Pilot Evaluation & Commercial License Agreement** ("**Agreement**") is entered into as of **[EFFECTIVE DATE]** ("**Effective Date**") by and between:
@@ -115,6 +117,8 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 (c) The limitations in this Section 7 apply regardless of the failure of essential purpose of any limited remedy and shall not apply to (i) either Party's indemnification obligations, if any are added by a subsequent order form, (ii) Customer's breach of Sections 4 or 5, or (iii) either Party's gross negligence or willful misconduct, in each case only to the extent such exclusion is required by applicable law.
 
+(d) The Reference Topology Appendix and staging/canary UAT protocol that scope Vendor's performance commitments for production order forms are documented in `COMPLIANCE_AND_RISK_MITIGATION.md` §1.
+
 ---
 
 ## 8. Term & Termination
@@ -135,7 +139,7 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 **9.3 Assignment.** Customer shall not assign or transfer this Agreement, in whole or in part, without Vendor's prior written consent. Vendor may assign this Agreement in connection with a merger, acquisition, or sale of substantially all its assets.
 
-**9.4 Export Compliance.** Customer shall comply with all applicable export control and economic sanctions laws in its use of the Software.
+**9.4 Export Compliance.** Customer shall comply with all applicable export control and economic sanctions laws in its use of the Software. Vendor's cross-border invoicing, DTAA characterization, and RBI/FEMA export-compliance pipeline are documented in `COMPLIANCE_AND_RISK_MITIGATION.md` §2.
 
 **9.5 Entire Agreement.** This Agreement (together with any executed order form under Section 3) constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior or contemporaneous agreements, whether written or oral, on that subject.
 
