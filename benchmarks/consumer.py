@@ -34,20 +34,29 @@ import time
 from multiprocessing import shared_memory
 from typing import NamedTuple, Optional
 
-# --- Header layout: must match ShmRing<ExecutionEvent>::Header exactly ------
-# (include/animus/shm_ipc.hpp). Three 64-byte cache lines: read-only
-# metadata, the producer's own line (head + everything only it writes),
-# the consumer's own line (tail + everything only it writes).
-_HEADER_SIZE = 192
+# --- Header layout: must match ShmRing<ExecutionEvent>::RingHeader exactly -
+# (include/animus/shm_ipc.hpp). Milestone 1 grew the header with a
+# read-only wire-schema descriptor (schema_version_hash/payload_size/
+# stride/wire_format) ahead of the cursor lines -- on a 64-byte-cache-line
+# target that descriptor is itself 2 full lines (128 bytes: 40 bytes of
+# capacity/mask/schema_version_hash/payload_size/stride + an 88-byte
+# wire_format buffer), so head/tail moved from where they lived before this
+# milestone (offsets 64/128) out to 128/192. Four 64-byte cache lines total.
+_HEADER_SIZE = 256
 _CAPACITY_OFF = 0
 _MASK_OFF = 8
-_HEAD_OFF = 64
-_DROPPED_COUNT_OFF = 72
-_PRODUCER_PID_OFF = 80
-_PRODUCER_HEARTBEAT_OFF = 88
-_TAIL_OFF = 128
-_CONSUMER_PID_OFF = 136
-_CONSUMER_HEARTBEAT_OFF = 144
+_SCHEMA_VERSION_HASH_OFF = 16
+_PAYLOAD_SIZE_OFF = 24
+_STRIDE_OFF = 32
+_WIRE_FORMAT_OFF = 40
+_WIRE_FORMAT_SIZE = 88
+_HEAD_OFF = 128
+_DROPPED_COUNT_OFF = 136
+_PRODUCER_PID_OFF = 144
+_PRODUCER_HEARTBEAT_OFF = 152
+_TAIL_OFF = 192
+_CONSUMER_PID_OFF = 200
+_CONSUMER_HEARTBEAT_OFF = 208
 
 # --- Record layout: must match harness_benchmark.cpp's ExecutionEvent ------
 # sequence(u64), dispatch_ts_raw(u64), price_ticks(i64), quantity(i64),
@@ -119,8 +128,23 @@ class ShmExecutionConsumer:
         self._shm = shared_memory.SharedMemory(name=name, create=False)
         self.capacity = _read_u64(self._shm.buf, _CAPACITY_OFF)
         self.mask = _read_u64(self._shm.buf, _MASK_OFF)
+        # Milestone 1 schema check, mirroring ShmRing<T>::open()'s own
+        # payload_size validation (shm_ipc.hpp) on the C++ side: refuse to
+        # attach if the segment's stamped record size doesn't match this
+        # script's hardcoded 40-byte ExecutionEvent layout, rather than
+        # silently misreading whatever the producer actually wrote.
+        payload_size = _read_u64(self._shm.buf, _PAYLOAD_SIZE_OFF)
+        if payload_size != _RECORD_SIZE:
+            raise ValueError(
+                f"segment '{name}' has payload_size={payload_size}, expected {_RECORD_SIZE} "
+                f"(this script only understands animus::ExecutionEvent) -- wire_format='{self.wire_format}'")
         _write_u64(self._shm.buf, _CONSUMER_PID_OFF, os.getpid())
         _write_u64(self._shm.buf, _CONSUMER_HEARTBEAT_OFF, 1)
+
+    @property
+    def wire_format(self) -> str:
+        raw = bytes(self._shm.buf[_WIRE_FORMAT_OFF:_WIRE_FORMAT_OFF + _WIRE_FORMAT_SIZE])
+        return raw.split(b"\x00", 1)[0].decode("ascii", errors="replace")
 
     def heartbeat(self) -> None:
         hb = _read_u64(self._shm.buf, _CONSUMER_HEARTBEAT_OFF)

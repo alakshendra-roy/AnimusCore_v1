@@ -17,13 +17,25 @@
 // Wire format: WireRecord below is animus::ExecutionEvent
 // (include/animus/execution_event.hpp) -- the same 40-byte layout
 // benchmarks/harness_benchmark.cpp writes into the ring and
-// benchmarks/consumer.py decodes by hand. This binding must use that
-// exact type, not animus.hpp's unrelated SharedTelemetryRecord: T's size
-// fixes the ring's slot stride at ShmRing::create()/open() time, so
-// attaching with the wrong T silently misreads every record at the wrong
-// offset instead of failing loudly -- there is no cross-check possible
-// from inside ShmRing itself, only from both ends agreeing on one shared
-// header, which is exactly what execution_event.hpp is for.
+// benchmarks/consumer.py decodes by hand. SharedExecutionChannel stays
+// hardcoded to this one type deliberately: it is the primary,
+// backward-compatible fast path (animus::schema::Traits<ExecutionEvent>,
+// include/animus/schema.hpp), unchanged since before Milestone 1.
+//
+// Milestone 1 (Dynamic & User-Defined Wire Schemas) adds SharedSchemaChannel
+// below it: a second, genuinely schema-agnostic binding over
+// animus::sys::ipc::RawSchemaView (shm_ipc.hpp) that attaches to a segment
+// without ever naming T at compile time, reading whatever
+// payload_size/stride/schema_version_hash/wire_format ShmRing<T>::create()
+// stamped into the header instead. Since ShmRing<T>::open() now validates
+// that header against the attaching side's own T (a real gap this
+// milestone closes -- previously two same-size T's could attach to the
+// same segment and silently misread each other's fields, with no
+// cross-check possible), SharedSchemaChannel is what lets a Python
+// consumer inspect *any* registered custom schema (MarketDepthEvent,
+// OrderBookL2, AlphaSignal, ...) and build a matching NumPy structured
+// dtype from wire_format() at runtime, without a new compiled extension
+// per schema.
 //
 // GIL discipline (Milestone 3's explicit requirement): poll()'s spin-wait
 // over the shared ring runs entirely inside a nb::gil_scoped_release
@@ -202,6 +214,68 @@ private:
     std::string name_;
 };
 
+// Milestone 1: schema-agnostic Python attach. Wraps
+// animus::sys::ipc::RawSchemaView (include/animus/shm_ipc.hpp) -- unlike
+// SharedExecutionChannel above, this never names a C++ record type, so it
+// can attach to a segment created for ExecutionEvent, OrderBookL2
+// (animus::schema, include/animus/schema.hpp), or any other struct a
+// client registered with ANIMUS_DEFINE_SCHEMA, purely by reading the
+// wire descriptor ShmRing<T>::create() stamped into the header. Read-only
+// by design (no push/push_overwrite): a Python consumer that also needs
+// to *produce* a custom-schema record still needs a compiled binding for
+// that concrete T (there is no way to construct an arbitrary trivially-
+// copyable C++ struct from untyped Python bytes without one), but reading
+// an existing stream and decoding it -- the actual "dynamic unpacker"
+// this milestone asks for -- needs no such binding.
+class SharedSchemaChannel {
+public:
+    static SharedSchemaChannel open(const std::string& name) {
+        auto view = animus::sys::ipc::RawSchemaView::open(name.c_str());
+        if (!view) {
+            throw std::runtime_error(
+                "RawSchemaView::open('" + name + "') failed -- no such segment, or its header "
+                "is not a valid Milestone-1 schema-descriptor ring (too old, or a torn/foreign segment)");
+        }
+        return SharedSchemaChannel(std::move(view), name);
+    }
+
+    uint64_t schema_version_hash() const noexcept { return view_->schema_version_hash(); }
+    size_t payload_size() const noexcept { return static_cast<size_t>(view_->payload_size()); }
+    size_t stride() const noexcept { return static_cast<size_t>(view_->stride()); }
+    std::string wire_format() const { return std::string(view_->wire_format()); }
+    size_t capacity() const noexcept { return static_cast<size_t>(view_->capacity()); }
+    uint64_t head() const noexcept { return view_->head(); }
+    uint64_t tail() const noexcept { return view_->tail(); }
+    uint64_t dropped_count() const noexcept { return view_->dropped_count(); }
+    const std::string& name() const noexcept { return name_; }
+
+    // Zero-copy raw view of the ENTIRE slot array as a (capacity, stride)
+    // uint8 ndarray -- byte-for-byte the same memory layout as the C++
+    // side, with no copy and no dependency on knowing T. wire_format()
+    // (a struct.calcsize-compatible format string, e.g. "<QQqqII") is
+    // what lets a caller reinterpret this as a structured NumPy dtype;
+    // see animus/shm.py's schema helpers for that conversion. Only
+    // [tail(), head()) mod capacity() is data an active producer has
+    // actually published and not yet overwritten -- same reader contract
+    // ShmRing<T>'s own try_pop()/pop_spin() have, just left for the
+    // caller to apply here instead of being enforced by a pop() call.
+    nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> raw_view() {
+        return nb::ndarray<uint8_t, nb::memview, nb::ndim<2>>(
+            reinterpret_cast<uint8_t*>(view_->slots_base()),
+            {view_->capacity(), view_->stride()},
+            nb::find(*this)
+        );
+    }
+
+private:
+    SharedSchemaChannel(std::unique_ptr<animus::sys::ipc::RawSchemaView> view, std::string name)
+        : view_(std::move(view)), name_(std::move(name)) {
+    }
+
+    std::unique_ptr<animus::sys::ipc::RawSchemaView> view_;
+    std::string name_;
+};
+
 } // namespace
 
 NB_MODULE(_animus_shm_native, m) {
@@ -246,4 +320,25 @@ NB_MODULE(_animus_shm_native, m) {
         .def_prop_ro("drain_batch_capacity", &SharedExecutionChannel::drain_batch_capacity)
         .def_prop_ro("is_owner", &SharedExecutionChannel::is_owner)
         .def_prop_ro("name", &SharedExecutionChannel::name);
+
+    nb::class_<SharedSchemaChannel>(m, "SharedSchemaChannel")
+        .def_static("open", &SharedSchemaChannel::open, "name"_a,
+             "Attach read-only to an existing named OS shared-memory ring, without knowing "
+             "its record type at compile time -- reads whatever schema descriptor "
+             "ShmRing<T>::create() stamped into the header (payload_size, stride, "
+             "schema_version_hash, wire_format). Works for ExecutionEvent, OrderBookL2, or "
+             "any other schema registered via ANIMUS_DEFINE_SCHEMA (include/animus/schema.hpp).")
+        .def("raw_view", &SharedSchemaChannel::raw_view,
+             "Zero-copy (capacity, stride) uint8 view of the entire slot array, matching the "
+             "C++ memory layout byte-for-byte. Combine with wire_format to decode as a "
+             "structured NumPy dtype, and with head/tail/capacity to bound the valid range.")
+        .def_prop_ro("schema_version_hash", &SharedSchemaChannel::schema_version_hash)
+        .def_prop_ro("payload_size", &SharedSchemaChannel::payload_size)
+        .def_prop_ro("stride", &SharedSchemaChannel::stride)
+        .def_prop_ro("wire_format", &SharedSchemaChannel::wire_format)
+        .def_prop_ro("capacity", &SharedSchemaChannel::capacity)
+        .def_prop_ro("head", &SharedSchemaChannel::head)
+        .def_prop_ro("tail", &SharedSchemaChannel::tail)
+        .def_prop_ro("dropped_count", &SharedSchemaChannel::dropped_count)
+        .def_prop_ro("name", &SharedSchemaChannel::name);
 }
