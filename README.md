@@ -6,11 +6,15 @@
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 
-> **`proprietary-edition` branch.** This branch adds an offline RSA-signed
-> hardware licensing layer (Phase 17) and lock-free market data feed
-> adapters (Phase 18 below) on top of the MIT `master` branch and is
-> licensed differently -- see `LICENSE` in this branch, which is a
-> placeholder pending real legal review, not the MIT text on `master`.
+> **Licensing.** Animus Core includes an offline RSA-signed hardware
+> licensing layer (Phase 17) and lock-free market data feed adapters
+> (Phase 18 below). The software is distributed under the **Animus
+> Dual-License Gateway (Community & Enterprise)** -- see `LICENSE`: free,
+> royalty-free use for evaluation, benchmarking, and non-commercial
+> research; an Enterprise Production License (`COMMERCIAL.md`,
+> `LEGAL_EULA.md`) is required for commercial deployment, live
+> trading/production execution pipelines, or any revenue-generating
+> execution node.
 
 ## Overview
 Animus Core is an enterprise-grade, low-latency telemetry ingestion and automated response engine engineered in C++ with native Python SDK bindings. It bridges C-ABI execution memory boundaries with high-level orchestrators to process high-throughput telemetry streams without zero-copy buffer degradation.
@@ -168,7 +172,7 @@ Verified across 25 consecutive runs (100% pass): a 3-node cluster elects exactly
 Animus Core ships as a single distributable artifact per platform: one header for C++ integrators, one wheel for Python integrators, both regenerated from source rather than hand-maintained.
 
 * **Single-header release (`AnimusCore_v1/animus_release.hpp`):** `AnimusCore_v1/amalgamate.py` concatenates all four source headers (`animus.hpp`, `animus_security.hpp`, `animus_transport.hpp`, `animus_cluster.hpp`) into one self-contained file -- a client vendors one `#include`, not four with an inter-file include order to get right. The Windows-only transport/cluster sections are gated on `defined(_WIN32) && defined(_MSC_VER)`, not just `_WIN32`, so the same single header still compiles the portable core engine + RBAC layer under MinGW `g++` (verified with a real build and run) while correctly reserving the Schannel-based sections for MSVC, where their certificate loading actually works.
-* **Python SDK, PyPI-ready:** an MIT `LICENSE`, PyPI classifiers, and `Documentation`/`Issues` project URLs were added to `pyproject.toml`; a real `pip wheel . --no-deps` build was installed into a fresh isolated venv (no sibling source checkout) and imported successfully, with the native `AnimusCore_v1.dll` bundled inside the wheel.
+* **Python SDK, PyPI-ready:** PyPI classifiers and `Documentation`/`Issues` project URLs were added to `pyproject.toml` (`license` classifier now `Proprietary`, consistent with the Animus Dual-License Gateway in `LICENSE`); a real `pip wheel . --no-deps` build was installed into a fresh isolated venv (no sibling source checkout) and imported successfully, with the native `AnimusCore_v1.dll` bundled inside the wheel.
 * **Multi-node write-latency benchmark (`AnimusCore_v1/cluster_latency_bench.cpp`):** a new benchmark against the Phase 9 cluster, distinct from Phase 9's election/failover timing -- it measures the latency a client actually experiences on every write (`RaftNode::propose()`'s majority-commit latency) separately from full-cluster (not just majority) convergence latency, since conflating them would misrepresent both.
 * **Client quickstart guides (`AnimusCore_v1/QUICKSTART.md`):** four proof-of-concept guides -- Python SDK, C++ single header, secure multi-tenant + mTLS, and distributed cluster -- each layering on the previous, with every code sample either compiled and run for real or checked against the current method signatures in the source headers.
 
@@ -272,13 +276,13 @@ The "sub-microsecond IPC" claim was measured layer by layer, not asserted as one
 
 ## Phase 17: Enterprise Edition -- Offline RSA-Signed Hardware Licensing
 
-**This phase lives only on the `proprietary-edition` branch, not `master`.**
-AnimusCore is MIT-licensed on `master`; a hardware-locked license gate
-doesn't fit an open-source tree (anyone with the source can just delete
-the check). `proprietary-edition` branches off `master` specifically to
-carry this feature, with `LICENSE` replaced by a placeholder "All Rights
-Reserved" notice -- explicitly **not** reviewed by counsel, and not to be
-distributed to a customer before real legal review.
+This is the enforcement mechanism behind the Enterprise track of the
+Animus Dual-License Gateway (see `LICENSE`): the Community Grant covers
+evaluation, benchmarking, and non-commercial research with no signed
+agreement required, but a hardware-locked license gate is what stands
+between that and commercial/production use -- see `COMMERCIAL.md` for
+the licensing tiers this gate enforces and `LEGAL_EULA.md` for the
+governing terms.
 
 * **Offline, no phone-home:** `animus_verify_license(path)` (`AnimusCore_v1/animus.hpp`
   / `animus_engine.cpp`) validates a signed license file entirely locally --
