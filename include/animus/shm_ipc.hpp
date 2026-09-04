@@ -33,6 +33,7 @@
 
 #include "thread_affinity.hpp"
 #include "shm_lifecycle.hpp"
+#include "schema.hpp"
 
 #include <atomic>
 #include <cstddef>
@@ -248,6 +249,77 @@ namespace ipc {
 #endif
     };
 
+    // Wire descriptor + SPSC cursor header shared by every ShmRing<T>
+    // instantiation (Milestone 1) -- factored out of the class template,
+    // unlike the original design, because nothing in it actually depends
+    // on T. That lets a process which has never heard of T attach to a
+    // segment and read its schema metadata directly (see RawSchemaView
+    // below): payload size, stride, schema version hash, and a
+    // struct.calcsize-compatible wire format string, all written once at
+    // create() time. This is exactly what bindings/animus_shm_py.cpp's
+    // schema-agnostic Python binding needs to build a matching NumPy dtype
+    // at runtime instead of hardcoding one compiled-in record type.
+    //
+    // Layout is a whole number of cache lines (see the static_assert
+    // below), not necessarily the fixed "3 lines" the original
+    // {capacity, mask}-only header always was: the read-only wire
+    // descriptor now itself spans however many lines its fields need
+    // (2 on a 64-byte-line target, 1 on a 128-byte-line target such as
+    // ARM64 -- see ANIMUS_CACHE_LINE_SIZE, thread_affinity.hpp) before the
+    // producer- and consumer-owned lines that follow it.
+    //   - read-only wire descriptor: capacity, mask, schema_version_hash,
+    //     payload_size, stride, wire_format[] -- written once at create()
+    //     and never again.
+    //   - producer-owned line: head plus every field only the producer
+    //     ever writes. Sharing this line among producer-only writes is
+    //     free -- same single writer, so there is no false sharing to
+    //     avoid, unlike splitting head from tail (different writers).
+    //   - consumer-owned line: tail plus the consumer's own pid/heartbeat.
+    struct alignas(ANIMUS_CACHE_LINE_SIZE) RingHeader {
+        // 88 bytes is generous headroom for any realistic fixed wire
+        // format string while keeping the whole read-only descriptor
+        // section an exact multiple of a 64-byte cache line: the 5
+        // preceding uint64_t fields (40 bytes) + 88 == 128 == 2 lines.
+        static constexpr size_t kWireFormatBufSize = 88;
+
+        uint64_t capacity = 0;
+        uint64_t mask = 0;
+        uint64_t schema_version_hash = 0; // animus::schema::Traits<T>::kVersionHash at create() time
+        uint64_t payload_size = 0;        // sizeof(T), in bytes
+        uint64_t stride = 0;              // bytes between consecutive slots (== payload_size; no per-slot padding today)
+        char wire_format[kWireFormatBufSize] = {}; // animus::schema::Traits<T>::kWireFormat, NUL-terminated, "" if unregistered
+
+        alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 };
+        std::atomic<uint64_t> dropped_count{ 0 };
+        std::atomic<uint64_t> producer_pid{ 0 };
+        std::atomic<uint64_t> producer_heartbeat{ 0 };
+
+        alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> tail{ 0 };
+        std::atomic<uint64_t> consumer_pid{ 0 };
+        std::atomic<uint64_t> consumer_heartbeat{ 0 };
+    };
+    static_assert(std::atomic<uint64_t>::is_always_lock_free,
+        "RingHeader lives in memory shared across process boundaries -- a non-lock-free "
+        "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
+    static_assert(sizeof(RingHeader) % ANIMUS_CACHE_LINE_SIZE == 0,
+        "RingHeader must be a whole number of cache lines -- if this fails, a field was added "
+        "that isn't respecting the alignas(ANIMUS_CACHE_LINE_SIZE) boundaries above");
+
+    // Bounded, NUL-terminating copy of a schema's wire format string into
+    // the header's fixed-size buffer -- truncates (rather than overflowing
+    // or asserting) an unrealistically long format string, since the
+    // numeric fields (payload_size/stride/schema_version_hash) remain the
+    // authoritative validation at open() time regardless; wire_format is
+    // documented as a best-effort convenience for dynamic NumPy dtype
+    // construction on the Python side, not a safety-critical field.
+    inline void set_wire_format(RingHeader& header, const char* src) noexcept {
+        size_t i = 0;
+        for (; src && src[i] != '\0' && i + 1 < RingHeader::kWireFormatBufSize; ++i) {
+            header.wire_format[i] = src[i];
+        }
+        header.wire_format[i] = '\0';
+    }
+
     // Single-producer/single-consumer, fixed-capacity ring living entirely
     // inside a SharedMemoryRegion. Same head/tail algorithm as animus.hpp's
     // in-process SpscRingBuffer (a relaxed load of the caller's own last
@@ -255,7 +327,7 @@ namespace ipc {
     // publish -- no compare-exchange retry loop, since there is only ever
     // one writer and one reader for any given slot), but placement-based
     // (storage is the mapped segment, not an owned std::vector) and with
-    // head/tail each pinned to their own cache line via the Header below,
+    // head/tail each pinned to their own cache line via RingHeader above,
     // since here the two sides are two different processes on two
     // different cores, and false sharing between them costs cross-socket
     // (not just cross-core) cache-coherency traffic -- worth padding for
@@ -273,6 +345,10 @@ namespace ipc {
             "T must be trivially copyable -- ShmRing<T> places T directly in shared memory "
             "with no serialization step, so a naive byte-copy across the process boundary "
             "must be a valid, complete copy of T");
+        static_assert(alignof(T) <= 64,
+            "T's alignment must not exceed 64 bytes -- ShmRing<T> packs slots back-to-back with "
+            "no per-slot padding beyond T's own size (see RingHeader::stride), so an over-aligned "
+            "T could straddle the guarantee every slot after the first is validly aligned for it");
 
         ShmRing(const ShmRing&) = delete;
         ShmRing& operator=(const ShmRing&) = delete;
@@ -284,7 +360,7 @@ namespace ipc {
         // including a name collision (see SharedMemoryRegion::create).
         static std::unique_ptr<ShmRing> create(const char* name, size_t requested_capacity) noexcept {
             const uint64_t capacity = round_up_pow2(requested_capacity < 2 ? 2 : requested_capacity);
-            const size_t total_size = sizeof(Header) + static_cast<size_t>(capacity) * sizeof(T);
+            const size_t total_size = sizeof(RingHeader) + static_cast<size_t>(capacity) * sizeof(T);
 
             SharedMemoryRegion region;
             if (!SharedMemoryRegion::create(name, total_size, region)) {
@@ -294,9 +370,16 @@ namespace ipc {
             // by the OS on both Windows and POSIX), not a live Header
             // object yet -- constructing one in place is what makes the
             // atomics inside it valid to use, not merely "probably zero".
-            auto* header = new (region.data()) Header();
+            auto* header = new (region.data()) RingHeader();
             header->capacity = capacity;
             header->mask = capacity - 1;
+            // Milestone 1 wire descriptor: stamps this segment with T's
+            // schema identity so a later open() (this process or another)
+            // can refuse to attach with the wrong T -- see open() below.
+            header->schema_version_hash = schema::Traits<T>::kVersionHash;
+            header->payload_size = static_cast<uint64_t>(sizeof(T));
+            header->stride = static_cast<uint64_t>(sizeof(T));
+            set_wire_format(*header, schema::Traits<T>::kWireFormat);
 
             std::unique_ptr<ShmRing> ring(new ShmRing());
             ring->region_ = std::move(region);
@@ -307,23 +390,35 @@ namespace ipc {
 
         // Maps an existing ring created by another process's create() call.
         // Returns nullptr if the segment doesn't exist, is too small to
-        // hold a valid header, or the header's own capacity claim doesn't
-        // fit the mapped region (a torn/foreign segment).
+        // hold a valid header, the header's own capacity claim doesn't fit
+        // the mapped region (a torn/foreign segment), or -- Milestone 1 --
+        // the segment's stamped schema identity doesn't match this T:
+        // wrong payload size, or the same size but a different registered
+        // schema::Traits<T> (name/wire format). Before this check, two
+        // distinct same-size T's could attach to the same segment and
+        // silently misinterpret each other's fields; now that mismatch is
+        // rejected here instead, loudly and before a single byte is read.
         static std::unique_ptr<ShmRing> open(const char* name) noexcept {
             SharedMemoryRegion region;
             if (!SharedMemoryRegion::open(name, region)) {
                 return nullptr;
             }
-            if (region.size() < sizeof(Header)) {
+            if (region.size() < sizeof(RingHeader)) {
                 return nullptr;
             }
-            auto* header = reinterpret_cast<Header*>(region.data());
+            auto* header = reinterpret_cast<RingHeader*>(region.data());
             const uint64_t capacity = header->capacity;
             const bool capacity_is_pow2 = capacity != 0 && (capacity & (capacity - 1)) == 0;
             if (!capacity_is_pow2 || header->mask != capacity - 1) {
                 return nullptr;
             }
-            if (region.size() < sizeof(Header) + static_cast<size_t>(capacity) * sizeof(T)) {
+            if (header->payload_size != static_cast<uint64_t>(sizeof(T))) {
+                return nullptr; // wrong record size -- a different T (or ABI drift) than create() used
+            }
+            if (header->schema_version_hash != schema::Traits<T>::kVersionHash) {
+                return nullptr; // same size, different registered schema -- refuse rather than misread
+            }
+            if (region.size() < sizeof(RingHeader) + static_cast<size_t>(capacity) * sizeof(T)) {
                 return nullptr; // header claims a capacity the mapped region doesn't actually have room for
             }
 
@@ -338,6 +433,21 @@ namespace ipc {
 
         bool valid() const noexcept { return header_ != nullptr; }
         size_t capacity() const noexcept { return header_ ? static_cast<size_t>(header_->capacity) : 0; }
+
+        // Milestone 1 wire descriptor accessors -- the same fields open()
+        // above validates, exposed so a caller (or the Python binding, via
+        // its own RawSchemaView-backed channel) can report which schema is
+        // actually attached without needing to know T's identity any other
+        // way. schema_version_hash()/payload_size()/stride() reflect
+        // whatever create() stamped into the header (always == T's own
+        // identity for a successfully-open()'d ring, by construction of
+        // the check above); schema_name()/kWireFormat() are compile-time
+        // constants from animus::schema::Traits<T> and need no header read.
+        uint64_t schema_version_hash() const noexcept { return header_ ? header_->schema_version_hash : 0; }
+        size_t payload_size() const noexcept { return header_ ? static_cast<size_t>(header_->payload_size) : 0; }
+        size_t stride() const noexcept { return header_ ? static_cast<size_t>(header_->stride) : 0; }
+        const char* wire_format() const noexcept { return header_ ? header_->wire_format : ""; }
+        static constexpr const char* schema_name() noexcept { return schema::Traits<T>::kName; }
 
         // Producer-side only (one process). Never blocks; returns false
         // if the ring is full. Use this when a full ring should be treated
@@ -522,43 +632,6 @@ namespace ipc {
 
         static constexpr uint64_t kDefaultMaxSpins = 200'000'000ull;
 
-        // Three cache lines: read-only metadata (capacity/mask, written
-        // once at create() and never again), the producer's head cursor,
-        // and the consumer's tail cursor -- each on its own line so a
-        // producer's head update never invalidates the cache line the
-        // consumer is spin-polling tail from, and vice versa. This is the
-        // false-sharing elimination the module's spec calls for; it is
-        // exactly animus.hpp's LockFreeRingBuffer/SpscRingBuffer's own
-        // alignas(64) enqueue_pos_/dequeue_pos_ split, just expressed as
-        // struct layout instead of two separate member variables, since
-        // this header (unlike those in-process rings) must also be
-        // reconstructible by a second process from raw bytes alone.
-        struct alignas(ANIMUS_CACHE_LINE_SIZE) Header {
-            uint64_t capacity = 0;
-            uint64_t mask = 0;
-            // Producer-owned line: head plus every field only the producer
-            // ever writes (dropped_count via push_overwrite(), pid/heartbeat
-            // via mark_producer_attached()/producer_heartbeat()). Sharing
-            // this line among producer-only writes is free -- it's the same
-            // single writer, so there is no false sharing to avoid, unlike
-            // splitting head from tail (different writers) below.
-            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 };
-            std::atomic<uint64_t> dropped_count{ 0 };
-            std::atomic<uint64_t> producer_pid{ 0 };
-            std::atomic<uint64_t> producer_heartbeat{ 0 };
-            // Consumer-owned line: tail plus the consumer's own pid/heartbeat.
-            alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> tail{ 0 };
-            std::atomic<uint64_t> consumer_pid{ 0 };
-            std::atomic<uint64_t> consumer_heartbeat{ 0 };
-        };
-        static_assert(std::atomic<uint64_t>::is_always_lock_free,
-            "Header lives in memory shared across process boundaries -- a non-lock-free "
-            "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
-        static_assert(sizeof(Header) == 3 * ANIMUS_CACHE_LINE_SIZE,
-            "Header must be exactly 3 cache lines: metadata, producer-owned, consumer-owned "
-            "-- if this fails, the alignas(ANIMUS_CACHE_LINE_SIZE) members above aren't "
-            "landing on distinct lines, or a line's fields grew past 64 bytes");
-
         static uint64_t round_up_pow2(size_t v) noexcept {
             uint64_t p = 1;
             while (p < v) p <<= 1;
@@ -566,8 +639,87 @@ namespace ipc {
         }
 
         SharedMemoryRegion region_;
-        Header* header_ = nullptr;
+        RingHeader* header_ = nullptr;
         T* slots_ = nullptr;
+    };
+
+    // Schema-agnostic, read-only attach: opens a named ShmRing<T> segment
+    // (any T, as long as it was created via ShmRing<T>::create(), which
+    // always writes a RingHeader) and exposes its wire descriptor --
+    // payload size, stride, schema version hash, wire format string --
+    // plus the raw producer/consumer cursors and a raw pointer to the slot
+    // array, all without the caller ever naming T. This is what lets
+    // bindings/animus_shm_py.cpp's schema-agnostic Python channel build a
+    // NumPy dtype at runtime from wire_format() instead of hardcoding one
+    // compiled-in record type; it is not a re-implementation of
+    // ShmRing<T>::open()'s validation logic, just a view that stops one
+    // step earlier, before the "does this T match" check that requires
+    // knowing T at compile time.
+    class RawSchemaView {
+    public:
+        RawSchemaView() noexcept = default;
+        RawSchemaView(const RawSchemaView&) = delete;
+        RawSchemaView& operator=(const RawSchemaView&) = delete;
+        RawSchemaView(RawSchemaView&&) noexcept = default;
+        RawSchemaView& operator=(RawSchemaView&&) noexcept = default;
+
+        // Same structural checks as ShmRing<T>::open() minus the T-specific
+        // ones (payload size / schema version hash), since this view never
+        // knows T -- callers that need that guarantee should compare
+        // schema_version_hash()/payload_size() against their own expected
+        // schema::Traits<T> themselves, or use ShmRing<T>::open() directly.
+        static std::unique_ptr<RawSchemaView> open(const char* name) noexcept {
+            SharedMemoryRegion region;
+            if (!SharedMemoryRegion::open(name, region)) {
+                return nullptr;
+            }
+            if (region.size() < sizeof(RingHeader)) {
+                return nullptr;
+            }
+            auto* header = reinterpret_cast<RingHeader*>(region.data());
+            const uint64_t capacity = header->capacity;
+            const bool capacity_is_pow2 = capacity != 0 && (capacity & (capacity - 1)) == 0;
+            if (!capacity_is_pow2 || header->mask != capacity - 1) {
+                return nullptr;
+            }
+            if (header->payload_size == 0 || header->stride == 0) {
+                return nullptr; // not a schema-descriptor header this milestone's create() ever wrote
+            }
+            if (region.size() < sizeof(RingHeader) + static_cast<size_t>(capacity) * static_cast<size_t>(header->stride)) {
+                return nullptr; // header claims a capacity/stride the mapped region doesn't have room for
+            }
+
+            std::unique_ptr<RawSchemaView> view(new RawSchemaView());
+            view->region_ = std::move(region);
+            view->header_ = header;
+            return view;
+        }
+
+        bool valid() const noexcept { return header_ != nullptr; }
+        uint64_t capacity() const noexcept { return header_ ? header_->capacity : 0; }
+        uint64_t schema_version_hash() const noexcept { return header_ ? header_->schema_version_hash : 0; }
+        uint64_t payload_size() const noexcept { return header_ ? header_->payload_size : 0; }
+        uint64_t stride() const noexcept { return header_ ? header_->stride : 0; }
+        const char* wire_format() const noexcept { return header_ ? header_->wire_format : ""; }
+        uint64_t head() const noexcept { return header_ ? header_->head.load(std::memory_order_acquire) : 0; }
+        uint64_t tail() const noexcept { return header_ ? header_->tail.load(std::memory_order_acquire) : 0; }
+        uint64_t dropped_count() const noexcept { return header_ ? header_->dropped_count.load(std::memory_order_relaxed) : 0; }
+
+        // Raw pointer to slot 0 of the underlying array -- the caller must
+        // treat this as capacity()*stride() bytes, mask-indexed exactly
+        // like ShmRing<T>::try_pop does internally (slot i lives at
+        // slots_base() + (i & (capacity()-1)) * stride()). Aliases the
+        // live mapped segment: valid only as long as this RawSchemaView is
+        // alive, and only [tail(), head()) (mod capacity()) is data an
+        // active producer has actually published and not yet overwritten
+        // -- same reader contract as the typed ShmRing<T> API.
+        void* slots_base() const noexcept {
+            return header_ ? reinterpret_cast<uint8_t*>(header_) + sizeof(RingHeader) : nullptr;
+        }
+
+    private:
+        SharedMemoryRegion region_;
+        RingHeader* header_ = nullptr;
     };
 
 } // namespace ipc

@@ -136,3 +136,23 @@ endif()
 set_target_properties(harness_benchmark PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# test_dynamic_schema -- Milestone 1 regression test (Dynamic & User-Defined
+# Wire Schemas). Same cross-process, C++17, include/-only dependency shape
+# as harness_benchmark above; this binary is both the producer and the
+# consumer side, selected by argv -- see tests/test_dynamic_schema.cpp's own
+# header comment for how to run it as two separate OS processes.
+add_executable(test_dynamic_schema
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_dynamic_schema.cpp
+)
+target_include_directories(test_dynamic_schema PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(test_dynamic_schema PRIVATE cxx_std_17)
+target_link_libraries(test_dynamic_schema PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(test_dynamic_schema PRIVATE rt)
+endif()
+set_target_properties(test_dynamic_schema PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
