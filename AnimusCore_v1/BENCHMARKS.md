@@ -1004,6 +1004,8 @@ Real MSVC (`cl /std:c++latest /EHsc /O2`) and MinGW GCC 15.2 (`g++ -std=c++23 -O
 
 * **Status:** Phase 29 Cross-Process Shared-Memory Producer, Real Linux CI Verified -- genuine `ubuntu-22.04` ELF binary and `linux_x86_64` wheel confirmed, tarball SHA-256 independently reproduced locally, and two real bugs (one in `shm_ipc.hpp`'s POSIX attach path, one in the eval kit's own consumer self-check) caught and fixed by this exact verification effort, not left latent.
 
+* **v1.2.0 release artifact (later, separate build):** `eval_kit/dist/animus-eval-kit-linux-x86_64/animus-eval-kit-linux-x86_64.tar.gz` as published on the [v1.2.0 GitHub release](https://github.com/alakshendra-roy/AnimusCore_v1/releases/tag/v1.2.0), built locally at commit `b2c338d` -- a distinct rebuild from the Phase 29 CI run above, not the same tarball, so it carries its own checksum: SHA-256 `3350659863889d691efb7e82beeb077466b501ba2a5c526167aeb36f4c73b880`.
+
 ## Phase 30: `scripts/animus_stat.py` Live Dashboard -- Manual Verification Against a Real, Actively-Writing Producer
 
 ### Target System
