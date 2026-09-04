@@ -89,6 +89,78 @@ jobs:
           # would exit non-zero instead.
           [ "$status" -eq 0 ]
 
+      # Milestone 1 (Dynamic & User-Defined Wire Schemas): builds
+      # tests/test_dynamic_schema.cpp the same way build.sh builds
+      # harness_benchmark.cpp above (release + ASan/UBSan, direct g++, no
+      # CMake) since this workflow's whole point is exercising the real
+      # POSIX shm_open/mmap path, not the CMake build already covered by
+      # build.yml's linux-cmake job.
+      - name: Build test_dynamic_schema (release + ASan/UBSan)
+        run: |
+          mkdir -p tests/build
+          g++ -O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_dynamic_schema.cpp -o tests/build/test_dynamic_schema -lpthread
+          g++ -O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -std=c++17 \
+            -Wall -Wextra -Wpedantic -Iinclude \
+            tests/test_dynamic_schema.cpp -o tests/build/test_dynamic_schema_sanitized -lpthread
+
+      - name: Verify test_dynamic_schema binaries were produced
+        run: |
+          test -x tests/build/test_dynamic_schema
+          test -x tests/build/test_dynamic_schema_sanitized
+
+      # Genuinely cross-process (two separate OS processes, not two
+      # threads): consumer owns ring creation/unlink -- same convention as
+      # AnimusCore_v1/shm_ipc_bench.cpp -- and the producer retries open()
+      # to absorb the startup race. Runs under ASan+UBSan for correctness,
+      # same reasoning as the harness_benchmark_sanitized steps above:
+      # this checks for a clean exit and the consumer's own PASS lines,
+      # not performance. Covers both the primary, backward-compatible
+      # 40-byte ExecutionEvent schema and the alternate 64-byte
+      # OrderBookL2 schema (include/animus/schema.hpp), including the
+      # negative case -- ShmRing<T>::open() rejecting a cross-schema
+      # attach (see include/animus/shm_ipc.hpp) -- which the consumer role
+      # checks itself after the round trip.
+      - name: test_dynamic_schema -- ExecutionEvent (40B) cross-process, ASan/UBSan
+        working-directory: tests
+        shell: bash
+        run: |
+          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          ./build/test_dynamic_schema_sanitized --consumer execution_event ci_dynschema_ee 20000 > consumer_ee.log 2>&1 &
+          consumer_pid=$!
+          sleep 0.5
+          ./build/test_dynamic_schema_sanitized --producer execution_event ci_dynschema_ee 20000 > producer_ee.log 2>&1
+          producer_status=$?
+          wait "$consumer_pid"
+          consumer_status=$?
+          cat consumer_ee.log
+          cat producer_ee.log
+          echo "producer_status=$producer_status consumer_status=$consumer_status"
+          grep -q "all 20000 records verified byte-for-byte" consumer_ee.log
+          grep -q "cross-schema open() with animus::schema::OrderBookL2 correctly rejected" consumer_ee.log
+          [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
+
+      - name: test_dynamic_schema -- OrderBookL2 (64B) cross-process, ASan/UBSan
+        working-directory: tests
+        shell: bash
+        run: |
+          export ASAN_OPTIONS=detect_leaks=1:halt_on_error=1
+          export UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1
+          ./build/test_dynamic_schema_sanitized --consumer orderbook_l2 ci_dynschema_ob 20000 > consumer_ob.log 2>&1 &
+          consumer_pid=$!
+          sleep 0.5
+          ./build/test_dynamic_schema_sanitized --producer orderbook_l2 ci_dynschema_ob 20000 > producer_ob.log 2>&1
+          producer_status=$?
+          wait "$consumer_pid"
+          consumer_status=$?
+          cat consumer_ob.log
+          cat producer_ob.log
+          echo "producer_status=$producer_status consumer_status=$consumer_status"
+          grep -q "all 20000 records verified byte-for-byte" consumer_ob.log
+          grep -q "cross-schema open() with animus::ExecutionEvent correctly rejected" consumer_ob.log
+          [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
+
       # The actual Milestone 4 deliverable: two independent OS processes
       # (the release, non-sanitized C++ producer and a separate Python
       # interpreter) exchanging 10,000,000 records through real POSIX
@@ -133,3 +205,7 @@ jobs:
             benchmarks/harness_10m.json
             benchmarks/harness_10m_overwrite.json
             benchmarks/consumer_10m.log
+            tests/consumer_ee.log
+            tests/producer_ee.log
+            tests/consumer_ob.log
+            tests/producer_ob.log
