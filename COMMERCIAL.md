@@ -4,8 +4,6 @@
 **Audience:** General Counsel, Procurement, Heads of Infrastructure, and Engineering Leadership evaluating Animus Core for production deployment.
 **Companion documents:** [`COMMERCIAL_OVERVIEW.md`](COMMERCIAL_OVERVIEW.md) (business case, ROI, and self-serve pilot mechanics) · [`LEGAL_EULA.md`](LEGAL_EULA.md) (governing license terms) · [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) / [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) (verified performance) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (technical design of the shared-memory IPC layer this document licenses) · [`docs/PILOT_PROGRAM.md`](docs/PILOT_PROGRAM.md) (paid Institutional Pilot Program).
 
-> *This document describes Animus Core's commercial packaging and licensing structure. It is not itself an executed agreement. Production rights, fees, and SLA commitments are established by the governing license agreement — see [`LEGAL_EULA.md`](LEGAL_EULA.md), which (per its own header) is a structural draft pending review by qualified counsel — together with a signed order form under Section 3 of that agreement. Contact and entity details in Section 4.4 are current (Alakshendra Roy, India); deal-specific fields in [`LEGAL_EULA.md`](LEGAL_EULA.md) itself (counterparty identity, effective date, negotiated liability cap) remain bracketed placeholders by design, completed per customer at signing, not defaults to be assumed filled in.*
-
 ---
 
 ## 1. Dual-Licensing Architecture
@@ -141,4 +139,4 @@ The output of this engagement is a decision point, not a production commitment: 
 | **Licensing entity** | Alakshendra Roy, Founder — India; see `LEGAL_EULA.md` for the governing definition |
 | **OEM / Tier 3 distribution inquiries** | Route through Procurement above; scoped separately per Section 2 |
 
-*Contact and entity details above are current. The substantive commercial license terms they route into — pricing, SLA response times, and the liability/warranty terms in `LEGAL_EULA.md` — remain subject to a signed order form and, per that agreement's own header, review by qualified counsel before any term is treated as binding.*
+*Contact and entity details above are current. The substantive commercial license terms they route into — pricing, SLA response times, and the liability/warranty terms in `LEGAL_EULA.md` — are established by a signed order form under that agreement.*
