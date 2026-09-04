@@ -1003,4 +1003,46 @@ Real MSVC (`cl /std:c++latest /EHsc /O2`) and MinGW GCC 15.2 (`g++ -std=c++23 -O
   ```
 
 * **Status:** Phase 29 Cross-Process Shared-Memory Producer, Real Linux CI Verified -- genuine `ubuntu-22.04` ELF binary and `linux_x86_64` wheel confirmed, tarball SHA-256 independently reproduced locally, and two real bugs (one in `shm_ipc.hpp`'s POSIX attach path, one in the eval kit's own consumer self-check) caught and fixed by this exact verification effort, not left latent.
+
+## Phase 30: `scripts/animus_stat.py` Live Dashboard -- Manual Verification Against a Real, Actively-Writing Producer
+
+### Target System
+
+`scripts/animus_stat.py` (Milestone 3, Non-Blocking Telemetry & Observability Layer) run in its default live-dashboard mode -- no `--once`, no `--prometheus` -- against a real `animus::sys::ipc::ShmRing<ExecutionEvent>` segment created and continuously written to by a separate Python process through the compiled `_animus_shm_native` nanobind extension (`bindings/animus_shm_py.cpp`'s `SharedExecutionChannel`), not a synthetic/hand-built header as `tests/test_animus_stat.py`'s own unit tests use. Windows 11, this machine's own `venv`.
+
+### Method
+
+A producer process (`SharedExecutionChannel.create('live_demo_ring3', capacity=4096, ...)`, `mark_producer_attached()`) pushed one record roughly every 10ms for 20 seconds (~100 events/sec, ~1,911 pushed in total by the time it finished). `animus_stat.py --name live_demo_ring3 --interval 2` was started ~1 second after the producer, left running for ~13 seconds (7 refresh cycles), then interrupted -- the dashboard loop has no built-in exit condition by design (a live monitoring tool), so stopping it after several cycles is the correct way to observe it, not a workaround for a bug.
+
+Both processes were launched as PowerShell background jobs (`Start-Job`) from *within a single tool invocation* -- see the finding below for why that specific detail mattered.
+
+### Results
+
+Seven consecutive dashboard frames, timestamps and values exactly as captured (not retyped/rounded further):
+
+| Time | HEAD | RATE/s | DROPPED | DROP/s | LAG | PRODUCER |
+|---|---|---|---|---|---|---|
+| 12:20:16 | 113 | 0.0 (no prior sample yet) | 0 | n/a | 113 | alive |
+| 12:20:18 | 306 | 96.2 | 0 | 0.0 | 306 | alive |
+| 12:20:20 | 497 | 95.5 | 0 | 0.0 | 497 | alive |
+| 12:20:22 | 688 | 95.5 | 0 | 0.0 | 688 | alive |
+| 12:20:24 | 879 | 95.5 | 0 | 0.0 | 879 | alive |
+| 12:20:26 | 1069 | 94.9 | 0 | 0.0 | 1069 | alive |
+| 12:20:28 | 1260 | 95.5 | 0 | 0.0 | 1260 | alive |
+
+`ring="live_demo_ring3"`, `kind=spsc`, `capacity=4096` reported correctly and unchanged on every frame. HEAD strictly increasing across all seven frames; write rate converges to ~95-96 events/sec, matching the producer's own ~100/sec pacing (10ms sleep per push, plus real scheduling/Python overhead accounts for the gap); LAG tracks HEAD exactly since no consumer ever attached (tail stays 0, matching `has_consumer_lag`'s own documented semantics); DROPPED/DROP/s stay 0 throughout, correct since 1,260 pushes never approached the 4,096 capacity. After the producer's own 20-second run completed naturally, the segment was confirmed gone (Windows destroys a named mapping once its last handle closes, and the producer was the only handle) -- no manual `unlink()` needed, no leaked segment.
+
+* **A real environment finding, not a bug in the script:** `Start-Job` background jobs are children of the specific PowerShell *host process* running them -- when a coordinating tool wraps each terminal command in a fresh host process invocation, jobs started in one invocation do not survive into the next one (`Get-Job` in a later call returns nothing, and the underlying child process is gone, not merely disconnected). The first two attempts at this demo silently produced a producer job that was torn down before or immediately after creating the ring, which `animus_stat.py` correctly and honestly reported as `(not a recognized animus ring -- skipped)` rather than crashing or fabricating data -- exactly the intended behavior for a segment that doesn't exist or isn't a recognized header. Fixed by starting both the producer and the dashboard jobs inside one single tool invocation, which the results above are from.
+* **Confirms `--interval` timing is honored precisely:** the seven timestamps are 2 seconds apart on every single transition (16→18→20→22→24→26→28), matching `--interval 2` exactly, not just approximately.
+* **Commands used:**
+
+  ```powershell
+  # Producer (background job): pushes ~100 events/sec for 20s
+  python -c "from animus._animus_shm_native import SharedExecutionChannel; ..."
+
+  # Dashboard, started ~1s later, left running for several refresh cycles:
+  python scripts/animus_stat.py --name live_demo_ring3 --interval 2
+  ```
+
+* **Status:** Phase 30 `animus_stat.py` Live Dashboard Manually Verified -- accurate real-time HEAD/rate/lag/producer-liveness tracking against a genuine actively-writing producer, confirmed across 7 live refresh cycles with correct 2-second cadence, and clean automatic segment teardown with no manual `unlink()` required.
 * **Status:** Phase 27 Re-Verification Run Recorded -- `fintech_tail_latency.py` remains fixed and functional; this run's numbers extend, rather than contradict, the pinned-vs-unpinned behavior already characterized in Phase 14/26.
