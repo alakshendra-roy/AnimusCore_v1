@@ -1,5 +1,31 @@
 # ANIMUS Core Engine v1.0 - Performance Benchmarks
 
+## Reproduce Benchmarks Locally
+
+The shared-memory IPC numbers in Phase 29-31 below (`animus::sys::ipc::ShmRing<ExecutionEvent>`
+throughput/latency and `scripts/animus_stat.py`'s telemetry output) can be reproduced with one
+command, on Linux/macOS or native Windows. Each script builds `harness_benchmark` in Release via
+the root `CMakeLists.txt`, runs the standard 10,000,000-event decoupled-overwrite pass, and
+samples the ring's telemetry header -- both `animus_stat.py --once` (the live-dashboard row) and
+`animus_stat.py --prometheus` (OpenMetrics counters) -- while the producer is still writing to it:
+
+```bash
+# Linux / macOS
+./scripts/run_benchmarks.sh
+```
+
+```powershell
+# Windows
+powershell -File scripts/run_benchmarks.ps1
+```
+
+Both print the same three things to the terminal: sustained throughput in events/sec, per-event
+enqueue latency at p50/p90/p99/p99.9, and the live telemetry snapshot (capacity, head, drop rate,
+consumer lag, producer liveness) in both the dashboard and Prometheus formats. `--events N` and
+`--capacity SLOTS` override the defaults on either script. See `scripts/run_benchmarks.sh` /
+`scripts/run_benchmarks.ps1` for the full flag list, and ARCHITECTURE.md sections 1, 2, and 4 for
+what the numbers mean.
+
 ## Environment
 - **Platform:** Windows 11 (x64) | HP Omen 15
 - **Compiler:** MSVC (Visual Studio 2022)
