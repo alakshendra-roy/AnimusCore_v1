@@ -2,7 +2,7 @@
 
 **Classification:** Enterprise Commercial & Licensing Specification
 **Audience:** General Counsel, Procurement, Heads of Infrastructure, and Engineering Leadership evaluating Animus Core for production deployment.
-**Companion documents:** [`COMMERCIAL_OVERVIEW.md`](COMMERCIAL_OVERVIEW.md) (business case, ROI, and self-serve pilot mechanics) · [`LEGAL_EULA.md`](LEGAL_EULA.md) (governing license terms) · [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) / [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) (verified performance) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (technical design of the shared-memory IPC layer this document licenses) · [`docs/PILOT_PROGRAM.md`](docs/PILOT_PROGRAM.md) (paid Institutional Pilot Program).
+**Companion documents:** [`COMMERCIAL_OVERVIEW.md`](COMMERCIAL_OVERVIEW.md) (business case, ROI, and self-serve pilot mechanics) · [`LEGAL_EULA.md`](LEGAL_EULA.md) (governing license terms) · [`COMPLIANCE_AND_RISK_MITIGATION.md`](COMPLIANCE_AND_RISK_MITIGATION.md) (SLA topology, cross-border tax, and contractor IP-isolation protocols) · [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) / [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) (verified performance) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (technical design of the shared-memory IPC layer this document licenses) · [`docs/PILOT_PROGRAM.md`](docs/PILOT_PROGRAM.md) (paid Institutional Pilot Program).
 
 ---
 
@@ -98,6 +98,8 @@ Production entitlement is enforced by **cryptographic, node-bound, offline licen
 | Zero telemetry callback | OS-local shared memory transport; fully offline license verification | `ARCHITECTURE.md` §1.1; `LEGAL_EULA.md` §2.2 |
 | Deterministic release validation | SHA-256 checksums per release; reproducible benchmark harness; NDA source access | `AnimusCore_v1/BENCHMARKS.md` (v1.2.0 checksum); `scripts/run_benchmarks.{sh,ps1}` |
 | License keying | RSA-2048-signed, hardware-fingerprint-bound `.lic` tokens; fail-closed enforcement | `AnimusCore_v1/animus_license_pubkey.hpp`; `AnimusCore_v1/license_tools/` |
+
+The Reference Topology Appendix that scopes the Section 2 performance commitments contractually, the mandatory 30-day staging/canary UAT gate ahead of live execution, and the per-recipient watermarking protocol behind evaluation-artifact traceability are detailed in `COMPLIANCE_AND_RISK_MITIGATION.md` §§1 and 3.3.
 
 ---
 
