@@ -47,7 +47,9 @@ check; any such attempt immediately terminates this Agreement. Re-hosting
 to a different machine requires a newly issued license file from
 Licensor.
 
-**3. Intellectual Property.** The Software, including all source code,
+**3. Intellectual Property.**
+
+**3.1 Software IP.** The Software, including all source code,
 object code, documentation, and any modifications, improvements, or
 derivative works Licensor makes to it (whether or not incorporating
 Evaluator feedback), is and remains the sole and exclusive property of
@@ -56,6 +58,18 @@ Evaluator except the limited evaluation rights expressly granted in
 Section 1. Any feedback, bug reports, or suggestions Evaluator provides
 regarding the Software may be used by Licensor for any purpose, including
 commercial purposes, without obligation or compensation to Evaluator.
+
+**3.2 Evaluator Data and Output.** As between the Parties, **Evaluator
+retains 100% ownership of all trading strategies, alpha signals, models,
+algorithms, market-data schemas, and any other data or content Evaluator
+processes through the Software during the Pilot Term, and of any output,
+signal, or result produced by running that data through the Software**
+("**Evaluator Data**"). Licensor acquires no license, ownership interest,
+or right to use Evaluator Data for any purpose other than as necessary to
+provide the evaluation contemplated by this Agreement, and shall not
+retain, reuse, reverse-engineer from, or disclose Evaluator Data after
+the Pilot Term, except as required to comply with Section 6
+(Confidentiality) or applicable law.
 
 **4. Disclaimer of Warranties.** THE SOFTWARE IS PROVIDED "AS IS" AND "AS
 AVAILABLE," WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING

@@ -56,17 +56,19 @@
 
 **Original finding (historical):** none of the three templates has a filled-in venue or arbitration clause — `PILOT_CONTRACT.md` §8.1 explicitly marks it `[to be set by counsel]` (**still true today**), `LEGAL_EULA.md` §9.2 uses `[VENUE]` (**superseded — see correction above**), and `PILOT_AGREEMENT.md` doesn't address venue/arbitration at all (only a bare governing-law line — **still true today**). No conflict to reconcile here since none is decided yet — but note `PILOT_AGREEMENT.md`'s silence on venue/arbitration is itself a gap relative to the other two, which at least have a placeholder for it.
 
-### 3.3 IP ringfencing (Animus core IP vs. client alphas/data)
+### 3.3 IP ringfencing (Animus core IP vs. client alphas/data) — **[RESOLVED]**
+
+> **Resolution:** `PILOT_AGREEMENT.md` §3 was split into §3.1 (Software IP, unchanged) and a new §3.2 (Evaluator Data and Output), mirroring `PILOT_CONTRACT.md` §4.2's language — Evaluator now retains 100% ownership of trading strategies, alpha signals, models, algorithms, market-data schemas, and any output produced by running that data through the Software during the Pilot Term, with Licensor acquiring no license or ownership interest in it.
 
 | Document | Vendor/Animus IP ownership | Client/Customer IP ownership |
 |---|---|---|
 | `PILOT_CONTRACT.md` §4 | §4.1: Animus owns the C++ core, ring buffer, C-ABI, Python SDK, and derivative improvements | §4.2: Client retains **100%** ownership of trading strategies, alpha signals, models, schemas, and any output produced from running its data through the Software — explicit, named, and mutual |
 | `LEGAL_EULA.md` §5 | §5.1: Vendor retains all IP in the Software | §5.4: "Customer retains all rights in the telemetry data, event streams, and other content Customer processes through the Software" — same principle, more generic wording (no explicit "alphas/models/schemas" language) |
-| `PILOT_AGREEMENT.md` §3 | Licensor owns all Software IP, including modifications/improvements | **No corresponding customer-IP-retention clause at all** |
+| `PILOT_AGREEMENT.md` §3 | §3.1: Licensor owns all Software IP, including modifications/improvements | §3.2 (**new**): Evaluator retains 100% ownership of trading strategies, alpha signals, models, algorithms, schemas, and output produced during the Pilot Term |
 
-**Gap flagged:** `PILOT_AGREEMENT.md` — the free-evaluation template — never affirmatively states that the evaluator retains ownership of their own data or output, unlike both other documents. For a prop-trading or market-maker evaluator running their own data through the engine even during a *free* 30-day evaluation, this silence is a real gap, not a neutral default: an institutional counterparty's legal team is likely to flag it. Recommend adding a clause mirroring `LEGAL_EULA.md` §5.4 / `PILOT_CONTRACT.md` §4.2 to `PILOT_AGREEMENT.md` before it's ever used with an institutional evaluator.
+**Original finding (historical):** `PILOT_AGREEMENT.md` — the free-evaluation template — never affirmatively stated that the evaluator retains ownership of their own data or output, unlike both other documents. For a prop-trading or market-maker evaluator running their own data through the engine even during a free 30-day evaluation, that silence was a real gap, not a neutral default.
 
-**No conflict found** between `PILOT_CONTRACT.md` and `LEGAL_EULA.md` on the core ownership split itself — both agree Animus/Vendor owns the engine and the counterparty owns their own data/output. The difference is specificity of wording, not substance.
+**No conflict found** between the three templates on the core ownership split itself — all three now agree Animus/Vendor/Licensor owns the engine and the counterparty owns their own data/output.
 
 ### 3.4 Entity naming consistency — **[PARTIALLY RESOLVED]**
 
@@ -83,7 +85,7 @@
 - [x] ~~Confirm Animus's actual legal structure~~ — **RESOLVED:** Animus Technologies Private Limited, a Private Limited Company under the Companies Act, 2013, incorporated in India. See `../LEGAL_INCORPORATION_BRIEF.md`. CIN issuance still pending — treat as decided-but-not-yet-filed.
 - [x] ~~Reconcile governing-law choice~~ — **RESOLVED:** `PILOT_CONTRACT.md` §8.1 switched from Delaware to India; now aligned with `LEGAL_EULA.md` §9.2 (already India) and `../COMPLIANCE_AND_RISK_MITIGATION.md`.
 - [ ] **Decide whether the liability cap should be mutual or one-sided** across paid vs. free-evaluation templates, and make it consistent within each category — still open; not addressed by the incorporation decision.
-- [ ] **Add a client-IP-retention clause to `PILOT_AGREEMENT.md`** to close the gap identified in §3.3 — still open.
+- [x] ~~Add a client-IP-retention clause to `PILOT_AGREEMENT.md`~~ — **RESOLVED:** new §3.2 (Evaluator Data and Output) added, mirroring `PILOT_CONTRACT.md` §4.2 / `LEGAL_EULA.md` §5.4.
 - [ ] **Populate the operational/notice address** — still open. The legal-entity question is resolved, but the registered-office state itself is still an open field in `../LEGAL_INCORPORATION_BRIEF.md` §1, so no real address exists yet to populate into `LEGAL_EULA.md` / `PILOT_CONTRACT.md`.
 - [ ] **Fill the venue/arbitration clause** in `PILOT_CONTRACT.md` §8.1 — still open (governing law is now India, but the specific forum is still `[to be set by counsel]`).
 - [ ] **Decide whether to name Animus Technologies Private Limited in `PILOT_AGREEMENT.md`**, or keep that template intentionally generic — new item, surfaced by the entity-naming rollout in §3.4.
