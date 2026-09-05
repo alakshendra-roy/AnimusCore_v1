@@ -39,8 +39,8 @@ Enterprise Production Licenses are node-bound (Section 3.3), tiered by deploymen
 | Term | 30 days, non-renewable without conversion | Annual or multi-year, renewable, per signed order form |
 | Cost | No fee | Per Section 2 tiering; scoped per order form |
 | Ring buffer entitlement | Unrestricted for evaluation workloads | Tiered — see Section 2 |
-| Redistribution rights | None | None below Tier 3; Tier 3 grants a separate redistribution right |
-| Source access | Public repository / `eval_kit` binaries only | Available under NDA at Tier 2+, or a negotiated Custom Source License |
+| Redistribution rights | None | None below Tier 3; Tier 3 grants a separate redistribution right; Tier 4 grants uncapped global deployment scope but not redistribution |
+| Source access | Public repository / `eval_kit` binaries only | Available under NDA at Tier 2+; escrow/read-only audit access at Tier 4; or a negotiated Custom Source License |
 | Support | Community / best-effort | Tiered SLA — Section 2 |
 | License mechanism | RSA-2048 node-bound `.lic`, 30-day expiry | RSA-2048 node-bound `.lic`, term per order form |
 
@@ -48,20 +48,21 @@ Enterprise Production Licenses are node-bound (Section 3.3), tiered by deploymen
 
 ## 2. Enterprise Tiering & Commercial Packaging
 
-Production entitlement is segmented into three tiers by deployment scale and engineering scope. Each tier is cumulative: Tier 2 includes everything in Tier 1 at greater scale, and Tier 3 adds a distribution right that neither Tier 1 nor Tier 2 grants.
+Production entitlement is segmented into four tiers by deployment scale and engineering scope. Each tier is cumulative in deployment scope: Tier 2 includes everything in Tier 1 at greater scale, Tier 3 adds a distribution right that neither Tier 1 nor Tier 2 grants, and Tier 4 removes the per-entity deployment ceiling entirely, extending coverage across every affiliate under common control. Tiers 1–3 remain the primary near-term commercial targets; Tier 4 is reserved for global strategic accounts whose procurement, compliance, or audit posture requires an enterprise-wide master agreement rather than a per-node or per-entity order form.
 
-| | **Tier 1 — Production Core** | **Tier 2 — Institutional Scale** | **Tier 3 — OEM / Embedded** |
-|---|---|---|---|
-| **Deployment scope** | Single firm, single legal entity | Single firm, unlimited internal deployment scale | Redistribution into a third party's product |
-| **Ring buffer entitlement** | Up to 8 dedicated SHM rings per licensed node | Uncapped ring buffers, uncapped licensed nodes | As negotiated in the OEM Distribution Agreement |
-| **Engineering scope** | Standard integration support against the documented API | Custom C++/Python wire schema engineering (`ANIMUS_DEFINE_SCHEMA`-registered schemas, `ARCHITECTURE.md` §3.1) beyond `ExecutionEvent`; high-throughput FPGA/NIC kernel-bypass architecture consulting | Integration engineering for embedding the runtime into a proprietary appliance or platform image |
-| **Support SLA** | Standard business-hours response | Direct 4-hour critical-issue SLA | Per OEM order form; typically matched to Tier 2 for the OEM's own engineering team |
-| **Performance commitment** | Sub-40ns verified per-event enqueue latency (p50) on the shared-memory producer path — reproducible via `scripts/run_benchmarks.sh` / `.ps1` against `AnimusCore_v1/BENCHMARKS.md` Phase 29's methodology, not a figure taken on faith | Same verified baseline, plus a workload-specific tail-latency characterization as part of the engineering engagement | Per OEM order form and target hardware profile |
-| **Redistribution rights** | None — internal production use only (`LEGAL_EULA.md` §4(b)) | None — internal production use only | **Granted** — redistributable binary runtime for embedding into proprietary trading appliances or autonomous robotics platforms, under a separately negotiated OEM Distribution Agreement that supersedes the standard no-redistribution restriction for the scope defined in that agreement |
-| **Source access** | Not included; available as a separate Custom Source License (`COMMERCIAL_OVERVIEW.md` §4) | Available under NDA for internal security audit purposes (Section 3.2) | Available under NDA as required for OEM integration and audit |
-| **Typical customer profile** | A single desk or engineering team deploying one production pipeline | A firm running Animus Core across multiple desks, strategies, or production lines, or requiring bespoke wire-format engineering | An appliance vendor, prime, or platform integrator shipping Animus Core inside their own product |
+| | **Tier 1 — Production Core** | **Tier 2 — Institutional Scale** | **Tier 3 — OEM / Embedded** | **Tier 4 — Global Strategic / Infrastructure Master Agreement** |
+|---|---|---|---|---|
+| **Contract value** | $35,000 / yr | $90,000 / yr | Starting at $150,000+ / yr | Starting at $350,000 – $750,000+ / yr (₹3.3 Cr – ₹7.1 Cr+ at the 1 USD = 94.5 INR benchmark) |
+| **Deployment scope** | Single firm, single legal entity | Single firm, unlimited internal deployment scale | Redistribution into a third party's product | Uncapped global enterprise deployment — all global legal entities, data centers, co-location racks, and edge platforms under common control (bounded to affiliates as defined in `LEGAL_EULA.md` §3.1) |
+| **Ring buffer entitlement** | Up to 8 dedicated SHM rings per licensed node | Uncapped ring buffers, uncapped licensed nodes | As negotiated in the OEM Distribution Agreement | Uncapped, across all licensed affiliate entities and nodes globally |
+| **Engineering scope** | Standard integration support against the documented API | Custom C++/Python wire schema engineering (`ANIMUS_DEFINE_SCHEMA`-registered schemas, `ARCHITECTURE.md` §3.1) beyond `ExecutionEvent`; high-throughput FPGA/NIC kernel-bypass architecture consulting | Integration engineering for embedding the runtime into a proprietary appliance or platform image | Everything in Tier 2, plus two dedicated annual custom kernel/FPGA engineering optimization sprints scoped to the customer's own hardware (co-designed reference architecture — see `COMPLIANCE_AND_RISK_MITIGATION.md`) |
+| **Support SLA** | Standard business-hours response | Direct 4-hour critical-issue SLA | Per OEM order form; typically matched to Tier 2 for the OEM's own engineering team | Dedicated 24/7/365 Sev-1 support, with a less-than-1-hour initial response commitment |
+| **Performance commitment** | Sub-40ns verified per-event enqueue latency (p50) on the shared-memory producer path — reproducible via `scripts/run_benchmarks.sh` / `.ps1` against `AnimusCore_v1/BENCHMARKS.md` Phase 29's methodology, not a figure taken on faith | Same verified baseline, plus a workload-specific tail-latency characterization as part of the engineering engagement | Per OEM order form and target hardware profile | Same verified baseline on documented reference architectures; the sub-40ns guarantee does **not** automatically extend to custom hardware (FPGA bitstreams, SmartNIC drivers) unless that environment has been co-designed and validated under the engineering sprint addendum above |
+| **Redistribution rights** | None — internal production use only (`LEGAL_EULA.md` §4(b)) | None — internal production use only | **Granted** — redistributable binary runtime for embedding into proprietary trading appliances or autonomous robotics platforms, under a separately negotiated OEM Distribution Agreement that supersedes the standard no-redistribution restriction for the scope defined in that agreement | None beyond internal affiliate use — Tier 4 is a global deployment-scope grant, not a redistribution grant; a redistribution right still requires a separate OEM Distribution Agreement layered on top |
+| **Source access** | Not included; available as a separate Custom Source License (`COMMERCIAL_OVERVIEW.md` §4) | Available under NDA for internal security audit purposes (Section 3.2) | Available under NDA as required for OEM integration and audit | Air-gapped RSA node licensing plus escrow / read-only source code inspection access for internal risk and security audits, under strict anti-fork and anti-compete IP covenants (`LEGAL_EULA.md` §3.1–3.2) |
+| **Typical customer profile** | A single desk or engineering team deploying one production pipeline | A firm running Animus Core across multiple desks, strategies, or production lines, or requiring bespoke wire-format engineering | An appliance vendor, prime, or platform integrator shipping Animus Core inside their own product | Global Tier-1 market makers with multi-region trading operations, Tier-1 exchanges, or global autonomous robotics platform fleets requiring one master license across every affiliated entity rather than a patchwork of per-entity order forms |
 
-All three tiers issue as RSA-2048-signed, hardware-fingerprint-bound `.lic` tokens (Section 3.3); the tier and its entitlements (core count, ring-buffer ceiling, expiry) are encoded in the signed token and enforced fail-closed by `animus_verify_license` — there is no unlicensed default behavior for a gated feature to fall back to.
+All four tiers issue as RSA-2048-signed, hardware-fingerprint-bound `.lic` tokens (Section 3.3); the tier and its entitlements (core count, ring-buffer ceiling, expiry) are encoded in the signed token and enforced fail-closed by `animus_verify_license` — there is no unlicensed default behavior for a gated feature to fall back to. Tier 4 nodes are provisioned as air-gapped RSA-keyed licenses per the same mechanism, issued per affiliate entity/node under the umbrella of a single master order form.
 
 ---
 
@@ -113,7 +114,8 @@ A production licensing engagement begins with a short technical and commercial i
 2. **Scale** — expected node count and ring-buffer count per node, to pre-qualify a Tier 1 vs. Tier 2 fit (Section 2).
 3. **Integration surface** — C++ direct integration, the Python SDK, or a custom wire schema requirement (a Tier 2 signal).
 4. **Redistribution intent** — whether Animus Core will be embedded into a product shipped to a third party (a Tier 3 / OEM signal, triggering the separate OEM Distribution Agreement track).
-5. **Timeline and target hardware** — to scope the POC engagement below.
+5. **Cross-entity / global scope** — whether the deployment must span multiple global legal entities, data centers, co-location racks, or edge platforms under common control, and whether per-node or per-core license tracking is compatible with the customer's internal compliance posture (a Tier 4 signal, triggering the Global Strategic / Infrastructure Master Agreement track).
+6. **Timeline and target hardware** — to scope the POC engagement below.
 
 ### 4.2 Rapid POC Engagement Framework — 2-Week Scoped Evaluation
 
@@ -140,5 +142,6 @@ The output of this engagement is a decision point, not a production commitment: 
 | **Technical inquiries / issues** | [GitHub Issues](https://github.com/alakshendra-roy/AnimusCore_v1/issues) — the repository's issue tracker |
 | **Licensing entity** | Alakshendra Roy, Founder — India; see `LEGAL_EULA.md` for the governing definition |
 | **OEM / Tier 3 distribution inquiries** | Route through Procurement above; scoped separately per Section 2 |
+| **Tier 4 / Global Strategic Master Agreement inquiries** | Route through Procurement above; scoped separately per Section 2 and `LEGAL_EULA.md` §3.1 |
 
 *Contact and entity details above are current. The substantive commercial license terms they route into — pricing, SLA response times, and the liability/warranty terms in `LEGAL_EULA.md` — are established by a signed order form under that agreement.*

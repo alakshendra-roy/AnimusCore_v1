@@ -2,7 +2,7 @@
 
 **Owner:** Chief Commercial Officer, Animus
 **Product:** Animus Core — C++20/Python deterministic IPC & telemetry engine (sub-40ns p50 latency, 16M+ events/sec sustained throughput)
-**Licensing:** Dual-License Gateway — Community Evaluation (free, non-production) / Enterprise Tier 1 $35,000/yr / Enterprise Tier 2 $90,000/yr / Enterprise Tier 3 OEM $150,000+/yr
+**Licensing:** Dual-License Gateway — Community Evaluation (free, non-production) / Enterprise Tier 1 $35,000/yr / Enterprise Tier 2 $90,000/yr / Enterprise Tier 3 OEM $150,000+/yr / Enterprise Tier 4 Global Strategic Master Agreement $350,000–$750,000+/yr
 
 > Note on Section 2: company names are realistic, publicly known firms in each vertical, used as **illustrative targets**. Stack/bottleneck notes are **inferred from public engineering blogs, job postings, and conference talks**, not confirmed insider information — verify before referencing specifics in outreach.
 
@@ -51,6 +51,15 @@
 - Certification/safety-case pressure (ISO 26262 / DO-178C-adjacent) that makes "swap in a new open-source DDS implementation" a multi-quarter risk, not a quick fix.
 
 **Wedge hook:** "Keep your ROS2 API surface — replace only the transport under CycloneDDS/FastDDS with a deterministic zero-copy engine, and get your frame-deadline jitter back under control without re-architecting your perception stack."
+
+### Strategic Positioning Note — Using Tier 4 as a Procurement Anchor
+
+Tier 4 (Global Strategic / Infrastructure Master Agreement, $350,000–$750,000+/yr) is not the opening offer for either ICP above — it is an **anchoring instrument**. In any institutional procurement conversation involving a global account (a multi-region market maker, a Tier-1 exchange, or a fleet-scale robotics platform operator), introduce Tier 4 early and explicitly as the ceiling of what Animus can contractually structure — an uncapped, enterprise-wide master agreement with escrow/audit access and a dedicated engineering desk. This has two effects:
+
+1. **Anchoring.** Once a buyer has processed a $350k–$750k+/yr master agreement as a real, structured offering, Tier 1 ($35,000/yr) and Tier 2 ($90,000/yr) read as low-friction, low-commitment entry points rather than "vendor pricing to be negotiated down" — the perceived gap between "trying it" and "buying it" collapses.
+2. **Land-and-expand path.** Most global accounts should still be closed at Tier 1 or Tier 2 first (per Section 4's qualification criteria) and expanded into Tier 4 once the technical champion has internal traction and the account's own procurement organization is ready for a master-agreement negotiation — do not lead a first conversation with a Tier 4 ask unless the prospect's compliance/procurement posture (e.g., a stated aversion to per-node licensing across a distributed estate) makes Tier 4 the *only* structure they can transact under (see the objection response below).
+
+Never present Tier 4 as the default ask for a single-desk or single-platform prospect — it is reserved for the global/enterprise-wide procurement conversation, not a general upsell target.
 
 ---
 
@@ -164,6 +173,10 @@ If fewer than 3 are met, keep them on Community Evaluation (non-production) unti
 **3. "We don't buy third-party infrastructure for live execution nodes."**
 
 > That's a real and reasonable bar for infrastructure that trades your book — we'd have the same policy. Two things worth knowing before that closes the conversation: first, this isn't a hosted service or SaaS dependency — Community and Enterprise builds are a static library/DLL you compile and vet like any other vendor dependency, with no runtime network calls or external IPC. Second, most institutional desks we talk to don't run vendor code on the live execution node itself — they run it as the transport layer beneath their own execution logic, same trust boundary as a kernel-bypass NIC driver or a commercial market-data feed handler. If your policy specifically excludes any third-party binary regardless of deployment model, that's a hard no we respect — but if the objection is really about auditability and control, we can walk through the binary, the C-ABI surface, and the support/SLA terms so your risk team can evaluate it on its actual merits.
+
+**4. "What if our compliance forbids per-node or per-core license tracking across distributed clusters?"**
+
+> Then Tier 1–3's per-node model is genuinely the wrong fit, and we'd say so rather than push it — but that's exactly what the Tier 4 Global Strategic / Infrastructure Master Agreement exists to solve. Tier 4 is priced and licensed at the master-agreement level, not the node level: entitlement covers your entire global estate — every legal entity, data center, co-location rack, and edge platform under common control — under one uncapped grant, with no requirement to reconcile license counts against individual nodes or cores across a distributed cluster. Each node still runs its own signed, air-gapped `.lic` file for cryptographic integrity, but your compliance function tracks one master agreement, not a fleet-wide license inventory. That's a $350,000–$750,000+/yr structure, so it's worth confirming your estate's scale justifies it before we go there — but if per-node tracking is the actual blocker, Tier 4 removes it entirely.
 
 ---
 
