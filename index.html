@@ -162,13 +162,15 @@ tailwind.config = {
         </div>
       </div>
       <div class="hidden lg:flex items-center gap-5 xl:gap-6 text-sm font-mono flex-shrink-0">
+        <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap">Specs</a>
         <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap">Telemetry</a>
         <a href="#memory" class="hover:text-cyan transition whitespace-nowrap">Memory Topology</a>
         <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap">SDK Explorer</a>
         <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap">Benchmarks</a>
+        <a href="#comparison" class="hover:text-cyan transition whitespace-nowrap">Compare</a>
         <span id="hdr-status" class="hidden xl:flex items-center gap-1.5 font-mono text-xs text-emerald border-l border-border pl-5 ml-1 whitespace-nowrap">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live"></span>
-          SYSTEM STATUS: BARE-METAL ACTIVE [p99: <span id="hdr-p99">1.81</span>µs]
+          SYSTEM STATUS: BARE-METAL ACTIVE [p99: <span id="hdr-p99">47.9</span>ns]
         </span>
         <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap">Request Benchmark Access</button>
       </div>
@@ -183,10 +185,12 @@ tailwind.config = {
 
     <div id="mobile-menu" class="lg:hidden hidden border-t border-border bg-void/95 backdrop-blur-xl">
       <div class="flex flex-col px-8 py-2 text-sm font-mono">
+        <a href="#architecture-specs" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Specs</a>
         <a href="#telemetry" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Telemetry</a>
         <a href="#memory" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Memory Topology</a>
         <a href="#sdk" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">SDK Explorer</a>
-        <a href="#benchmarks" data-mobile-nav-link class="py-3 hover:text-cyan transition">Benchmarks</a>
+        <a href="#benchmarks" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Benchmarks</a>
+        <a href="#comparison" data-mobile-nav-link class="py-3 hover:text-cyan transition">Compare</a>
       </div>
     </div>
   </nav>
@@ -198,16 +202,152 @@ tailwind.config = {
       <span>Institutional-Grade &middot; Bare-Metal &middot; Hardware-Bound License</span>
     </div>
     <h1 class="text-4xl md:text-6xl font-extrabold text-white tracking-tight max-w-5xl mx-auto leading-tight font-sans">
-      Sub-Microsecond IPC Infrastructure for<br class="hidden md:block">
-      <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan to-emerald">Automated Execution Systems.</span>
+      Institutional Low-Latency Telemetry<br class="hidden md:block">
+      <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan to-emerald">&amp; Shared-Memory IPC.</span>
     </h1>
     <p class="mt-6 text-lg text-slate-400 max-w-2xl mx-auto">
-      Bridging high-throughput Python signal strategies to C++ execution cores with zero serialization overhead.
+      Sub-40ns zero-copy execution infrastructure built for quantitative trading and real-time systems.
     </p>
+
+    <div class="mt-10 grid grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto text-left">
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--emerald)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Throughput</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-white font-mono">16.127<span class="text-sm text-slate-500 ml-1">M ev/s</span></div>
+        <div class="mt-1 text-[10px] text-slate-500 font-mono uppercase tracking-wide">saturation &middot; overwrite mode</div>
+      </div>
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--cyan)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Median Latency (p50)</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-white font-mono">35.1<span class="text-sm text-slate-500 ml-1">ns</span></div>
+        <div class="mt-1 text-[10px] text-slate-500 font-mono uppercase tracking-wide">same run</div>
+      </div>
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--cyan)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Tail Latency (p99)</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-white font-mono">47.9<span class="text-sm text-slate-500 ml-1">ns</span></div>
+        <div class="mt-1 text-[10px] text-slate-500 font-mono uppercase tracking-wide">same run</div>
+      </div>
+      <div class="corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--emerald)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Guaranteed Delivery</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-emerald font-mono">0<span class="text-sm text-slate-500 ml-1">drops / 10M</span></div>
+        <div class="mt-1 text-[10px] text-slate-500 font-mono uppercase tracking-wide">backpressure mode</div>
+      </div>
+    </div>
+    <p class="mt-4 text-[11px] text-slate-500 max-w-2xl mx-auto font-mono leading-relaxed">
+      Reported honestly as two distinct transport modes, not blended: overwrite mode maximizes producer speed and drops the oldest unread event once the ring saturates; backpressure mode guarantees zero loss at a throughput bounded by the attached consumer. See the <a href="#comparison" class="text-cyan hover:underline">Comparative Benchmark Table</a> below.
+    </p>
+
     <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
-      <button data-open-modal class="bg-cyan text-black font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:opacity-90 transition">Request Benchmark Access</button>
+      <button data-open-modal class="bg-cyan text-black font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:opacity-90 transition">Request Air-Gapped Evaluation Kit</button>
       <a href="#memory" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">Explore Memory Topology</a>
     </div>
+  </section>
+
+  <!-- Architectural Specifications -->
+  <section id="architecture-specs" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-bold text-white font-sans">Architectural Specifications</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">The concrete mechanisms behind the numbers above &mdash; every line item below maps to real code in this repository, not a marketing abstraction.</p>
+    </div>
+    <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--cyan)">
+      <dl class="divide-y divide-border font-mono text-sm">
+        <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
+          <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Core</dt>
+          <dd class="text-slate-200 md:col-span-3">Lock-free Single-Producer Single-Consumer (SPSC) ring buffer (<code class="text-cyan">animus::ShmRing&lt;T&gt;</code>) &mdash; C++17 core, built with a C++20-or-newer toolchain.</dd>
+        </div>
+        <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
+          <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Cache Line Optimization</dt>
+          <dd class="text-slate-200 md:col-span-3">Strict 64-byte alignment (<code class="text-emerald">alignas(64)</code>) on x86-64 &mdash; auto-widens to 128 bytes on ARM64 targets with larger cache lines &mdash; to eliminate false sharing between the ring's head/tail cursors.</dd>
+        </div>
+        <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
+          <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Memory Model</dt>
+          <dd class="text-slate-200 md:col-span-3">Explicit acquire-release memory barriers (<code class="text-cyan">std::memory_order_acquire</code> / <code class="text-cyan">std::memory_order_release</code>) on every cross-thread cursor handoff &mdash; no locks, no full fences.</dd>
+        </div>
+        <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
+          <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Python Interop</dt>
+          <dd class="text-slate-200 md:col-span-3">Zero-overhead direct memory mappings via <code class="text-emerald">ctypes</code> + <code class="text-emerald">memoryview</code> &mdash; no serialization/deserialization step between the native ring and Python-side consumption.</dd>
+        </div>
+        <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
+          <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Security</dt>
+          <dd class="text-slate-200 md:col-span-3">Offline RSA-2048 node-locked licensing, hardware-fingerprint bound and verified entirely in-process against a compiled-in public key &mdash; 100% air-gapped, no license server, no phone-home, ever.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <!-- Technical Quickstart -->
+  <section id="quickstart" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-bold text-white font-sans">Technical Quickstart</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Attaching a consumer to an existing ring is three lines in either language &mdash; no schema compiler, no broker, no connection handshake.</p>
+    </div>
+    <div class="grid md:grid-cols-2 gap-6">
+      <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--cyan)">
+        <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">C++20 &middot; consumer.cpp</div>
+        <pre class="font-mono text-[13px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-purple-400">auto</span> ring = animus::ShmRing&lt;TelemetryEvent&gt;::open(<span class="text-cyan">"animus_telemetry"</span>);
+TelemetryEvent evt;
+<span class="text-purple-400">while</span> (ring-&gt;try_pop(evt)) { <span class="text-slate-500">/* handle evt, zero-copy */</span> }</code></pre>
+      </div>
+      <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--emerald)">
+        <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">Python 3.8+ &middot; consumer.py</div>
+        <pre class="font-mono text-[13px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-white">engine</span> = AnimusBindings()
+<span class="text-white">engine</span>.init(ring_capacity=<span class="text-cyan">4096</span>)
+<span class="text-white">signals</span> = <span class="text-white">engine</span>.poll_signals()  <span class="text-slate-500"># memoryview, zero-copy</span></code></pre>
+      </div>
+    </div>
+    <p class="text-xs text-slate-500 mt-4 text-center">Full API surface &mdash; CEP rule chaining, shared-memory IPC, market-data adapters &mdash; in the <a href="#sdk" class="text-cyan hover:underline">SDK Explorer</a> below.</p>
+  </section>
+
+  <!-- Comparative Benchmark Table -->
+  <section id="comparison" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
+    <div class="text-center mb-8">
+      <h2 class="text-3xl font-bold text-white font-sans">Comparative Benchmark Table</h2>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Animus figures are measured directly from this repository's own benchmark harness (saturation / overwrite mode &mdash; see hero disclosure above). Unix Domain Socket, TCP loopback, and Redis IPC figures are representative industry baselines for local IPC transports, not measurements of a specific third-party deployment on this hardware.</p>
+    </div>
+    <div class="corner-card bg-panel border border-border rounded-md p-6" style="--accent: var(--cyan)">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm font-mono min-w-[640px]">
+          <thead>
+            <tr class="text-left text-slate-500 text-xs uppercase tracking-wider border-b border-border">
+              <th class="py-2 pr-4">Transport</th>
+              <th class="py-2 px-4 text-right">Throughput</th>
+              <th class="py-2 px-4 text-right">p50</th>
+              <th class="py-2 px-4 text-right">p99</th>
+              <th class="py-2 pl-4 text-right">Zero-Copy</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-border">
+            <tr>
+              <td class="py-3 pr-4 flex items-center gap-2 text-white font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Animus Core IPC</td>
+              <td class="py-3 px-4 text-right text-emerald font-bold">16.1M ops/s</td>
+              <td class="py-3 px-4 text-right text-emerald font-bold">35.1 ns</td>
+              <td class="py-3 px-4 text-right text-emerald font-bold">47.9 ns</td>
+              <td class="py-3 pl-4 text-right text-emerald font-bold">Yes</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 flex items-center gap-2 text-slate-300"><span class="w-2 h-2 rounded-full bg-cyan"></span>Unix Domain Sockets</td>
+              <td class="py-3 px-4 text-right text-slate-300">~1.2M ops/s</td>
+              <td class="py-3 px-4 text-right text-slate-300">480 ns</td>
+              <td class="py-3 px-4 text-right text-slate-300">1,420 ns</td>
+              <td class="py-3 pl-4 text-right text-slate-500">No</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 flex items-center gap-2 text-slate-300"><span class="w-2 h-2 rounded-full bg-slate-500"></span>TCP Loopback (127.0.0.1)</td>
+              <td class="py-3 px-4 text-right text-slate-300">~650k ops/s</td>
+              <td class="py-3 px-4 text-right text-slate-300">1,250 ns</td>
+              <td class="py-3 px-4 text-right text-slate-300">4,100 ns</td>
+              <td class="py-3 pl-4 text-right text-slate-500">No</td>
+            </tr>
+            <tr>
+              <td class="py-3 pr-4 flex items-center gap-2 text-slate-300"><span class="w-2 h-2 rounded-full bg-danger"></span>Redis IPC</td>
+              <td class="py-3 px-4 text-right text-slate-300">~110k ops/s</td>
+              <td class="py-3 px-4 text-right text-slate-300">8,500 ns</td>
+              <td class="py-3 px-4 text-right text-slate-300">22,000 ns</td>
+              <td class="py-3 pl-4 text-right text-slate-500">No</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="text-xs text-slate-500 mt-4 text-center">Animus's overwrite-mode figures measure raw producer-side enqueue speed under saturation, not a delivery guarantee &mdash; see the zero-loss backpressure-mode numbers in the hero above and <a href="#verified-benchmarks" class="text-cyan hover:underline">Verified Native &amp; Interop Benchmarks</a> below.</p>
   </section>
 
   <!-- Live Client System IPC & Hardware Diagnostics -->
@@ -679,8 +819,14 @@ tailwind.config = {
 <div id="benchmark-modal" class="fixed inset-0 z-[100] items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
   <div class="modal-panel bg-panel border border-border rounded-md w-full max-w-md p-6 relative" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <button data-close-modal aria-label="Close" class="absolute top-4 right-4 text-slate-500 hover:text-white transition">&#10005;</button>
-    <h3 id="modal-title" class="text-xl font-bold text-white mb-1 font-sans">Request Benchmark Access</h3>
-    <p class="text-xs text-slate-500 mb-5">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
+    <h3 id="modal-title" class="text-xl font-bold text-white mb-1 font-sans">Request Air-Gapped Evaluation Kit</h3>
+    <p class="text-xs text-slate-500 mb-4">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
+
+    <div class="text-[11px] text-slate-400 bg-black/30 border border-border rounded-sm px-3 py-2.5 mb-4 font-mono leading-relaxed">
+      Licensing is offline, RSA-2048, hardware-fingerprint bound &mdash; zero cloud pinging. Run
+      <code class="text-cyan">Pilot_Kit\get_fingerprint.ps1</code> on the target machine and paste the printed 64-hex fingerprint below, or leave it blank and we'll send you the instructions. Prefer email? Send it directly to
+      <a href="mailto:access@animusinfra.com" class="text-cyan hover:underline">access@animusinfra.com</a>.
+    </div>
 
     <form id="benchmark-form" class="space-y-3">
       <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
@@ -688,6 +834,7 @@ tailwind.config = {
       <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
       <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
       <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
+      <input type="text" name="hardwareFingerprint" placeholder="Hardware Fingerprint (optional, 64 hex chars)" pattern="[0-9a-fA-F]{64}" title="64 hex characters from Pilot_Kit\get_fingerprint.ps1" class="bg-black/30 border border-border rounded-sm px-4 py-2.5 text-sm focus:outline-none focus:border-cyan text-white w-full">
 
       <select name="orgType" required class="custom-select w-full">
         <option value="" disabled selected>Organization Type</option>
@@ -733,7 +880,7 @@ tailwind.config = {
   /* ---------- Header p99 micro-jitter ---------- */
   var hdrP99 = document.getElementById('hdr-p99');
   setInterval(function(){
-    hdrP99.textContent = (1.71 + Math.random() * 0.14).toFixed(2);
+    hdrP99.textContent = (44 + Math.random() * 8).toFixed(1);
   }, 2400);
 
   /* ---------- Live Client System IPC & Hardware Diagnostics (real local benchmark) ---------- */

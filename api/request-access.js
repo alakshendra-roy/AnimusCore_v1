@@ -8,7 +8,7 @@ const MAX_FIELD_LENGTH = 2000;
 const WEBHOOK_TIMEOUT_MS = 5000;
 const RESEND_TIMEOUT_MS = 8000;
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const NOTIFY_TO = process.env.REQUEST_ACCESS_NOTIFY_EMAIL || 'inquiries@animusinfra.com';
+const NOTIFY_TO = process.env.REQUEST_ACCESS_NOTIFY_EMAIL || 'access@animusinfra.com';
 const NOTIFY_FROM = process.env.REQUEST_ACCESS_FROM_EMAIL || 'Animus Engine <noreply@animusinfra.com>';
 
 function sanitize(value) {
@@ -34,6 +34,7 @@ function buildEmailText(record) {
     `Org Type:        ${record.orgType}`,
     `Core Footprint:  ${record.coreFootprint}`,
     `Use Case:        ${record.useCase}`,
+    `HW Fingerprint:  ${record.hardwareFingerprint || '(not provided — send get_fingerprint.ps1 instructions)'}`,
     '',
     `Received:  ${record.receivedAt}`,
     `IP:        ${record.ip || '(unknown)'}`,
@@ -54,6 +55,7 @@ function buildEmailHtml(record) {
     row('Org Type', record.orgType),
     row('Core Footprint', record.coreFootprint),
     row('Use Case', record.useCase),
+    row('HW Fingerprint', record.hardwareFingerprint || '(not provided)'),
     row('Received', record.receivedAt),
     row('IP', record.ip || '(unknown)'),
     '</table>',
@@ -133,6 +135,7 @@ module.exports = async function handler(req, res) {
     orgType: sanitize(body.orgType),
     coreFootprint: sanitize(body.coreFootprint),
     useCase: sanitize(body.useCase),
+    hardwareFingerprint: sanitize(body.hardwareFingerprint),
   };
 
   const missing = REQUIRED_FIELDS.filter((field) => !fields[field]);
