@@ -67,15 +67,18 @@ Adoption risk is the single biggest objection to any new hot-path infrastructure
 
 ## 4. Commercial Engagement Tiers
 
-Animus Core is offered across three engagement models, structured to match how a quantitative fund or fintech typically moves from evaluation to production to strategic ownership.
+Animus Core is offered across engagement models structured to match how a quantitative fund, fintech, or robotics platform operator typically moves from evaluation to production to strategic, enterprise-wide ownership.
 
 | Tier | Intended For | What's Included |
 |---|---|---|
 | **Pilot** | Teams evaluating fit before committing budget | 30-day hardware-locked evaluation license (Section 3), full Pilot Kit, direct technical support during the evaluation window |
 | **Production Node** | Teams deploying Animus Core into a live pipeline | Per-node production license (hardware-locked, renewable), compiled binaries for your target platform(s), integration support, priority defect response |
 | **Custom Source License** | Teams requiring deep customization, in-house builds, or strategic ownership of the engine | Full source access under a negotiated commercial license, architecture consultation for your specific workload (e.g., custom rule engines, cluster topologies, market-data adapters), co-development engagement for bespoke extensions |
+| **Global Strategic / Infrastructure Master Agreement** | Global Tier-1 market makers with multi-region operations, Tier-1 exchanges, or global autonomous robotics platform fleets requiring one master license across every affiliated entity | Uncapped global deployment across all affiliate legal entities, data centers, co-location racks, and edge platforms; escrow / read-only source inspection for internal audit; dedicated 24/7/365 Sev-1 support; two dedicated annual custom kernel/FPGA engineering sprints |
 
-> **Getting started:** every engagement begins with the Pilot tier — there is no fast path around your own team validating the numbers on your own hardware. Contact your Animus Core representative to scope a Production Node or Custom Source License engagement once your pilot has produced the data your team needs.
+> **Getting started:** every engagement begins with the Pilot tier — there is no fast path around your own team validating the numbers on your own hardware. Contact your Animus Core representative to scope a Production Node, Custom Source License, or Global Strategic Master Agreement engagement once your pilot has produced the data your team needs.
+>
+> For the full four-tier pricing structure (Tier 1 Production Core, Tier 2 Institutional Scale, Tier 3 OEM/Embedded, and Tier 4 Global Strategic/Infrastructure Master Agreement) and their detailed entitlements, see [`COMMERCIAL.md`](COMMERCIAL.md) §2.
 
 ---
 
