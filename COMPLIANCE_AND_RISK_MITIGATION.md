@@ -130,7 +130,7 @@ Every contractor signs the following before repository access of any kind is gra
 
 > **Intellectual Property Assignment & Non-Disclosure Agreement**
 >
-> This Agreement is entered into between **Alakshendra Roy**, sole proprietor of Animus Core ("**Company**"), and **[CONTRACTOR NAME]** ("**Contractor**").
+> This Agreement is entered into between **Animus Technologies Private Limited**, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Core" brand and formerly conducting this business as a sole proprietorship under its Founder, Alakshendra Roy ("**Company**"), and **[CONTRACTOR NAME]** ("**Contractor**").
 >
 > **1. Assignment of Work Product.** Contractor irrevocably assigns to Company, effective upon creation, all right, title, and interest — including all copyright and other intellectual property rights, worldwide — in and to any code, design, documentation, or other work product created in connection with engagement by Company, whether or not such work product is ultimately incorporated into a released version of the Software. This assignment is made under Sections 18 and 19 of the Copyright Act, 1957 (India), covering both present and future works, and is executed in writing as those sections require for a valid assignment.
 >
@@ -145,7 +145,7 @@ Every contractor signs the following before repository access of any kind is gra
 > **6. Governing Law.** This Agreement is governed by the laws of India.
 >
 > *Executed by:* ___________________________ (Contractor) &nbsp;&nbsp; *Date:* ___________
-> *Accepted by:* ___________________________ (Alakshendra Roy, Company) &nbsp;&nbsp; *Date:* ___________
+> *Accepted by:* ___________________________ (Alakshendra Roy, Founder & Director, for and on behalf of Animus Technologies Private Limited) &nbsp;&nbsp; *Date:* ___________
 
 This template is a starting instrument only — it must be reviewed by qualified counsel before use with a specific contractor, particularly where the contractor is engaged through a foreign entity or is not an Indian tax resident, which introduces additional cross-border IP-assignment enforceability questions beyond the scope of this document.
 
