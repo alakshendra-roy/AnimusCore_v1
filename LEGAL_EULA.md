@@ -6,7 +6,7 @@
 
 **This Pilot Evaluation & Commercial License Agreement** ("**Agreement**") is entered into as of **[EFFECTIVE DATE]** ("**Effective Date**") by and between:
 
-- **Alakshendra Roy**, an individual, doing business as "Animus Core," based in India ("**Animus Core**," "**Vendor**," "**we**," "**us**"); and
+- **Animus Technologies Private Limited**, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Core" brand and formerly conducting this business as a sole proprietorship under its Founder, Alakshendra Roy ("**Animus Core**," "**Vendor**," "**we**," "**us**"); and
 - **[CUSTOMER LEGAL ENTITY NAME]**, a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Customer**," "**you**"),
 
 each individually a "**Party**" and together the "**Parties**."
@@ -175,12 +175,12 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 | | Vendor | Customer |
 |---|---|---|
-| **Entity Name** | Alakshendra Roy (Animus Core) | [CUSTOMER LEGAL ENTITY NAME] |
+| **Entity Name** | Animus Technologies Private Limited (Animus Core) | [CUSTOMER LEGAL ENTITY NAME] |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
-| **Title** | Founder | [TITLE] |
+| **Title** | Founder & Director | [TITLE] |
 | **Date** | [DATE] | [DATE] |
-| **Notice Address** | royrichie006@gmail.com (email notice; see also GitHub Issues at https://github.com/alakshendra-roy/AnimusCore_v1/issues for technical notices — physical mailing address to be added upon formal entity registration) | [CUSTOMER ADDRESS] |
+| **Notice Address** | royrichie006@gmail.com (email notice; see also GitHub Issues at https://github.com/alakshendra-roy/AnimusCore_v1/issues for technical notices — registered office address to be added upon issuance of the Certificate of Incorporation, per `LEGAL_INCORPORATION_BRIEF.md`) | [CUSTOMER ADDRESS] |
 
 ---
 
