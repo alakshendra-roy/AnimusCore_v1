@@ -106,12 +106,34 @@ expiration of the Pilot Term (Section 7), upon a breach of Section 2 or
 Section 3, or upon either Party's written notice for any reason. Sections
 3-6 and 8-9 survive termination.
 
-**9. General.** This Agreement is governed by the laws of
-**[Jurisdiction]**, without regard to conflict-of-laws principles, and
-constitutes the entire agreement between the Parties regarding the Pilot,
-superseding all prior discussions. Export and sanctions-compliance
-obligations applicable to the Software, if any, are addressed in a
-separate rider and are not covered by this template.
+**9. General.**
+
+**9.1 Governing Law; Arbitration.** This Agreement is governed by the
+laws of **[Jurisdiction]**, without regard to conflict-of-laws
+principles. Any dispute, controversy, or claim arising out of or
+relating to this Agreement, including any question regarding its
+existence, validity, or termination, shall be referred to and finally
+resolved by arbitration administered by the **Singapore International
+Arbitration Centre ("SIAC")** in accordance with the Arbitration Rules
+of the Singapore International Arbitration Centre ("**SIAC Rules**")
+for the time being in force, which rules are deemed to be incorporated
+by reference into this Section 9.1. The seat of the arbitration shall
+be **Singapore**. The tribunal shall consist of **one (1) arbitrator**,
+unless the Parties otherwise agree or the SIAC Rules require otherwise
+given the amount in dispute. The language of the arbitration shall be
+**English**. Nothing in this Section 9.1 prevents either Party from
+seeking interim or injunctive relief from a court of competent
+jurisdiction pending constitution of the arbitral tribunal — matching
+the arbitration clause in `PILOT_CONTRACT.md` §8.1, so an evaluator
+converting from this free Pilot into the paid Institutional Pilot
+Program is not surprised by a different dispute-resolution mechanism
+partway through the relationship.
+
+**9.2 Entire Agreement.** This Agreement constitutes the entire
+agreement between the Parties regarding the Pilot, superseding all
+prior discussions. Export and sanctions-compliance obligations
+applicable to the Software, if any, are addressed in a separate rider
+and are not covered by this template.
 
 | | |
 |---|---|
