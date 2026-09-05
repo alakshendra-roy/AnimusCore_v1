@@ -148,7 +148,7 @@ tailwind.config = {
 
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
-    <div class="max-w-[100rem] mx-auto py-4 px-8 flex items-center justify-between gap-6 md:gap-10">
+    <div class="w-full max-w-full mx-auto box-border py-4 px-6 flex items-center justify-between gap-6 md:gap-10">
       <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
         <img src="logo.png" alt="Animus Engine" id="brand-logo" class="h-16 md:h-20 w-auto object-contain transition-all"
              onerror="this.style.display='none'; document.getElementById('brand-fallback').classList.remove('hidden');">
@@ -161,18 +161,18 @@ tailwind.config = {
           <span class="font-bold text-lg tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
         </div>
       </div>
-      <div class="hidden lg:flex items-center gap-5 xl:gap-6 text-sm font-mono flex-shrink-0">
+      <div class="hidden lg:flex items-center gap-4 text-sm font-mono shrink min-w-0">
         <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap">Specs</a>
         <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap">Telemetry</a>
         <a href="#memory" class="hover:text-cyan transition whitespace-nowrap">Memory Topology</a>
         <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap">SDK Explorer</a>
         <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap">Benchmarks</a>
         <a href="#comparison" class="hover:text-cyan transition whitespace-nowrap">Compare</a>
-        <span id="hdr-status" class="hidden xl:flex items-center gap-1.5 font-mono text-xs text-emerald border-l border-border pl-5 ml-1 whitespace-nowrap">
+        <span id="hdr-status" class="hidden 2xl:flex items-center gap-1.5 font-mono text-xs text-emerald border-l border-border pl-5 ml-1 whitespace-nowrap flex-shrink-0">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live"></span>
           SYSTEM STATUS: BARE-METAL ACTIVE [p99: <span id="hdr-p99">47.9</span>ns]
         </span>
-        <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap">Request Benchmark Access</button>
+        <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Benchmark Access</button>
       </div>
       <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
         <button data-open-modal class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase">Access</button>
