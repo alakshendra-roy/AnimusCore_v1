@@ -59,6 +59,26 @@ Following the Evaluation Period, Customer may elect to enter a commercial engage
 
 Any such commercial license shall be governed by a separate written order form or license schedule executed by both Parties, which shall incorporate the general terms of this Agreement (Sections 4–9) except as expressly modified by that order form. **No commercial license, fee obligation, or production right is created by this Agreement standing alone** — this Agreement, absent an executed order form, governs the Evaluation Period only.
 
+### 3.1 Tier 4 — Enterprise Master License Grant
+
+Where Customer's order form designates a **Tier 4 — Global Strategic / Infrastructure Master Agreement**, the following terms apply in addition to, and where inconsistent supersede, the general Tier 1–3 production terms referenced above:
+
+(a) **Affiliate scope.** The uncapped, global deployment right granted under a Tier 4 order form extends only to Customer and its **Affiliates** — meaning any entity that, directly or indirectly, owns or controls more than fifty percent (50%) of the voting securities or equivalent voting interest of Customer, or of which Customer owns or controls more than fifty percent (50%) of such voting interest, for so long as that ownership or control relationship continues. An entity ceases to be an Affiliate, and its license rights under the Tier 4 grant terminate automatically, upon the relationship falling below that threshold (e.g., divestiture, spin-off, change of control). Customer shall maintain and, upon Vendor's written request no more than once per calendar year, provide a current list of entities relying on the Tier 4 grant as Affiliates.
+
+(b) **Deployment scope.** Subject to (a), the Tier 4 grant covers deployment across all of Customer's and its Affiliates' data centers, co-location racks, and edge platforms globally, without the per-node or per-ring-buffer ceilings applicable to Tiers 1–3, and without requiring per-node or per-core license tracking across distributed clusters — entitlement is tracked at the master-agreement level, not the individual node level, though each deployed node still issues and verifies its own RSA-2048-signed, hardware-fingerprint-bound `.lic` file per Section 2.2's mechanism.
+
+(c) **Escrow / read-only audit access.** Vendor shall make available to Customer's internal compliance, risk, or security audit function **read-only** access to the Software's source code, either via a mutually agreed third-party source-code escrow arrangement or a controlled read-only inspection environment specified in the order form, solely for the purpose of internal security, memory-safety, and concurrency verification consistent with `COMMERCIAL.md` §3.2. Such access:
+
+&nbsp;&nbsp;(i) does not include any right to copy, extract, compile, modify, or create derivative works from the inspected source, except as strictly necessary to generate an internal audit finding for Customer's own compliance records;
+&nbsp;&nbsp;(ii) is subject to the non-derivation and non-disclosure covenants in (d) below in addition to the general confidentiality obligation in Section 9.1; and
+&nbsp;&nbsp;(iii) may be conditioned by Vendor on a facility, personnel, or export-control screening consistent with Section 9.4, where the order form so specifies.
+
+(d) **Anti-fork, non-derivation, non-compete, and non-disclosure covenants.** In consideration of the escrow/audit access granted under (c), Customer covenants that it shall not, and shall not permit any Affiliate, contractor, or third party to: (i) fork, derive, adapt, or produce any competing or substantially similar work from the inspected source code ("non-derivation"); (ii) use knowledge gained from source inspection to build, procure, or commission a product or service competing with the Software, beyond the general restriction already stated in Section 4(f); or (iii) disclose the inspected source, in whole or in part, to any person other than those of Customer's employees or Affiliates' employees with a demonstrated need to know for the audit purpose stated in (c), each of whom shall be bound by confidentiality obligations no less protective than this Agreement's. These covenants, together with Vendor's underlying copyright in the Software, are without prejudice to and do not limit Vendor's rights and remedies under applicable law, including the assignment and licensing provisions of Sections 18 and 19 of the (Indian) Copyright Act, 1957, governing the scope of any rights in the Software that Vendor has or has not assigned or licensed to Customer — for the avoidance of doubt, no assignment of copyright in the Software occurs under a Tier 4 order form, only the escrow/inspection license described in (c).
+
+(e) **Export control.** All source and binary materials made available under this Section 3.1 remain subject to Section 9.4; where Customer or an Affiliate is located in, or the materials would transit through, a jurisdiction subject to applicable export control or sanctions restrictions, Vendor may condition or decline escrow/audit access accordingly.
+
+(f) **Precedence.** Nothing in this Section 3.1 expands Customer's rights beyond a license — it does not transfer ownership of, or any copyright interest in, the Software, which remains governed by Section 5.
+
 ---
 
 ## 4. Restrictions

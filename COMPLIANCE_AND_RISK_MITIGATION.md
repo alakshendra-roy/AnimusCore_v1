@@ -29,6 +29,15 @@ The appendix is a mandatory exhibit to every Enterprise Production License order
 
 The specific values above are the reference profile customers are onboarded against. The appendix executed with each order form additionally records the customer's actual measured configuration (core map, NUMA layout, NIC driver mode) at UAT sign-off, so "reference topology" is a verified fact of that deployment, not a boilerplate assertion.
 
+### 1.1a Tier 4 Custom Hardware Environments — Engineering Sprint Addendum
+
+Tier 4 order forms (`COMMERCIAL.md` §2, `LEGAL_EULA.md` §3.1) commonly involve custom hardware environments outside the reference profile above — customer-owned FPGA bitstreams, proprietary SmartNIC drivers, or bespoke kernel-bypass stacks built as part of the two dedicated annual engineering sprints included at that tier. The following governs the sub-40ns commitment in that context:
+
+- The sub-40ns p50 enqueue-latency guarantee remains **strictly tied to the documented Reference Topology Appendix (Section 1.1)** regardless of contract tier. Tier 4's global deployment scope and dedicated engineering sprints do not, by themselves, extend that guarantee to a customer's custom FPGA/SmartNIC environment.
+- A custom hardware environment is only brought within a contractual performance commitment when it has been **co-designed and validated under an executed engineering sprint addendum** — a scoped exhibit, signed by both Parties, that documents the specific FPGA bitstream, SmartNIC driver, or kernel-bypass configuration measured, the methodology used, and the resulting latency figure warranted for that environment specifically.
+- Absent such an addendum, performance on a Tier 4 customer's custom hardware is governed by the Section 1.2 best-effort operational band below, identical to any non-reference topology at any tier — Tier 4 pricing and support SLA do not implicitly upgrade an unvalidated custom environment to a guaranteed figure.
+- Each engineering sprint addendum executed under a Tier 4 order form is retained alongside that customer's Reference Topology Appendix and UAT Sign-Off exhibit (Section 1.3), so the full set of hardware environments under contractual guarantee for that customer is a single auditable record, not scattered across sprint engagement notes.
+
 ### 1.2 Non-Reference & Virtualized Topology — Best-Effort Operational Band
 
 Where a customer's production environment deviates from Section 1.1 — shared cores, cross-socket NUMA, standard kernel networking, or a virtualized host without CPU/NIC passthrough — the following contract language applies:
