@@ -196,3 +196,40 @@ endif()
 set_target_properties(test_telemetry PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# animus_bench -- institutional zero-allocation ingestion benchmark harness
+# (C++20). Measures ingress-to-egress transit latency across the zero-copy
+# SPSC ring buffer (animus-eval-kit/include/spsc_ring_buffer.hpp) under
+# synthetic sustained/burst market-tick load, for live technical evaluations.
+# Lands at build/bin/animus_bench (not build/, unlike the targets above) per
+# that evaluation tooling's fixed expected path.
+add_executable(animus_bench
+    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/animus_harness.cpp
+)
+target_include_directories(animus_bench PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/animus-eval-kit/include
+)
+target_compile_features(animus_bench PRIVATE cxx_std_20)
+find_package(Threads REQUIRED)
+target_link_libraries(animus_bench PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(animus_bench PRIVATE rt)
+endif()
+if(MSVC)
+    # /permissive- is MSVC's closest analog to -Wpedantic (strict standards
+    # conformance mode); /W4 is its closest analog to -Wall -Wextra.
+    #
+    # /wd4324 ("structure was padded due to alignment specifier") is
+    # suppressed deliberately: it fires on TelemetryFrame's alignas(64) and
+    # on SpscRingBuffer's head_/tail_ cursors, which are padded to a full
+    # cache line on purpose (see the header comments on both) to avoid false
+    # sharing. This is the intended layout, not an accidental one -Wall
+    # should catch.
+    target_compile_options(animus_bench PRIVATE /W4 /permissive- /O2 /wd4324)
+else()
+    target_compile_options(animus_bench PRIVATE -O3 -Wall -Wextra -Wpedantic)
+endif()
+set_target_properties(animus_bench PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
