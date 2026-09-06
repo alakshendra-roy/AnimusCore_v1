@@ -6,9 +6,9 @@
 <title>Animus Engine | Institutional-Grade Bare-Metal Execution Core</title>
 <meta name="description" content="Animus Engine is a C++17 zero-copy shared-memory execution core exposed through a direct C-ABI dynamic library, with a zero-dependency Python SDK. Measured p99 tick-to-trade latency 1.81µs.">
 <meta name="author" content="Alakshendra Roy">
-<link rel="icon" type="image/png" href="/logo.png">
-<link rel="shortcut icon" type="image/png" href="/logo.png">
-<link rel="apple-touch-icon" href="/logo.png">
+<link rel="icon" type="image/png" href="/animus-logo.png">
+<link rel="shortcut icon" type="image/png" href="/animus-logo.png">
+<link rel="apple-touch-icon" href="/animus-logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -157,16 +157,10 @@ tailwind.config = {
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
     <div class="w-full max-w-full mx-auto box-border py-4 pl-6 pr-8 flex items-center justify-between gap-6">
       <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
-        <img src="logo.png" alt="Animus Engine" id="brand-logo" class="h-16 md:h-20 w-auto object-contain transition-all"
-             onerror="this.style.display='none'; document.getElementById('brand-fallback').classList.remove('hidden');">
-        <div id="brand-fallback" class="hidden items-center gap-2">
-          <svg class="w-7 h-7 text-cyan flex-shrink-0" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="10" y="10" width="80" height="80" rx="4" stroke="#1E293D" stroke-width="3"/>
-            <rect x="22" y="22" width="56" height="56" rx="2" stroke="#00F0FF" stroke-width="2" fill="rgba(0,240,255,0.06)"/>
-            <path d="M50 30 L65 70 H55 L50 55 L45 70 H35 L50 30 Z" fill="#00FF66"/>
-          </svg>
-          <span class="font-bold text-lg tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
-        </div>
+        <img src="/animus-logo-mark.png" alt="Animus Engine" id="brand-logo" class="h-9 w-auto object-contain flex-shrink-0"
+             style="image-rendering:-webkit-optimize-contrast;"
+             onerror="this.style.display='none';">
+        <span class="font-bold text-lg tracking-widest text-white font-mono whitespace-nowrap">ANIMUS <span class="text-xs text-cyan px-2 py-0.5 rounded-sm bg-cyan/10 border border-cyan/30">ENGINE</span></span>
       </div>
       <div class="hidden lg:flex items-center gap-6 xl:gap-8 min-w-0 text-sm font-mono">
         <div class="flex items-center gap-6 xl:gap-8 min-w-0">
