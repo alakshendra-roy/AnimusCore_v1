@@ -32,9 +32,20 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from animus_sdk import AnimusConsumer, AnimusRingBuffer  # noqa: E402
+try:
+    from animus_sdk import AnimusConsumer, AnimusRingBuffer
+except ImportError:
+    # Not installed (`pip install ./sdk/python`) -- fall back to this
+    # uncompiled source checkout for fast local iteration. Appended, not
+    # inserted at sys.path[0]: this script's own directory must never take
+    # priority over an already-installed wheel, or it shadows the
+    # installed animus_sdk package -- which carries the compiled
+    # _animus_sdk_native extension this source checkout doesn't have --
+    # with this checkout's extension-less animus_sdk/, breaking every
+    # caller (e.g. deploy_verify.sh) that just built and installed that
+    # wheel on purpose.
+    sys.path.append(str(Path(__file__).resolve().parent))
+    from animus_sdk import AnimusConsumer, AnimusRingBuffer
 
 _TARGET_LOW = 5_000_000
 _TARGET_HIGH = 8_000_000

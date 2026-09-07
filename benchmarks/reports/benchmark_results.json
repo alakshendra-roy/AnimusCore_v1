@@ -1,4 +1,59 @@
 {
+  "linux": {
+    "burst": {
+      "consumer_core": "23",
+      "corruption": 0,
+      "drop_rate_pct": 0.0,
+      "duration_s": 8.0,
+      "frames_processed": 58937344,
+      "hot_allocs": 0,
+      "hot_deallocs": 0,
+      "max_ns": 5165521,
+      "min_ns": 22,
+      "p50_ns": 158,
+      "p90_ns": 278,
+      "p999_ns": 5165521,
+      "p99_ns": 61522,
+      "producer_core": "22",
+      "ring_capacity": 1048576,
+      "sustained_rate": 7367137,
+      "target_rate": 10000000,
+      "verified": true
+    },
+    "captured_at": "2026-09-07 04:59:12",
+    "duration_s": 8.0,
+    "os_label": "Linux / GCC 15.2",
+    "rate_target": 10000000,
+    "specs": {
+      "arch": "x86_64",
+      "cache_sizes": "L1d: 48K, L1i: 32K, L2: 2048K, L3: 30720K",
+      "compiler": "GCC 15.2",
+      "cpu_model": "Intel(R) Core(TM) i7-14650HX",
+      "logical_cores": 24,
+      "os": "Linux 6.18.33.2-microsoft-standard-WSL2",
+      "physical_cores": "12"
+    },
+    "sustained": {
+      "consumer_core": "23",
+      "corruption": 0,
+      "drop_rate_pct": 0.0,
+      "duration_s": 8.0,
+      "frames_processed": 79921650,
+      "hot_allocs": 0,
+      "hot_deallocs": 0,
+      "max_ns": 5383012,
+      "min_ns": 54,
+      "p50_ns": 134,
+      "p90_ns": 202,
+      "p999_ns": 5383012,
+      "p99_ns": 316778,
+      "producer_core": "22",
+      "ring_capacity": 1048576,
+      "sustained_rate": 9990204,
+      "target_rate": 10000000,
+      "verified": true
+    }
+  },
   "windows": {
     "burst": {
       "consumer_core": "23",

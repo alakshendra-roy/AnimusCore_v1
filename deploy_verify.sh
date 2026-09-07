@@ -195,7 +195,15 @@ pip install "${REPO_ROOT}/sdk/python"
 # --- Step 6: Python SDK throughput verification -----------------------------
 banner "Step 6/6 -- Python SDK throughput verification"
 
-python3 "${REPO_ROOT}/sdk/python/bench_python_throughput.py" --duration "${DURATION}"
+# Unset PYTHONPATH and run from outside sdk/python: bench_python_throughput.py
+# only falls back to its own uncompiled source directory if `import animus_sdk`
+# fails outright, but an inherited PYTHONPATH pointing at sdk/python (or a cwd
+# of sdk/python combined with an import-mode that puts cwd on sys.path) could
+# still make that fallback-free import resolve to the source tree instead of
+# the wheel this step just installed -- which has the compiled
+# _animus_sdk_native extension the source tree doesn't. Running from
+# REPO_ROOT with a clean PYTHONPATH ensures the installed wheel wins.
+(cd "${REPO_ROOT}" && env -u PYTHONPATH "${VENV_DIR}/bin/python" "${REPO_ROOT}/sdk/python/bench_python_throughput.py" --duration "${DURATION}")
 
 deactivate
 
