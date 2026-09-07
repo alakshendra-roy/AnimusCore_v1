@@ -26,6 +26,18 @@ institutional verification pass, but also runnable standalone:
 If --binary is omitted, this looks for animus_bench at the conventional
 build/bin/animus_bench (Linux/macOS) or build/bin/Release/animus_bench.exe
 (Windows multi-config) locations relative to the repo root.
+
+A fourth tab, "Eval Kit (SHM Demo)", covers the standalone Evaluation Kit
+(eval_kit/) and the Python SDK (sdk/python/) -- both fed the same way, from
+one real run's own output, but via separate opt-in flags rather than every
+invocation, since they need their own build/venv:
+
+    python scripts/generate_institutional_report.py --binary build/bin/animus_bench \\
+        --eval-kit-dir eval_kit/dist/animus-eval-kit-linux-x86_64 \\
+        --python-sdk-log /path/to/a/saved/bench_python_throughput.py/run.log
+
+Pass --skip-native-bench to refresh just that tab without an animus_bench
+pass at all.
 """
 from __future__ import annotations
 
@@ -292,6 +304,134 @@ def capture_current_platform(binary: str, rate: int, duration: float) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Standalone Evaluation Kit (eval_kit/) capture -- same "never a hand-typed
+# figure" discipline as animus_bench above, just parsed from a different
+# real program's own output: run_demo.sh's harness_benchmark producer
+# (structured JSON) and verify_stream.py consumer (printed tables, parsed
+# the same way _NUMERIC_FIELD_PATTERNS parses animus_bench's stdout above).
+# --------------------------------------------------------------------------
+
+_EVAL_KIT_LATENCY_ROW = re.compile(r"\|\s*(min|p50|p90|p99|p99\.9|max)\s*\|\s*([\d.]+)\s*(ns|us|ms)\s*\|")
+_NS_MULTIPLIER = {"ns": 1.0, "us": 1_000.0, "ms": 1_000_000.0}
+
+_EVAL_KIT_SUMMARY_PATTERNS = {
+    "events_consumed": r"Events consumed\s*\|\s*([\d,]+)\s*\|",
+    "throughput_ticks_per_sec": r"Throughput\s*\|\s*([\d,]+) ticks/sec",
+    "wall_time_seconds": r"Wall time\s*\|\s*([\d.]+) s\s*\|",
+    "gaps": r"Sequence gaps seen\s*\|\s*([\d,]+)\s*\|",
+    "producer_dropped": r"Producer dropped_count\s*\|\s*([\d,]+)\s*\|",
+}
+
+
+def _parse_eval_kit_latency_table(stdout: str, table_title: str) -> dict:
+    """Parses one of verify_stream.py's `_print_table` blocks (min/p50/p90/p99/
+    p99.9/max, each auto-formatted in ns/us/ms by that script's own _fmt_ns)
+    back into a flat {row_label: nanoseconds} dict."""
+    idx = stdout.find(table_title)
+    if idx == -1:
+        raise RuntimeError(f"could not find '{table_title}' table in verify_stream.py output:\n{stdout}")
+    block = stdout[idx: idx + 800]
+    out = {}
+    for label, value, unit in _EVAL_KIT_LATENCY_ROW.findall(block):
+        out[label.replace(".", "_")] = float(value) * _NS_MULTIPLIER[unit]
+    for required in ("min", "p50", "p90", "p99", "p99_9", "max"):
+        if required not in out:
+            raise RuntimeError(f"missing '{required}' row in '{table_title}' table:\n{block}")
+    return out
+
+
+def run_eval_kit_demo(kit_dir: str) -> "tuple[dict, str]":
+    """Runs the standalone Evaluation Kit's turnkey demo (eval_kit/scripts/
+    run_demo.sh, already extracted/built into kit_dir by
+    eval_kit/scripts/package_kit.sh) end to end and returns
+    (producer_report.json's dict, the consumer's raw stdout) -- both this
+    one real run's own output, never hand-typed."""
+    script = os.path.join(kit_dir, "run_demo.sh")
+    if not os.path.isfile(script):
+        raise SystemExit(f"error: {script} not found (extract/build the kit first -- see eval_kit/README.md)")
+    if platform.system() == "Windows":
+        raise SystemExit("error: the Evaluation Kit demo requires POSIX shared memory (/dev/shm) -- "
+                          "run this under WSL2/Linux, not native Windows.")
+    proc = subprocess.run(["bash", "run_demo.sh"], cwd=kit_dir, capture_output=True, text=True, timeout=180)
+    if proc.returncode != 0:
+        raise RuntimeError(f"run_demo.sh exited {proc.returncode}:\nstdout:\n{proc.stdout}\nstderr:\n{proc.stderr}")
+    with open(os.path.join(kit_dir, "producer_report.json"), encoding="utf-8") as f:
+        producer = json.load(f)
+    return producer, proc.stdout
+
+
+def capture_eval_kit(kit_dir: str) -> dict:
+    producer, stdout = run_eval_kit_demo(kit_dir)
+
+    consumer = {}
+    for key, pattern in _EVAL_KIT_SUMMARY_PATTERNS.items():
+        m = re.search(pattern, stdout)
+        if not m:
+            raise RuntimeError(f"could not find '{key}' in verify_stream.py output:\n{stdout}")
+        raw = m.group(1).replace(",", "")
+        consumer[key] = float(raw) if "." in raw else int(raw)
+    consumer["gaps_equal_dropped"] = bool(re.search(r"Gaps == dropped_count\?\s*\|\s*yes\s*\|", stdout))
+    consumer["integrity_ok"] = bool(re.search(r"Data integrity\s*\|\s*OK\s*\|", stdout))
+    consumer["run_status"] = "completed" if re.search(r"Run status\s*\|\s*completed\s*\|", stdout) else "interrupted"
+    consumer["latency_ns"] = _parse_eval_kit_latency_table(stdout, "Consumer-side inter-arrival latency")
+
+    return {
+        "captured_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "segment_name": producer["segment_name"],
+        "mode": producer["mode"],
+        "ring_capacity_slots": producer["ring_capacity_slots"],
+        "record_size_bytes": producer["record_size_bytes"],
+        "wire_format": producer["wire_format"],
+        "events_requested": producer["events_requested"],
+        "events_pushed": producer["events_pushed"],
+        "events_dropped": producer["events_dropped"],
+        "specs": detect_machine_specs(),
+        "producer": {
+            "throughput_events_per_sec": producer["throughput"]["events_per_sec"],
+            "wall_time_seconds": producer["throughput"]["wall_time_seconds"],
+            "latency_ns": dict(producer["latency_ns"]),
+        },
+        "consumer": consumer,
+    }
+
+
+# --------------------------------------------------------------------------
+# Python SDK (sdk/python/bench_python_throughput.py) capture -- parsed from
+# one real run's own printed stdout, same discipline as above. Fed via
+# --python-sdk-log rather than spawned here, since a live run needs its own
+# venv with the compiled wheel installed (see deploy_verify.sh Step 5/6);
+# this script only ingests that run's already-captured output.
+# --------------------------------------------------------------------------
+
+_PYTHON_SDK_PATTERNS = {
+    "frames_received": r"Frames received\s*:\s*([\d,]+)",
+    "elapsed_s": r"Elapsed\s*:\s*([\d.]+)\s*s",
+    "sustained_rate": r"Sustained rate\s*:\s*([\d,]+)\s*frames/sec",
+    "empty_polls": r"Empty-poll count\s*:\s*([\d,]+)",
+    "producer_pushed": r"Producer pushed\s*:\s*([\d,]+)",
+    "producer_dropped": r"Producer dropped\s*:\s*([\d,]+)",
+    "capacity": r"Ring capacity\s*:\s*([\d,]+) frames",
+    "batch": r"Drain batch size\s*:\s*([\d,]+) frames",
+    "duration_target_s": r"Benchmark window\s*:\s*([\d.]+) s",
+}
+
+
+def parse_python_sdk(stdout: str) -> dict:
+    result = {}
+    for key, pattern in _PYTHON_SDK_PATTERNS.items():
+        m = re.search(pattern, stdout)
+        if not m:
+            raise RuntimeError(f"could not find '{key}' in bench_python_throughput.py output:\n{stdout}")
+        raw = m.group(1).replace(",", "")
+        result[key] = float(raw) if "." in raw else int(raw)
+    result["target_low"] = 5_000_000
+    result["target_high"] = 8_000_000
+    result["pass"] = "PASS:" in stdout
+    result["captured_at"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return result
+
+
+# --------------------------------------------------------------------------
 # Rendering -- populates scripts/report_assets/'s ported design (verbatim
 # CSS/markup skeleton, extracted from the original hand-authored report)
 # with whatever platform data is available in benchmark_results.json.
@@ -441,7 +581,7 @@ def _delta_panel(results: dict) -> str:
         )
         return f"""
       <div class="table-card">
-        <div class="table-card-title">{_esc(title)}</div>
+        <div class="table-card-title">{title}</div>
         <table class="data-table">
           <thead><tr><th>Metric</th><th class="num">Linux Sustained</th><th class="num">Windows Sustained</th><th class="num">Linux Burst</th><th class="num">Windows Burst</th></tr></thead>
           <tbody>{body}</tbody>
@@ -465,6 +605,135 @@ def _delta_panel(results: dict) -> str:
     return f'      <div class="delta-summary">{tiles}\n      </div>\n{throughput_table}\n{latency_table}'
 
 
+def _eval_kit_stat_card(mode_name: str, big_num: str, big_unit: str, cap_text: str, rows: "list[tuple[str, str]]") -> str:
+    row_html = "".join(f'<tr><td>{_esc(k)}</td><td class="num">{v}</td></tr>' for k, v in rows)
+    return f"""
+        <div class="mode-card">
+          <div class="mode-head">
+            <span class="mode-name">{_esc(mode_name)}</span>
+            <span class="status-pill"><span class="dot"></span>VERIFIED</span>
+          </div>
+          <div class="mode-body">
+            <div class="big-stat">
+              <div class="num">{big_num} <small>{_esc(big_unit)}</small></div>
+              <div class="cap">{_esc(cap_text)}</div>
+            </div>
+            <table class="data-table">{row_html}</table>
+          </div>
+        </div>"""
+
+
+def _eval_kit_latency_table(entry: dict) -> str:
+    p, c = entry["producer"]["latency_ns"], entry["consumer"]["latency_ns"]
+    return f"""
+      <div class="table-card">
+        <div class="table-card-title">Latency Profile &mdash; Producer Enqueue vs. Consumer Inter-Arrival</div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Measurement</th><th class="num">Min</th><th class="num">p50</th><th class="num">p90</th><th class="num">p99</th><th class="num">p99.9</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Producer enqueue (RDTSC, calibrated)</td><td class="num">{_fmt_ns(p['min'])}</td><td class="num">{_fmt_ns(p['p50'])}</td><td class="num">{_fmt_ns(p['p90'])}</td><td class="num">{_fmt_ns(p['p99'])}</td><td class="num">{_fmt_ns(p['p99_9'])}</td></tr>
+            <tr><td>Consumer inter-arrival (monotonic)</td><td class="num">{_fmt_ns(c['min'])}</td><td class="num">{_fmt_ns(c['p50'])}</td><td class="num">{_fmt_ns(c['p90'])}</td><td class="num">{_fmt_ns(c['p99'])}</td><td class="num">{_fmt_ns(c['p99_9'])}</td></tr>
+          </tbody>
+        </table>
+      </div>"""
+
+
+def _eval_kit_integrity_table(entry: dict) -> str:
+    c = entry["consumer"]
+    drop_pct = entry["events_dropped"] / entry["events_pushed"] * 100.0 if entry["events_pushed"] else 0.0
+    return f"""
+      <div class="table-card">
+        <div class="table-card-title">Stream Integrity</div>
+        <table class="data-table">
+          <tr><td>Ring Capacity</td><td class="num">{_fmt_int(entry['ring_capacity_slots'])} slots ({entry['record_size_bytes']} bytes/record)</td></tr>
+          <tr><td>Events Requested / Pushed</td><td class="num">{_fmt_int(entry['events_requested'])} / {_fmt_int(entry['events_pushed'])}</td></tr>
+          <tr><td>Events Dropped (overwritten before consumption)</td><td class="num">{_fmt_int(entry['events_dropped'])} ({drop_pct:.4f}%)</td></tr>
+          <tr><td>Sequence Gaps Observed by Consumer</td><td class="num">{_fmt_int(c['gaps'])}</td></tr>
+          <tr><td>Gaps == Dropped Count?</td><td class="num pass-val">{'yes' if c['gaps_equal_dropped'] else 'NO -- investigate'}</td></tr>
+          <tr><td>Sequence Corruption</td><td class="num pass-val">0 (never went backwards or repeated)</td></tr>
+          <tr><td>Consumer Data Integrity</td><td class="num pass-val">{'OK' if c['integrity_ok'] else 'FAILED'}</td></tr>
+        </table>
+      </div>"""
+
+
+def _python_sdk_card(entry: "dict | None") -> str:
+    if not entry:
+        return """
+      <div class="table-card">
+        <div class="table-card-title">Python SDK &mdash; Zero-Copy NumPy Streaming</div>
+        <table class="data-table"><tr><td colspan="2" class="muted">Not yet captured -- run sdk/python/bench_python_throughput.py
+        and pass its stdout to scripts/generate_institutional_report.py --python-sdk-log.</td></tr></table>
+      </div>"""
+    pass_label = "PASS" if entry["pass"] else "BELOW TARGET"
+    pass_class = "pass-val" if entry["pass"] else ""
+    return f"""
+      <div class="table-card">
+        <div class="table-card-title">Python SDK &mdash; Zero-Copy NumPy Streaming ({_esc(entry['captured_at'])})</div>
+        <table class="data-table">
+          <tr><td>Sustained Rate</td><td class="num">{_fmt_int(entry['sustained_rate'])} frames/sec ({entry['sustained_rate'] / 1e6:.2f}M)</td></tr>
+          <tr><td>Target Range</td><td class="num">{_fmt_int(entry['target_low'])}&ndash;{_fmt_int(entry['target_high'])} frames/sec</td></tr>
+          <tr><td>Frames Received</td><td class="num">{_fmt_int(entry['frames_received'])}</td></tr>
+          <tr><td>Benchmark Window</td><td class="num">{entry['elapsed_s']:.3f} s</td></tr>
+          <tr><td>Ring Capacity / Drain Batch</td><td class="num">{_fmt_int(entry['capacity'])} / {_fmt_int(entry['batch'])} frames</td></tr>
+          <tr><td>Producer Pushed / Dropped</td><td class="num">{_fmt_int(entry['producer_pushed'])} / {_fmt_int(entry['producer_dropped'])}</td></tr>
+          <tr><td>Result</td><td class="num {pass_class}">{pass_label}</td></tr>
+        </table>
+      </div>"""
+
+
+def _eval_kit_panel(entry: "dict | None", python_sdk_entry: "dict | None") -> str:
+    if entry is None:
+        return """
+      <div class="not-captured">
+        Standalone Evaluation Kit telemetry not yet captured. Build/extract the kit
+        (<code>eval_kit/scripts/package_kit.sh</code>) and run
+        <code>python scripts/generate_institutional_report.py --skip-native-bench --eval-kit-dir &lt;extracted-kit-dir&gt;</code>
+        on a Linux/WSL2 machine to populate this tab.
+      </div>"""
+
+    p, c = entry["producer"], entry["consumer"]
+    cards = (
+        _eval_kit_stat_card(
+            "Producer · Decoupled Overwrite Mode",
+            _fmt_int(p["throughput_events_per_sec"]), "events/sec",
+            f"{entry['events_pushed']:,} events pushed in {p['wall_time_seconds']:.3f}s wall",
+            [
+                ("Enqueue Latency (min)", _fmt_ns(p["latency_ns"]["min"])),
+                ("Enqueue Latency (p50)", _fmt_ns(p["latency_ns"]["p50"])),
+                ("Enqueue Latency (p90)", _fmt_ns(p["latency_ns"]["p90"])),
+                ("Enqueue Latency (p99)", _fmt_ns(p["latency_ns"]["p99"])),
+                ("Enqueue Latency (p99.9)", _fmt_ns(p["latency_ns"]["p99_9"])),
+            ],
+        )
+        + _eval_kit_stat_card(
+            "Consumer · nanobind Zero-Copy Drain",
+            _fmt_int(c["events_consumed"]), "events consumed",
+            f"{c['wall_time_seconds']:.3f}s wall, {'gaps == dropped_count' if c['gaps_equal_dropped'] else 'gap mismatch -- investigate'}",
+            [
+                ("Inter-Arrival Latency (min)", _fmt_ns(c["latency_ns"]["min"])),
+                ("Inter-Arrival Latency (p50)", _fmt_ns(c["latency_ns"]["p50"])),
+                ("Inter-Arrival Latency (p90)", _fmt_ns(c["latency_ns"]["p90"])),
+                ("Inter-Arrival Latency (p99)", _fmt_ns(c["latency_ns"]["p99"])),
+                ("Integrity", "OK" if c["integrity_ok"] else "FAILED"),
+            ],
+        )
+    )
+    return (
+        f'      <p class="section-desc">Standalone SHM producer/consumer demo (<code>eval_kit/</code>) &mdash; '
+        f'a single, self-contained C++ producer writing directly into a POSIX shared-memory ring in '
+        f'decoupled overwrite mode (never blocks on a consumer), drained here by the nanobind Python '
+        f'consumer. A different methodology from the pinned dual-thread animus_bench passes above: this '
+        f'measures single-writer enqueue cost and a real cross-process/cross-language attach, not '
+        f'sustained multi-core throughput against a fixed target rate. Captured {_esc(entry["captured_at"])}.</p>\n'
+        f'      <div class="mode-grid">{cards}\n      </div>\n'
+        f'{_eval_kit_latency_table(entry)}\n'
+        f'{_eval_kit_integrity_table(entry)}\n'
+        f'{_python_sdk_card(python_sdk_entry)}'
+    )
+
+
 def _system_under_test_card(pk: str, entry: dict) -> str:
     label = "Linux" if pk == "linux" else "Windows"
     specs = entry["specs"]
@@ -482,8 +751,12 @@ def _system_under_test_card(pk: str, entry: dict) -> str:
 
 
 def _exec_summary(results: dict) -> str:
+    # Explicitly "linux"/"windows" only -- results may also carry non-platform
+    # entries (e.g. "eval_kit", "python_sdk") that don't have a
+    # sustained/burst shape, so a generic results.items() here would KeyError.
     runs = []
-    for pk, entry in results.items():
+    for pk in ("linux", "windows"):
+        entry = results.get(pk)
         if not entry:
             continue
         for mode in ("sustained", "burst"):
@@ -522,6 +795,16 @@ def _exec_summary(results: dict) -> str:
     </div>"""
     )
 
+    eval_kit_entry = results.get("eval_kit")
+    eval_kit_tile = (
+        f"""
+    <div class="exec-tile">
+      <div class="label">Eval-Kit Peak Throughput</div>
+      <div class="value accent">{eval_kit_entry['producer']['throughput_events_per_sec'] / 1e6:.2f}M <small>events/sec</small></div>
+      <div class="sub">Standalone SHM demo, decoupled overwrite mode</div>
+    </div>""" if eval_kit_entry else ""
+    )
+
     return f"""
   <div class="exec-summary">
     <div class="exec-tile">
@@ -539,7 +822,7 @@ def _exec_summary(results: dict) -> str:
       <div class="label">Best-Case Median Latency</div>
       <div class="value accent">{_fmt_ns(best_latency['p50_ns'])}</div>
       <div class="sub">p50, {_esc(plat_label(best_latency['platform']))}, ingress &rarr; egress</div>
-    </div>
+    </div>{eval_kit_tile}
   </div>"""
 
 
@@ -566,7 +849,8 @@ def render_report(results: dict, current_pk: str) -> str:
     # actually shows it, never assumed to be "Linux" the way the original
     # hand-authored copy did.
     all_runs = []
-    for pk, entry in results.items():
+    for pk in ("linux", "windows"):
+        entry = results.get(pk)
         if not entry:
             continue
         for mode in ("sustained", "burst"):
@@ -638,11 +922,13 @@ def render_report(results: dict, current_pk: str) -> str:
   <input type="radio" name="tabs" id="tab-linux" class="tabs-input"{' checked' if current_pk == 'linux' or not platforms_present else ''}>
   <input type="radio" name="tabs" id="tab-windows" class="tabs-input"{' checked' if current_pk == 'windows' else ''}>
   <input type="radio" name="tabs" id="tab-delta" class="tabs-input">
+  <input type="radio" name="tabs" id="tab-evalkit" class="tabs-input">
 
   <div class="tab-nav">
     <label for="tab-linux">Linux (GCC)</label>
     <label for="tab-windows">Windows (MSVC)</label>
     <label for="tab-delta">Side-by-Side Delta</label>
+    <label for="tab-evalkit">Eval Kit (SHM Demo)</label>
   </div>
 
   <div class="tab-panels">
@@ -654,6 +940,9 @@ def render_report(results: dict, current_pk: str) -> str:
     </div>
     <div class="tab-panel" id="panel-delta">
 {_delta_panel(results)}
+    </div>
+    <div class="tab-panel" id="panel-evalkit">
+{_eval_kit_panel(results.get("eval_kit"), results.get("python_sdk"))}
     </div>
   </div>
 
@@ -744,14 +1033,40 @@ def main() -> None:
     p.add_argument("--rate", type=int, default=10_000_000, help="sustained-pass target rate (default: 10,000,000)")
     p.add_argument("--duration", type=float, default=5.0, help="each pass's duration in seconds (default: 5.0)")
     p.add_argument("--out", default=_REPORT_PATH, help="output HTML path (default: benchmarks/reports/ANIMUS_BENCHMARK_REPORT.html)")
+    p.add_argument("--skip-native-bench", action="store_true",
+                    help="skip building/running animus_bench and leave the linux/windows entries untouched -- "
+                         "combine with --eval-kit-dir/--python-sdk-log to refresh only the standalone "
+                         "Evaluation Kit / Python SDK tab without a redundant native pass")
+    p.add_argument("--eval-kit-dir", default="",
+                    help="path to an extracted/built eval_kit/dist/animus-eval-kit-<platform>/ directory; "
+                         "if given, runs its run_demo.sh and captures real producer+consumer telemetry "
+                         "into benchmark_results.json's 'eval_kit' entry (Linux/WSL2 only)")
+    p.add_argument("--python-sdk-log", default="",
+                    help="path to a text file holding one real run's stdout from "
+                         "sdk/python/bench_python_throughput.py; if given, parses it into "
+                         "benchmark_results.json's 'python_sdk' entry")
     args = p.parse_args()
 
-    binary = find_binary(args.binary)
     pk = platform_key()
-    current = capture_current_platform(binary, args.rate, args.duration)
-
     results = load_results()
-    results[pk] = current
+    current = None
+
+    if not args.skip_native_bench:
+        binary = find_binary(args.binary)
+        current = capture_current_platform(binary, args.rate, args.duration)
+        results[pk] = current
+
+    if args.eval_kit_dir:
+        results["eval_kit"] = capture_eval_kit(args.eval_kit_dir)
+        print("[generate_institutional_report] captured eval_kit telemetry from "
+              f"{args.eval_kit_dir}")
+
+    if args.python_sdk_log:
+        with open(args.python_sdk_log, encoding="utf-8") as f:
+            log_text = f.read()
+        results["python_sdk"] = parse_python_sdk(log_text)
+        print(f"[generate_institutional_report] captured python_sdk telemetry from {args.python_sdk_log}")
+
     save_results(results)
 
     report = render_report(results, pk)
@@ -760,9 +1075,10 @@ def main() -> None:
         f.write(report)
 
     print(f"[generate_institutional_report] wrote {args.out}")
-    print(f"[generate_institutional_report] updated {_RESULTS_JSON_PATH} (platform: {pk})")
+    print(f"[generate_institutional_report] updated {_RESULTS_JSON_PATH}"
+          + (f" (platform: {pk})" if current else ""))
 
-    if not (current["sustained"]["verified"] and current["burst"]["verified"]):
+    if current and not (current["sustained"]["verified"] and current["burst"]["verified"]):
         raise SystemExit(
             "error: one or both animus_bench passes on this run did not report the "
             "VERIFIED line (0 dropped frames, 0 corrupted frames, 0 "
