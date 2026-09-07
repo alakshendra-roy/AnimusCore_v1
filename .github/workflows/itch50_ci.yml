@@ -1,0 +1,126 @@
+name: ITCH 5.0 Adapter CI
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'adapters/itch50/**'
+      - 'animus-eval-kit/include/**'
+      - 'include/animus/**'
+      - 'CMakeLists.txt'
+      - '.github/workflows/itch50_ci.yml'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+# Builds and smoke-tests adapters/itch50/bench_itch_ingest (the NASDAQ
+# TotalView-ITCH 5.0 zero-allocation ingestion benchmark -- see
+# adapters/itch50/README.md) across every toolchain that adapter's own
+# README claims support for: GCC and Clang on Linux, MSVC on Windows.
+# Each job builds via the root CMakeLists.txt's bench_itch_ingest target
+# (the same target used throughout this repo's own manual verification),
+# then runs a reduced-iteration-count pass (100,000 messages, vs. the
+# 10,000,000-message runs documented in adapters/itch50/README.md's
+# benchmark table) and asserts the harness's own zero-decode-failure /
+# zero-sequence-corruption / zero-hot-path-heap-allocation verdict line,
+# plus a clean process exit -- correctness and memory-safety on every pull
+# request, not a performance regression gate (see benchmark.yml for that).
+
+jobs:
+  linux-gcc:
+    name: Linux (GCC) - bench_itch_ingest
+    runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CXX: g++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          ${CXX} --version
+          cmake --version
+
+      - name: Configure (CMakeLists.txt, Release, GCC)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
+
+      - name: Build bench_itch_ingest
+        run: cmake --build build --target bench_itch_ingest --config Release
+
+      - name: Verify binary was produced
+        run: test -x build/bin/bench_itch_ingest
+
+      - name: Smoke test -- 100,000 synthetic ITCH messages
+        shell: bash
+        run: |
+          ./build/bin/bench_itch_ingest --messages 100000 | tee itch_ingest_gcc.log
+          status=${PIPESTATUS[0]}
+          echo "bench_itch_ingest exit status: $status"
+          grep -q "VERIFIED: 0 decode failures, 0 corrupted frames, 0 hot-path heap allocations." itch_ingest_gcc.log
+          [ "$status" -eq 0 ]
+
+  linux-clang:
+    name: Linux (Clang) - bench_itch_ingest
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          ${CXX} --version
+          cmake --version
+
+      - name: Configure (CMakeLists.txt, Release, Clang)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+
+      - name: Build bench_itch_ingest
+        run: cmake --build build --target bench_itch_ingest --config Release
+
+      - name: Verify binary was produced
+        run: test -x build/bin/bench_itch_ingest
+
+      - name: Smoke test -- 100,000 synthetic ITCH messages
+        shell: bash
+        run: |
+          ./build/bin/bench_itch_ingest --messages 100000 | tee itch_ingest_clang.log
+          status=${PIPESTATUS[0]}
+          echo "bench_itch_ingest exit status: $status"
+          grep -q "VERIFIED: 0 decode failures, 0 corrupted frames, 0 hot-path heap allocations." itch_ingest_clang.log
+          [ "$status" -eq 0 ]
+
+  windows-msvc:
+    name: Windows (MSVC) - bench_itch_ingest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (CMakeLists.txt, Visual Studio generator)
+        run: cmake -S . -B build
+
+      - name: Build bench_itch_ingest (Release)
+        run: cmake --build build --target bench_itch_ingest --config Release
+
+      - name: Verify binary was produced
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "build/bin/Release/bench_itch_ingest.exe")) {
+            throw "bench_itch_ingest.exe not found after build"
+          }
+
+      - name: Smoke test -- 100,000 synthetic ITCH messages
+        shell: pwsh
+        run: |
+          & "build/bin/Release/bench_itch_ingest.exe" --messages 100000 | Tee-Object -FilePath itch_ingest_msvc.log
+          $exitCode = $LASTEXITCODE
+          Write-Host "bench_itch_ingest.exe exit code: $exitCode"
+          $verified = Select-String -Path itch_ingest_msvc.log -SimpleMatch `
+            -Pattern "VERIFIED: 0 decode failures, 0 corrupted frames, 0 hot-path heap allocations." -Quiet
+          if (-not $verified) {
+            throw "expected verification line not found in itch_ingest_msvc.log"
+          }
+          if ($exitCode -ne 0) {
+            throw "bench_itch_ingest.exe exited with code $exitCode"
+          }
