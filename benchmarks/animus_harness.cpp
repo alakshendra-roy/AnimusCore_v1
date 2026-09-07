@@ -42,6 +42,7 @@
 
 #include "animus/thread_affinity.hpp"
 #include "spsc_ring_buffer.hpp"
+#include "telemetry_frame.hpp"
 
 // ---------------------------------------------------------------------------
 // Zero-allocation guard: replaces all six standard replaceable operator
@@ -86,24 +87,12 @@ void operator delete[](void* ptr, std::size_t size) noexcept {
 
 namespace animus_bench {
 
-// ---------------------------------------------------------------------------
-// Wire frame: fixed-size, single-cache-line telemetry record. alignas(64)
-// plus the natural field layout below pads sizeof(TelemetryFrame) up to
-// exactly 64 bytes, so one frame never straddles two cache lines and an
-// array of frames never causes false sharing between adjacent elements.
-// ---------------------------------------------------------------------------
-struct alignas(64) TelemetryFrame {
-    uint64_t sequence_id;
-    uint64_t timestamp_ns;
-    char symbol[8];
-    double price;
-    uint32_t volume;
-    uint8_t flags;
-};
-static_assert(sizeof(TelemetryFrame) == 64, "TelemetryFrame must occupy exactly one cache line");
-static_assert(std::is_trivially_copyable_v<TelemetryFrame>, "TelemetryFrame must be trivially copyable for the SPSC ring");
-
-constexpr uint8_t kFlagBurst = 0x01;
+// Wire frame + kFlagBurst now live in
+// animus-eval-kit/include/telemetry_frame.hpp -- shared verbatim with the
+// Python SDK's nanobind binding (sdk/python/) so both sides compile against
+// the exact same 64-byte layout instead of two hand-duplicated copies.
+using animus::eval::TelemetryFrame;
+using animus::eval::kFlagBurst;
 
 // ---------------------------------------------------------------------------
 // Fixed-size nanosecond latency histogram. Static storage duration (lives in

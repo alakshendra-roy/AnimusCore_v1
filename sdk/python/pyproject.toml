@@ -1,0 +1,35 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "animus-py"
+version = "1.0.0"
+description = "Zero-copy Python SDK for Animus Core's C++20 SPSC ring buffer -- consume TelemetryFrame records directly as NumPy ndarrays"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+# numpy is opt-in at runtime (AnimusConsumer.to_numpy()), same convention
+# as animus/consumer.py's own to_numpy() -- see animus_sdk/consumer.py.
+# Not listed as a hard dependency here so a caller that only needs the raw
+# buffer-protocol view (decode()/decode_iter()) stays dependency-free.
+dependencies = []
+
+[project.optional-dependencies]
+numpy = ["numpy>=1.20"]
+
+# Its own installable unit -- `pip install ./sdk/python` builds the
+# compiled _animus_sdk_native extension and installs it alongside this
+# package's own .py files under animus_sdk/. Independent of the root
+# animus-engine-sdk package and of bindings/ (animus.*) -- this is the
+# separate, institutional-client-facing SDK for animus_bench's
+# TelemetryFrame ring specifically, not the internal engine's own
+# telemetry/shm rings.
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build"
+wheel.packages = ["animus_sdk"]
+
+[tool.scikit-build.cmake.define]
+CMAKE_BUILD_TYPE = "Release"
