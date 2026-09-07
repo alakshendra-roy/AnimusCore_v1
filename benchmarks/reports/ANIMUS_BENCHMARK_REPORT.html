@@ -90,7 +90,7 @@
   /* ---------- Executive summary strip ---------- */
   .exec-summary{
     display:grid;
-    grid-template-columns:repeat(4,1fr);
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
     gap:14px;
     margin-bottom:36px;
   }
@@ -177,13 +177,15 @@
 
   #tab-linux:checked ~ .tab-nav label[for="tab-linux"],
   #tab-windows:checked ~ .tab-nav label[for="tab-windows"],
-  #tab-delta:checked ~ .tab-nav label[for="tab-delta"]{
+  #tab-delta:checked ~ .tab-nav label[for="tab-delta"],
+  #tab-evalkit:checked ~ .tab-nav label[for="tab-evalkit"]{
     background:var(--accent);
     color:#04141f;
   }
   #tab-linux:checked ~ .tab-panels #panel-linux{display:block;}
   #tab-windows:checked ~ .tab-panels #panel-windows{display:block;}
   #tab-delta:checked ~ .tab-panels #panel-delta{display:block;}
+  #tab-evalkit:checked ~ .tab-panels #panel-evalkit{display:block;}
 
   /* ---------- Mode cards (Sustained / Burst) ---------- */
   .mode-grid{
@@ -537,6 +539,7 @@
     .tab-panel{display:block !important;page-break-inside:avoid;}
     #panel-windows{page-break-before:always;}
     #panel-delta{page-break-before:always;}
+    #panel-evalkit{page-break-before:always;}
     .exec-tile, .mode-card, .table-card, .arch-badge, .delta-tile, .footnote-card, .cmd-block{
       break-inside:avoid;
       box-shadow:none !important;
@@ -563,7 +566,7 @@
     </div>
     <div class="masthead-meta">
       <span class="badge-classification">CLIENT DELIVERABLE</span><br>
-      Capture Date: 2026-09-07 04:59:12<br>
+      Capture Date: 2026-09-07 05:45:24<br>
       Report Rev: 1.0<br>
       Cross-Platform: Linux / GCC 15.2 / Windows / MSVC
     </div>
@@ -621,6 +624,11 @@
       <div class="value accent">102 ns</div>
       <div class="sub">p50, Windows, ingress &rarr; egress</div>
     </div>
+    <div class="exec-tile">
+      <div class="label">Eval-Kit Peak Throughput</div>
+      <div class="value accent">22.99M <small>events/sec</small></div>
+      <div class="sub">Standalone SHM demo, decoupled overwrite mode</div>
+    </div>
   </div>
 
   <!-- ============ ARCHITECTURE BADGES ============ -->
@@ -654,11 +662,13 @@
   <input type="radio" name="tabs" id="tab-linux" class="tabs-input" checked>
   <input type="radio" name="tabs" id="tab-windows" class="tabs-input">
   <input type="radio" name="tabs" id="tab-delta" class="tabs-input">
+  <input type="radio" name="tabs" id="tab-evalkit" class="tabs-input">
 
   <div class="tab-nav">
     <label for="tab-linux">Linux (GCC)</label>
     <label for="tab-windows">Windows (MSVC)</label>
     <label for="tab-delta">Side-by-Side Delta</label>
+    <label for="tab-evalkit">Eval Kit (SHM Demo)</label>
   </div>
 
   <div class="tab-panels">
@@ -818,7 +828,7 @@ cmake --build build --target animus_bench -j</pre>
       </div>
 
       <div class="table-card">
-        <div class="table-card-title">Throughput &amp;amp; Integrity &amp;mdash; Side by Side</div>
+        <div class="table-card-title">Throughput &amp; Integrity &mdash; Side by Side</div>
         <table class="data-table">
           <thead><tr><th>Metric</th><th class="num">Linux Sustained</th><th class="num">Windows Sustained</th><th class="num">Linux Burst</th><th class="num">Windows Burst</th></tr></thead>
           <tbody><tr><td>Throughput (ops/sec)</td><td class="num">9,990,204</td><td class="num">3,003,000</td><td class="num">7,367,137</td><td class="num">8,268,563</td></tr><tr><td>Frames Processed</td><td class="num">79,921,650</td><td class="num">4,504,505</td><td class="num">58,937,344</td><td class="num">12,402,857</td></tr><tr><td>Packet Drop Rate</td><td class="num">0.0000%</td><td class="num">0.0000%</td><td class="num">0.0000%</td><td class="num">0.0000%</td></tr><tr><td>Sequence Corruption</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr><tr><td>Hot-Path Heap Allocs/Frees</td><td class="num">0 / 0</td><td class="num">0 / 0</td><td class="num">0 / 0</td><td class="num">0 / 0</td></tr></tbody>
@@ -826,10 +836,80 @@ cmake --build build --target animus_bench -j</pre>
       </div>
 
       <div class="table-card">
-        <div class="table-card-title">Latency Profile &amp;mdash; Side by Side</div>
+        <div class="table-card-title">Latency Profile &mdash; Side by Side</div>
         <table class="data-table">
           <thead><tr><th>Metric</th><th class="num">Linux Sustained</th><th class="num">Windows Sustained</th><th class="num">Linux Burst</th><th class="num">Windows Burst</th></tr></thead>
           <tbody><tr><td>Min</td><td class="num">54 ns</td><td class="num">0 ns</td><td class="num">22 ns</td><td class="num">0 ns</td></tr><tr><td>p50 (median)</td><td class="num">134 ns</td><td class="num">102 ns</td><td class="num">158 ns</td><td class="num">102 ns</td></tr><tr><td>p90</td><td class="num">202 ns</td><td class="num">202 ns</td><td class="num">278 ns</td><td class="num">102 ns</td></tr><tr><td>p99</td><td class="num">316.8 &micro;s</td><td class="num">202 ns</td><td class="num">61.5 &micro;s</td><td class="num">2.5 &micro;s</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-evalkit">
+      <p class="section-desc">Standalone SHM producer/consumer demo (<code>eval_kit/</code>) &mdash; a single, self-contained C++ producer writing directly into a POSIX shared-memory ring in decoupled overwrite mode (never blocks on a consumer), drained here by the nanobind Python consumer. A different methodology from the pinned dual-thread animus_bench passes above: this measures single-writer enqueue cost and a real cross-process/cross-language attach, not sustained multi-core throughput against a fixed target rate. Captured 2026-09-07 05:35:47.</p>
+      <div class="mode-grid">
+        <div class="mode-card">
+          <div class="mode-head">
+            <span class="mode-name">Producer · Decoupled Overwrite Mode</span>
+            <span class="status-pill"><span class="dot"></span>VERIFIED</span>
+          </div>
+          <div class="mode-body">
+            <div class="big-stat">
+              <div class="num">22,991,039 <small>events/sec</small></div>
+              <div class="cap">10,000,000 events pushed in 0.435s wall</div>
+            </div>
+            <table class="data-table"><tr><td>Enqueue Latency (min)</td><td class="num">14 ns</td></tr><tr><td>Enqueue Latency (p50)</td><td class="num">21 ns</td></tr><tr><td>Enqueue Latency (p90)</td><td class="num">22 ns</td></tr><tr><td>Enqueue Latency (p99)</td><td class="num">25 ns</td></tr><tr><td>Enqueue Latency (p99.9)</td><td class="num">858 ns</td></tr></table>
+          </div>
+        </div>
+        <div class="mode-card">
+          <div class="mode-head">
+            <span class="mode-name">Consumer · nanobind Zero-Copy Drain</span>
+            <span class="status-pill"><span class="dot"></span>VERIFIED</span>
+          </div>
+          <div class="mode-body">
+            <div class="big-stat">
+              <div class="num">1,048,576 <small>events consumed</small></div>
+              <div class="cap">3.176s wall, gaps == dropped_count</div>
+            </div>
+            <table class="data-table"><tr><td>Inter-Arrival Latency (min)</td><td class="num">117 ns</td></tr><tr><td>Inter-Arrival Latency (p50)</td><td class="num">130 ns</td></tr><tr><td>Inter-Arrival Latency (p90)</td><td class="num">151 ns</td></tr><tr><td>Inter-Arrival Latency (p99)</td><td class="num">181 ns</td></tr><tr><td>Integrity</td><td class="num">OK</td></tr></table>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-title">Latency Profile &mdash; Producer Enqueue vs. Consumer Inter-Arrival</div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Measurement</th><th class="num">Min</th><th class="num">p50</th><th class="num">p90</th><th class="num">p99</th><th class="num">p99.9</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Producer enqueue (RDTSC, calibrated)</td><td class="num">14 ns</td><td class="num">21 ns</td><td class="num">22 ns</td><td class="num">25 ns</td><td class="num">858 ns</td></tr>
+            <tr><td>Consumer inter-arrival (monotonic)</td><td class="num">117 ns</td><td class="num">130 ns</td><td class="num">151 ns</td><td class="num">181 ns</td><td class="num">1.1 &micro;s</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-title">Stream Integrity</div>
+        <table class="data-table">
+          <tr><td>Ring Capacity</td><td class="num">1,048,576 slots (40 bytes/record)</td></tr>
+          <tr><td>Events Requested / Pushed</td><td class="num">10,000,000 / 10,000,000</td></tr>
+          <tr><td>Events Dropped (overwritten before consumption)</td><td class="num">8,951,424 (89.5142%)</td></tr>
+          <tr><td>Sequence Gaps Observed by Consumer</td><td class="num">8,951,424</td></tr>
+          <tr><td>Gaps == Dropped Count?</td><td class="num pass-val">yes</td></tr>
+          <tr><td>Sequence Corruption</td><td class="num pass-val">0 (never went backwards or repeated)</td></tr>
+          <tr><td>Consumer Data Integrity</td><td class="num pass-val">OK</td></tr>
+        </table>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-title">Python SDK &mdash; Zero-Copy NumPy Streaming (2026-09-07 05:35:47)</div>
+        <table class="data-table">
+          <tr><td>Sustained Rate</td><td class="num">14,189,893 frames/sec (14.19M)</td></tr>
+          <tr><td>Target Range</td><td class="num">5,000,000&ndash;8,000,000 frames/sec</td></tr>
+          <tr><td>Frames Received</td><td class="num">113,519,214</td></tr>
+          <tr><td>Benchmark Window</td><td class="num">8.000 s</td></tr>
+          <tr><td>Ring Capacity / Drain Batch</td><td class="num">1,048,576 / 8,192 frames</td></tr>
+          <tr><td>Producer Pushed / Dropped</td><td class="num">113,519,464 / 10,120,899</td></tr>
+          <tr><td>Result</td><td class="num pass-val">PASS</td></tr>
         </table>
       </div>
     </div>
@@ -865,7 +945,7 @@ cmake --build build --target animus_bench -j</pre>
   </div>
 
   <footer class="report-footer">
-    <span>ANIMUS CORE &mdash; CONFIDENTIAL BENCHMARK AUDIT &mdash; GENERATED 2026-09-07 04:59:12</span>
+    <span>ANIMUS CORE &mdash; CONFIDENTIAL BENCHMARK AUDIT &mdash; GENERATED 2026-09-07 05:45:24</span>
     <span>Auto-generated by scripts/generate_institutional_report.py &middot; Report Rev 1.0</span>
   </footer>
 

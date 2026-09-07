@@ -90,7 +90,7 @@
   /* ---------- Executive summary strip ---------- */
   .exec-summary{
     display:grid;
-    grid-template-columns:repeat(4,1fr);
+    grid-template-columns:repeat(auto-fit,minmax(190px,1fr));
     gap:14px;
     margin-bottom:36px;
   }
@@ -177,13 +177,15 @@
 
   #tab-linux:checked ~ .tab-nav label[for="tab-linux"],
   #tab-windows:checked ~ .tab-nav label[for="tab-windows"],
-  #tab-delta:checked ~ .tab-nav label[for="tab-delta"]{
+  #tab-delta:checked ~ .tab-nav label[for="tab-delta"],
+  #tab-evalkit:checked ~ .tab-nav label[for="tab-evalkit"]{
     background:var(--accent);
     color:#04141f;
   }
   #tab-linux:checked ~ .tab-panels #panel-linux{display:block;}
   #tab-windows:checked ~ .tab-panels #panel-windows{display:block;}
   #tab-delta:checked ~ .tab-panels #panel-delta{display:block;}
+  #tab-evalkit:checked ~ .tab-panels #panel-evalkit{display:block;}
 
   /* ---------- Mode cards (Sustained / Burst) ---------- */
   .mode-grid{
@@ -537,6 +539,7 @@
     .tab-panel{display:block !important;page-break-inside:avoid;}
     #panel-windows{page-break-before:always;}
     #panel-delta{page-break-before:always;}
+    #panel-evalkit{page-break-before:always;}
     .exec-tile, .mode-card, .table-card, .arch-badge, .delta-tile, .footnote-card, .cmd-block{
       break-inside:avoid;
       box-shadow:none !important;

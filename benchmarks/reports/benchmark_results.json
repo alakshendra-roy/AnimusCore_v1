@@ -1,4 +1,54 @@
 {
+  "eval_kit": {
+    "captured_at": "2026-09-07 05:35:47",
+    "consumer": {
+      "events_consumed": 1048576,
+      "gaps": 8951424,
+      "gaps_equal_dropped": true,
+      "integrity_ok": true,
+      "latency_ns": {
+        "max": 276672.0,
+        "min": 117.0,
+        "p50": 130.0,
+        "p90": 151.0,
+        "p99": 181.0,
+        "p99_9": 1112.0
+      },
+      "producer_dropped": 8951424,
+      "run_status": "completed",
+      "throughput_ticks_per_sec": 330152,
+      "wall_time_seconds": 3.176
+    },
+    "events_dropped": 8951424,
+    "events_pushed": 10000000,
+    "events_requested": 10000000,
+    "mode": "overwrite",
+    "producer": {
+      "latency_ns": {
+        "max": 970928,
+        "min": 14.4676,
+        "p50": 21.0813,
+        "p90": 21.908,
+        "p99": 25.2149,
+        "p99_9": 857.719
+      },
+      "throughput_events_per_sec": 22991039,
+      "wall_time_seconds": 0.434952
+    },
+    "record_size_bytes": 40,
+    "ring_capacity_slots": 1048576,
+    "segment_name": "animus_eval_demo_436",
+    "specs": {
+      "arch": "x86_64",
+      "cache_sizes": "L1d: 48K, L1i: 32K, L2: 2048K, L3: 30720K",
+      "compiler": "GCC 15.2",
+      "cpu_model": "Intel(R) Core(TM) i7-14650HX",
+      "logical_cores": 24,
+      "os": "Linux 6.18.33.2-microsoft-standard-WSL2",
+      "physical_cores": "12"
+    },
+    "wire_format": "<QQqqII"
+  },
   "linux": {
     "burst": {
       "consumer_core": "23",
@@ -53,6 +103,21 @@
       "target_rate": 10000000,
       "verified": true
     }
+  },
+  "python_sdk": {
+    "batch": 8192,
+    "capacity": 1048576,
+    "captured_at": "2026-09-07 05:35:47",
+    "duration_target_s": 8.0,
+    "elapsed_s": 8.0,
+    "empty_polls": 84068,
+    "frames_received": 113519214,
+    "pass": true,
+    "producer_dropped": 10120899,
+    "producer_pushed": 113519464,
+    "sustained_rate": 14189893,
+    "target_high": 8000000,
+    "target_low": 5000000
   },
   "windows": {
     "burst": {
