@@ -233,3 +233,64 @@ endif()
 set_target_properties(animus_bench PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# bench_itch_ingest -- NASDAQ TotalView-ITCH 5.0 adapter ingestion benchmark
+# (adapters/itch50/). Same in-process SPSC ring (animus-eval-kit/include/
+# spsc_ring_buffer.hpp) and RDTSC-calibration methodology as animus_bench
+# above, applied to zero-allocation ITCH wire decoding instead of synthetic
+# telemetry frames -- see adapters/itch50/README.md. C++17 (no C++20
+# feature is used here; kept portable rather than matching animus_bench's
+# arbitrary cxx_std_20, since this target's own build matrix requirement is
+# "compiles cleanly under GCC/Clang and MSVC").
+# Lands at build/bin/bench_itch_ingest, alongside animus_bench, since both
+# are live-evaluation proof-point binaries with the same fixed expected
+# path convention.
+add_executable(bench_itch_ingest
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/itch50/bench_itch_ingest.cpp
+)
+target_include_directories(bench_itch_ingest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/animus-eval-kit/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/itch50/include
+)
+target_compile_features(bench_itch_ingest PRIVATE cxx_std_17)
+find_package(Threads REQUIRED)
+target_link_libraries(bench_itch_ingest PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(bench_itch_ingest PRIVATE rt)
+endif()
+if(MSVC)
+    # /wd4324: alignas(64) ItchFrame/SpscRingBuffer cache-line padding is
+    # intentional -- see animus_bench's identical suppression above.
+    target_compile_options(bench_itch_ingest PRIVATE /W4 /permissive- /O2 /wd4324)
+else()
+    target_compile_options(bench_itch_ingest PRIVATE -O3 -Wall -Wextra -Wpedantic)
+endif()
+set_target_properties(bench_itch_ingest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# itch50_shm_bridge -- cross-process shared-memory producer proving the
+# Python zero-copy consumption path (adapters/itch50/README.md's Python
+# Consumer Compatibility section /
+# adapters/itch50/verify_zero_copy_numpy.py): pushes decoded ItchFrame
+# records into a named animus::sys::ipc::ShmRing<ItchFrame>
+# (include/animus/shm_ipc.hpp) for a separate Python process to attach to
+# via the existing schema-agnostic animus-native-stream binding. Same
+# cross-process shape and C++17 standard as harness_benchmark/
+# test_dynamic_schema above, not animus_bench's in-process ring.
+add_executable(itch50_shm_bridge
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/itch50/itch50_shm_bridge.cpp
+)
+target_include_directories(itch50_shm_bridge PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/itch50/include
+)
+target_compile_features(itch50_shm_bridge PRIVATE cxx_std_17)
+target_link_libraries(itch50_shm_bridge PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(itch50_shm_bridge PRIVATE rt)
+endif()
+set_target_properties(itch50_shm_bridge PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
