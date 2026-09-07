@@ -1,0 +1,57 @@
+{
+  "windows": {
+    "burst": {
+      "consumer_core": "23",
+      "corruption": 0,
+      "drop_rate_pct": 0.0,
+      "duration_s": 1.5,
+      "frames_processed": 12402857,
+      "hot_allocs": 0,
+      "hot_deallocs": 0,
+      "max_ns": 525500,
+      "min_ns": 0,
+      "p50_ns": 102,
+      "p90_ns": 102,
+      "p999_ns": 101802,
+      "p99_ns": 2502,
+      "producer_core": "22",
+      "ring_capacity": 1048576,
+      "sustained_rate": 8268563,
+      "target_rate": 3000000,
+      "verified": true
+    },
+    "captured_at": "2026-09-07 10:06:42",
+    "duration_s": 1.5,
+    "os_label": "Windows / MSVC",
+    "rate_target": 3000000,
+    "specs": {
+      "arch": "AMD64",
+      "cache_sizes": "L2: 24576 KB, L3: 30720 KB",
+      "compiler": "MSVC",
+      "cpu_model": "Intel(R) Core(TM) i7-14650HX",
+      "logical_cores": 24,
+      "os": "Windows 11",
+      "physical_cores": "16"
+    },
+    "sustained": {
+      "consumer_core": "23",
+      "corruption": 0,
+      "drop_rate_pct": 0.0,
+      "duration_s": 1.5,
+      "frames_processed": 4504505,
+      "hot_allocs": 0,
+      "hot_deallocs": 0,
+      "max_ns": 526800,
+      "min_ns": 0,
+      "p50_ns": 102,
+      "p90_ns": 202,
+      "p999_ns": 37702,
+      "p99_ns": 202,
+      "producer_core": "22",
+      "ring_capacity": 1048576,
+      "sustained_rate": 3003000,
+      "target_rate": 3000000,
+      "verified": true
+    }
+  }
+}
