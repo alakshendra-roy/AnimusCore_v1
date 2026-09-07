@@ -661,7 +661,7 @@ def _eval_kit_integrity_table(entry: dict) -> str:
 def _python_sdk_card(entry: "dict | None") -> str:
     if not entry:
         return """
-      <div class="table-card">
+      <div class="table-card print-break-before">
         <div class="table-card-title">Python SDK &mdash; Zero-Copy NumPy Streaming</div>
         <table class="data-table"><tr><td colspan="2" class="muted">Not yet captured -- run sdk/python/bench_python_throughput.py
         and pass its stdout to scripts/generate_institutional_report.py --python-sdk-log.</td></tr></table>
@@ -669,7 +669,7 @@ def _python_sdk_card(entry: "dict | None") -> str:
     pass_label = "PASS" if entry["pass"] else "BELOW TARGET"
     pass_class = "pass-val" if entry["pass"] else ""
     return f"""
-      <div class="table-card">
+      <div class="table-card print-break-before">
         <div class="table-card-title">Python SDK &mdash; Zero-Copy NumPy Streaming ({_esc(entry['captured_at'])})</div>
         <table class="data-table">
           <tr><td>Sustained Rate</td><td class="num">{_fmt_int(entry['sustained_rate'])} frames/sec ({entry['sustained_rate'] / 1e6:.2f}M)</td></tr>
@@ -883,13 +883,13 @@ def render_report(results: dict, current_pk: str) -> str:
     <button class="print-btn" onclick="window.print()">Export / Print PDF</button>
   </div>
 
-  <!-- ============ SYSTEM UNDER TEST ============ -->
-  <div class="section-title"><h2>System Under Test</h2><div class="rule"></div></div>
-  {"".join(_system_under_test_card(pk, results[pk]) for pk in platforms_present) if platforms_present else '<div class="not-captured">No platform captured yet.</div>'}
-
-  <!-- ============ EXECUTIVE SUMMARY ============ -->
+  <!-- ============ EXECUTIVE SUMMARY (Page 1) ============ -->
   <div class="section-title"><h2>Executive Summary</h2><div class="rule"></div></div>
   {_exec_summary(results)}
+
+  <!-- ============ SYSTEM UNDER TEST / HARDWARE TOPOLOGY ============ -->
+  <div class="section-title print-break-before"><h2>System Under Test &mdash; Hardware Topology</h2><div class="rule"></div></div>
+  {"".join(_system_under_test_card(pk, results[pk]) for pk in platforms_present) if platforms_present else '<div class="not-captured">No platform captured yet.</div>'}
 
   <!-- ============ ARCHITECTURE BADGES ============ -->
   <div class="section-title"><h2>Core Architecture Guarantees</h2><div class="rule"></div></div>

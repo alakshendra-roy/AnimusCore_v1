@@ -522,7 +522,8 @@
   /* ================= PRINT STYLESHEET (dark, matches on-screen theme) ================= */
   @media print{
     @page{
-      margin:14mm 12mm 18mm;
+      size: A4 landscape;
+      margin: 12mm;
       @bottom-center{
         content: "Animus Core — Confidential Benchmark Audit — Page " counter(page) " of " counter(pages);
         font-size:8pt;
@@ -534,16 +535,25 @@
     *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
     html,body{background:var(--bg) !important;color:var(--text) !important;}
     .wrap{max-width:100%;padding:0;}
-    .print-btn-wrap, .copy-btn, .tab-nav{display:none !important;}
+    .print-btn-wrap, .copy-btn, .tab-nav, .nav-tabs{display:none !important;}
     /* Force every tab panel visible and stacked for a complete printed audit trail */
-    .tab-panel{display:block !important;page-break-inside:avoid;}
-    #panel-windows{page-break-before:always;}
-    #panel-delta{page-break-before:always;}
-    #panel-evalkit{page-break-before:always;}
+    .tab-panel{display:block !important;break-inside:avoid;page-break-inside:avoid;}
+    #panel-windows{break-before:page;page-break-before:always;}
+    #panel-delta{break-before:page;page-break-before:always;}
+    #panel-evalkit{break-before:page;page-break-before:always;}
+    /* Explicit section breaks -- Hardware Topology, and (nested inside the
+       Eval Kit tab above) the Python Zero-Copy Ingestion card */
+    .print-break-before{break-before:page;page-break-before:always;}
+    /* Executive summary: force all 5 tiles into one clean row on Page 1,
+       never re-wrapped by auto-fit and never split across a page edge */
+    .exec-summary{grid-template-columns:repeat(5,1fr) !important;gap:10px;break-inside:avoid;page-break-inside:avoid;}
     .exec-tile, .mode-card, .table-card, .arch-badge, .delta-tile, .footnote-card, .cmd-block{
       break-inside:avoid;
+      page-break-inside:avoid;
       box-shadow:none !important;
     }
+    /* Benchmark rows must never split mid-row across a page boundary */
+    tr{break-inside:avoid;page-break-inside:avoid;}
   }
 </style>
 </head>
