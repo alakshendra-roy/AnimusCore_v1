@@ -563,9 +563,9 @@
     </div>
     <div class="masthead-meta">
       <span class="badge-classification">CLIENT DELIVERABLE</span><br>
-      Capture Date: 2026-09-07 10:06:42<br>
+      Capture Date: 2026-09-07 04:59:12<br>
       Report Rev: 1.0<br>
-      Cross-Platform: Windows / MSVC
+      Cross-Platform: Linux / GCC 15.2 / Windows / MSVC
     </div>
   </header>
 
@@ -576,6 +576,16 @@
   <!-- ============ SYSTEM UNDER TEST ============ -->
   <div class="section-title"><h2>System Under Test</h2><div class="rule"></div></div>
   
+  <div class="table-card">
+    <div class="table-card-title">System Under Test &mdash; Linux (2026-09-07 04:59:12)</div>
+    <table class="data-table">
+      <tr><td>CPU Model</td><td class="num">Intel(R) Core(TM) i7-14650HX</td></tr>
+      <tr><td>Logical / Physical Cores</td><td class="num">24 / 12</td></tr>
+      <tr><td>Cache Topology</td><td class="num">L1d: 48K, L1i: 32K, L2: 2048K, L3: 30720K</td></tr>
+      <tr><td>OS</td><td class="num">Linux 6.18.33.2-microsoft-standard-WSL2 (x86_64)</td></tr>
+      <tr><td>Compiler</td><td class="num">GCC 15.2</td></tr>
+    </table>
+  </div>
   <div class="table-card">
     <div class="table-card-title">System Under Test &mdash; Windows (2026-09-07 10:06:42)</div>
     <table class="data-table">
@@ -593,18 +603,18 @@
   <div class="exec-summary">
     <div class="exec-tile">
       <div class="label">Peak Sustained Throughput</div>
-      <div class="value accent">3.00M <small>ops/sec</small></div>
-      <div class="sub">Windows, 100.10% of target</div>
+      <div class="value accent">9.99M <small>ops/sec</small></div>
+      <div class="sub">Linux, 99.90% of target</div>
     </div>
     <div class="exec-tile">
       <div class="label">Frames Verified (best run)</div>
-      <div class="value pass">12,402,857</div>
+      <div class="value pass">79,921,650</div>
       <div class="sub">0.0000% drop &middot; 0 corruption</div>
     </div>
     <div class="exec-tile">
       <div class="label">Hot-Path Heap Activity</div>
       <div class="value pass">0 / 0</div>
-      <div class="sub">allocs / frees across all 2 captured runs</div>
+      <div class="sub">allocs / frees across all 4 captured runs</div>
     </div>
     <div class="exec-tile">
       <div class="label">Best-Case Median Latency</div>
@@ -641,8 +651,8 @@
   <div class="section-title"><h2>Benchmark Results</h2><div class="rule"></div></div>
   <p class="section-desc">Select a platform to inspect sustained and burst-mode results independently, or switch to the delta view for a direct side-by-side comparison.</p>
 
-  <input type="radio" name="tabs" id="tab-linux" class="tabs-input">
-  <input type="radio" name="tabs" id="tab-windows" class="tabs-input" checked>
+  <input type="radio" name="tabs" id="tab-linux" class="tabs-input" checked>
+  <input type="radio" name="tabs" id="tab-windows" class="tabs-input">
   <input type="radio" name="tabs" id="tab-delta" class="tabs-input">
 
   <div class="tab-nav">
@@ -653,11 +663,74 @@
 
   <div class="tab-panels">
     <div class="tab-panel" id="panel-linux">
+      <div class="mode-grid">
+        <div class="mode-card">
+          <div class="mode-head">
+            <span class="mode-name">Sustained · --rate 10,000,000</span>
+            <span class="status-pill"><span class="dot"></span>VERIFIED</span>
+          </div>
+          <div class="mode-body">
+            <div class="big-stat">
+              <div class="num">9,990,204 <small>ops/sec</small></div>
+              <div class="cap">99.90% of 10,000,000 target</div>
+              <div class="target-bar"><span style="width:99.90%"></span></div>
+              <div class="target-label">79,921,650 frames processed</div>
+            </div>
+            <table class="data-table">
+              <tr><td>Packet Drop Rate</td><td class="num pass-val">0.0000%</td></tr>
+              <tr><td>Sequence Corruption</td><td class="num pass-val">0 frames</td></tr>
+              <tr><td>Hot-Path Heap Allocs / Frees</td><td class="num pass-val">0 / 0</td></tr>
+              <tr><td>Pinned Cores (Producer / Consumer)</td><td class="num">22 / 23</td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="mode-card">
+          <div class="mode-head">
+            <span class="mode-name">Burst · --burst</span>
+            <span class="status-pill"><span class="dot"></span>VERIFIED</span>
+          </div>
+          <div class="mode-body">
+            <div class="big-stat">
+              <div class="num">7,367,137 <small>ops/sec</small></div>
+              <div class="cap">73.67% of 10,000,000 target</div>
+              <div class="target-bar"><span style="width:73.67%"></span></div>
+              <div class="target-label">58,937,344 frames processed</div>
+            </div>
+            <table class="data-table">
+              <tr><td>Packet Drop Rate</td><td class="num pass-val">0.0000%</td></tr>
+              <tr><td>Sequence Corruption</td><td class="num pass-val">0 frames</td></tr>
+              <tr><td>Hot-Path Heap Allocs / Frees</td><td class="num pass-val">0 / 0</td></tr>
+              <tr><td>Pinned Cores (Producer / Consumer)</td><td class="num">22 / 23</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
 
-      <div class="not-captured">
-        Not yet captured on this platform. Run <code>deploy_verify.sh</code> (Linux/WSL2/RHEL) or
-        <code>python scripts/generate_institutional_report.py</code> (any platform) on a
-        Linux machine to populate this tab.
+      <div class="table-card">
+        <div class="table-card-title">Latency Profile &mdash; Ingress to Egress Transit</div>
+        <table class="data-table">
+          <thead>
+            <tr><th>Mode</th><th class="num">Min</th><th class="num">p50</th><th class="num">p90</th><th class="num">p99</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Sustained</td><td class="num">54 ns</td><td class="num">134 ns</td><td class="num">202 ns</td><td class="num">316.8 &micro;s</td></tr>
+            <tr><td>Burst</td><td class="num">22 ns</td><td class="num">158 ns</td><td class="num">278 ns</td><td class="num">61.5 &micro;s</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="section-title"><h2>Reproduction Commands &mdash; Linux / GCC</h2><div class="rule"></div></div>
+      <div class="cmd-block">
+        <div class="cmd-label"><span><span class="step-num">01</span>Configure &amp; build (Release, -O3, native arch)</span><button class="copy-btn" data-copy="cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=&quot;-march=native&quot;&amp;#10;cmake --build build --target animus_bench -j">Copy</button></div>
+        <pre>cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=&quot;-march=native&quot;
+cmake --build build --target animus_bench -j</pre>
+      </div>
+      <div class="cmd-block">
+        <div class="cmd-label"><span><span class="step-num">02</span>Sustained-mode pass (cores 22,23 pinned internally by animus_bench)</span><button class="copy-btn" data-copy="sudo chrt -f 99 ./build/bin/animus_bench --rate 10000000 --duration 8.0">Copy</button></div>
+        <pre>sudo chrt -f 99 ./build/bin/animus_bench --rate 10000000 --duration 8.0</pre>
+      </div>
+      <div class="cmd-block">
+        <div class="cmd-label"><span><span class="step-num">03</span>Burst-mode pass</span><button class="copy-btn" data-copy="sudo chrt -f 99 ./build/bin/animus_bench --burst --duration 8.0">Copy</button></div>
+        <pre>sudo chrt -f 99 ./build/bin/animus_bench --burst --duration 8.0</pre>
       </div>
     </div>
     <div class="tab-panel" id="panel-windows">
@@ -731,10 +804,33 @@
       </div>
     </div>
     <div class="tab-panel" id="panel-delta">
+      <div class="delta-summary">
+        <div class="delta-tile">
+          <div class="label">Sustained Throughput Delta</div>
+          <div class="value">+232.7% <span class="arrow">&uarr;</span></div>
+          <div class="sub"><span class="platform-tag linux">LINUX</span> 9.99M ops/sec vs <span class="platform-tag windows">WIN</span> 3.00M ops/sec</div>
+        </div>
+        <div class="delta-tile">
+          <div class="label">Burst Throughput Delta</div>
+          <div class="value">-10.9% <span class="arrow">&darr;</span></div>
+          <div class="sub"><span class="platform-tag linux">LINUX</span> 7.37M ops/sec vs <span class="platform-tag windows">WIN</span> 8.27M ops/sec</div>
+        </div>
+      </div>
 
-      <div class="not-captured">
-        Side-by-side delta requires a captured run on both platforms &mdash; Linux has not been
-        captured yet. See the Linux tab for how to capture it.
+      <div class="table-card">
+        <div class="table-card-title">Throughput &amp;amp; Integrity &amp;mdash; Side by Side</div>
+        <table class="data-table">
+          <thead><tr><th>Metric</th><th class="num">Linux Sustained</th><th class="num">Windows Sustained</th><th class="num">Linux Burst</th><th class="num">Windows Burst</th></tr></thead>
+          <tbody><tr><td>Throughput (ops/sec)</td><td class="num">9,990,204</td><td class="num">3,003,000</td><td class="num">7,367,137</td><td class="num">8,268,563</td></tr><tr><td>Frames Processed</td><td class="num">79,921,650</td><td class="num">4,504,505</td><td class="num">58,937,344</td><td class="num">12,402,857</td></tr><tr><td>Packet Drop Rate</td><td class="num">0.0000%</td><td class="num">0.0000%</td><td class="num">0.0000%</td><td class="num">0.0000%</td></tr><tr><td>Sequence Corruption</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr><tr><td>Hot-Path Heap Allocs/Frees</td><td class="num">0 / 0</td><td class="num">0 / 0</td><td class="num">0 / 0</td><td class="num">0 / 0</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="table-card">
+        <div class="table-card-title">Latency Profile &amp;mdash; Side by Side</div>
+        <table class="data-table">
+          <thead><tr><th>Metric</th><th class="num">Linux Sustained</th><th class="num">Windows Sustained</th><th class="num">Linux Burst</th><th class="num">Windows Burst</th></tr></thead>
+          <tbody><tr><td>Min</td><td class="num">54 ns</td><td class="num">0 ns</td><td class="num">22 ns</td><td class="num">0 ns</td></tr><tr><td>p50 (median)</td><td class="num">134 ns</td><td class="num">102 ns</td><td class="num">158 ns</td><td class="num">102 ns</td></tr><tr><td>p90</td><td class="num">202 ns</td><td class="num">202 ns</td><td class="num">278 ns</td><td class="num">102 ns</td></tr><tr><td>p99</td><td class="num">316.8 &micro;s</td><td class="num">202 ns</td><td class="num">61.5 &micro;s</td><td class="num">2.5 &micro;s</td></tr></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -744,7 +840,7 @@
   <div class="footnote-card">
     <h3>Consumer-OS Interrupts vs. Deterministic Bare Metal</h3>
     <p>
-      Median (p50) and even p90 latency are dominated by the engine's own instruction path &mdash; cache-line-aligned atomics, a lock-free ring buffer, and zero heap traffic keep these figures in the low hundreds of nanoseconds on every captured platform. The tail (p99 and beyond) is a different story: it is dominated not by the engine, but by <strong>what the host operating system does to the core the engine is running on</strong>. A general-purpose kernel scheduler time-slices the CPU, services hardware interrupts (NIC, disk, timer ticks), runs periodic housekeeping (RCU callbacks, kernel worker threads, page reclaim), and &mdash; on a non-isolated core &mdash; can preempt the pinned producer/consumer thread for microseconds at a time. Each of those events shows up as a latency spike far out in the percentile distribution, which is exactly the pattern visible in the Windows burst run's 2.5 us p99 against a 102 ns median.
+      Median (p50) and even p90 latency are dominated by the engine's own instruction path &mdash; cache-line-aligned atomics, a lock-free ring buffer, and zero heap traffic keep these figures in the low hundreds of nanoseconds on every captured platform. The tail (p99 and beyond) is a different story: it is dominated not by the engine, but by <strong>what the host operating system does to the core the engine is running on</strong>. A general-purpose kernel scheduler time-slices the CPU, services hardware interrupts (NIC, disk, timer ticks), runs periodic housekeeping (RCU callbacks, kernel worker threads, page reclaim), and &mdash; on a non-isolated core &mdash; can preempt the pinned producer/consumer thread for microseconds at a time. Each of those events shows up as a latency spike far out in the percentile distribution, which is exactly the pattern visible in the Linux sustained run's 316.8 us p99 against a 134 ns median.
     </p>
     <p>
       This is a property of the deployment environment, not the engine. On <strong>isolated, real-time-tuned bare metal</strong>, the same code path is expected to hold p99/p99.9 within single-digit microseconds of the median, because the sources of interrupt jitter above are structurally removed rather than merely reduced:
@@ -769,7 +865,7 @@
   </div>
 
   <footer class="report-footer">
-    <span>ANIMUS CORE &mdash; CONFIDENTIAL BENCHMARK AUDIT &mdash; GENERATED 2026-09-07 10:06:42</span>
+    <span>ANIMUS CORE &mdash; CONFIDENTIAL BENCHMARK AUDIT &mdash; GENERATED 2026-09-07 04:59:12</span>
     <span>Auto-generated by scripts/generate_institutional_report.py &middot; Report Rev 1.0</span>
   </footer>
 

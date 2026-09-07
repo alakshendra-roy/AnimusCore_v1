@@ -15,14 +15,53 @@ from __future__ import annotations
 def _import_native():
     try:
         from . import _animus_sdk_native as native
+        return native
     except ImportError as exc:
-        raise ImportError(
-            "animus_sdk requires the compiled _animus_sdk_native extension. "
-            "Build it from a full source checkout: `pip install ./sdk/python` "
-            "(see sdk/python/CMakeLists.txt), or for fast local iteration, the "
-            "direct-CMake steps documented at the bottom of that file."
-        ) from exc
-    return native
+        import_error = exc
+
+    # The `animus_sdk` package resolved to this file's own directory (e.g.
+    # an uncompiled source checkout earlier on sys.path than an installed
+    # wheel), which has no compiled extension. Search the rest of sys.path
+    # and site-packages directly for an installed animus_sdk/ that does,
+    # rather than giving up -- this makes the import work regardless of
+    # which `animus_sdk` a plain `from . import` picked.
+    import importlib.util
+    import site
+    import sys
+    from pathlib import Path
+
+    this_pkg_dir = Path(__file__).resolve().parent
+    search_dirs = [Path(p) for p in sys.path if p and Path(p).resolve() != this_pkg_dir]
+    for getter in (site.getsitepackages, lambda: [site.getusersitepackages()]):
+        try:
+            search_dirs.extend(Path(p) for p in getter())
+        except AttributeError:
+            pass
+
+    seen = set()
+    for d in search_dirs:
+        d = d.resolve() if d.exists() else d
+        if d in seen:
+            continue
+        seen.add(d)
+        pkg_dir = d / "animus_sdk"
+        if pkg_dir == this_pkg_dir or not pkg_dir.is_dir():
+            continue
+        for so_path in sorted(pkg_dir.glob("_animus_sdk_native*")):
+            spec = importlib.util.spec_from_file_location("animus_sdk._animus_sdk_native", so_path)
+            if spec is None or spec.loader is None:
+                continue
+            native = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(native)
+            sys.modules.setdefault("animus_sdk._animus_sdk_native", native)
+            return native
+
+    raise ImportError(
+        "animus_sdk requires the compiled _animus_sdk_native extension. "
+        "Build it from a full source checkout: `pip install ./sdk/python` "
+        "(see sdk/python/CMakeLists.txt), or for fast local iteration, the "
+        "direct-CMake steps documented at the bottom of that file."
+    ) from import_error
 
 
 class AnimusRingBuffer:
