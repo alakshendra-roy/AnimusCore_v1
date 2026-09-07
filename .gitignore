@@ -101,3 +101,33 @@ docs/W8BEN_*_prefilled.pdf
 # documented repro commands) -- not a deliverable, shouldn't get committed
 # by anyone following those instructions.
 /telemetry_benchmarks.json
+
+# Pilot client license files (animus_pilot_*.lic) generated for evaluation
+# -- tied to specific customer machine fingerprints, same "never commit"
+# reasoning as AnimusCore_v1/license_tools/private/ above.
+eval_keys/
+
+# Regenerable via eval_kit/scripts/package_kit.sh -- a packaged snapshot,
+# not a source artifact, so never worth tracking.
+/animus-eval-kit-v*.tar.gz
+
+# 2026-09-07 pre-flight audit: an unrelated third party's personal
+# document, a payment screenshot, a business card, and a screen recording
+# were all found sitting untracked in AnimusCore_v1/ -- none belong in a
+# repo with a public GitHub remote. Kept on disk, never committed.
+AnimusCore_v1/Harini_S_Ibbani_Template_TNR12_No_Languages.pdf
+AnimusCore_v1/Payment.jpeg
+AnimusCore_v1/Animus_Business_Card.pdf
+AnimusCore_v1/Screen recording.mp4
+
+# Logo/icon exploration duplicates superseded by the tracked
+# animus-logo-mark.png -- never committed, so they don't compete with it.
+AnimusCore_v1/Animus Logo.jpeg
+AnimusCore_v1/animus-logo.png
+AnimusCore_v1/logo.png
+/animus-icon.png
+
+# CMake+Ninja build directory for a Linux-target build (produced e.g. by
+# running deploy_verify.sh under WSL) -- same "build output, never
+# tracked" rule as build/ above, just a different directory name.
+build_linux/
