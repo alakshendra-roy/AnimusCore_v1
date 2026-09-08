@@ -1,23 +1,54 @@
-# Animus Evaluation Kit -- SPSC Ring Buffer Benchmark
+# Animus Evaluation Kit -- SPSC Ring Buffer + ITCH 5.0 Ingest Benchmarks
 
 A standalone, air-gapped benchmark harness for `animus::eval::SpscRingBuffer<T>` --
 the zero-copy, cache-aligned single-producer/single-consumer ring buffer that
-underlies Animus's market-data and execution transport. Zero external
-runtime dependencies: C++20 standard library plus the platform's native
-pthreads.
+underlies Animus's market-data and execution transport -- plus a second
+harness proving zero-allocation NASDAQ TotalView-ITCH 5.0 wire decoding
+into that same ring. Zero external runtime dependencies: C++17/C++20
+standard library plus the platform's native pthreads.
 
 ```
 animus-eval-kit/
 ├── CMakeLists.txt                    # C++20, -O3/-march=native, LTO/IPO, pthread
 ├── README.md                         # this file
+├── run_demo.sh                       # turnkey build+run: bench_ring_buffer
+├── run_itch_demo.sh                  # turnkey build+run: bench_itch_ingest (pinned core defaults)
 ├── include/
-│   └── spsc_ring_buffer.hpp          # self-contained SPSC ring buffer
+│   ├── spsc_ring_buffer.hpp          # self-contained SPSC ring buffer
+│   ├── telemetry_frame.hpp           # cache-line-sized synthetic telemetry record
+│   ├── itch50_bswap.hpp              # portable big-endian byte-swap helpers
+│   ├── itch50_codec.hpp              # zero-allocation ITCH wire decoder
+│   ├── itch50_messages.hpp           # ITCH 5.0 wire message layouts
+│   ├── itch50_ring_frame.hpp         # uniform 64-byte ItchFrame ring record
+│   └── animus/
+│       ├── thread_affinity.hpp       # cross-platform core-pinning helper
+│       ├── schema.hpp                # ANIMUS_DEFINE_SCHEMA wire-schema registration
+│       └── execution_event.hpp       # schema.hpp dependency (built-in ExecutionEvent)
 └── benchmarks/
-    └── bench_ring_buffer.cpp         # latency + saturation-throughput harness
+    ├── bench_ring_buffer.cpp         # latency + saturation-throughput harness
+    └── bench_itch_ingest.cpp         # ITCH parse+enqueue latency/throughput harness
 ```
+
+The `itch50_*` and `animus/*` headers are an exact copy of
+`adapters/itch50/include/` and `include/animus/` from the full Animus
+repository -- everything `bench_itch_ingest.cpp` needs to compile stands
+alone in this kit, with no reference back to the parent repository.
 
 No package manager, no vendored third-party code, no network access
 required at configure or build time.
+
+## Turnkey demos
+
+```sh
+./run_demo.sh          # build + run bench_ring_buffer (producer core 2 / consumer core 3 by default)
+./run_itch_demo.sh      # build + run bench_itch_ingest (pinned to the last two logical cores by default)
+```
+
+Both scripts run the same two-step CMake build described below, then
+execute the resulting binary in-place. See each harness's own `--help` for
+the arguments it accepts (`run_itch_demo.sh` forwards e.g. `--messages` /
+`--capacity`; `run_demo.sh` forwards an optional producer/consumer core
+pair).
 
 ## What this measures
 
@@ -136,13 +167,19 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
 
-This produces `build/bench_ring_buffer`. Run it directly (defaults to
-producer=core 2, consumer=core 3):
+This produces `build/bench_ring_buffer` and `build/bench_itch_ingest`. Run
+either directly, or use `./run_demo.sh` / `./run_itch_demo.sh` to do both
+steps in one command (see Turnkey demos above).
 
 ```sh
+# Ring buffer: defaults to producer=core 2, consumer=core 3
 ./build/bench_ring_buffer
 # or target a different core pair:
 ./build/bench_ring_buffer 4 5
+
+# ITCH ingest: defaults to producer/consumer pinned to the last two
+# logical cores (hardware_concurrency()-2 / -1)
+./build/bench_itch_ingest --messages 10000000
 ```
 
 ## Acquire-release barrier semantics

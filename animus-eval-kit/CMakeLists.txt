@@ -9,9 +9,11 @@
 #   cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 #   cmake --build build -j
 #
-# The resulting binary is build/bench_ring_buffer (build/bench_ring_buffer.exe
-# on Windows, where it builds for development convenience but is not the
-# supported measurement target -- see README.md).
+# Produces two binaries (build/bench_ring_buffer[.exe] and
+# build/bench_itch_ingest[.exe]; run_demo.sh / run_itch_demo.sh wrap this
+# same two-step build for each). Both build for development convenience on
+# Windows, but Linux + GCC/Clang is the only supported measurement target
+# for reported numbers -- see README.md.
 
 cmake_minimum_required(VERSION 3.16)
 project(AnimusEvalKit LANGUAGES CXX)
@@ -67,3 +69,35 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(bench_ring_buffer PRIVATE Threads::Threads)
+
+# bench_itch_ingest -- NASDAQ TotalView-ITCH 5.0 adapter ingestion benchmark.
+# Same standalone-kit SpscRingBuffer<T> as bench_ring_buffer above; headers
+# under include/ are the exact bundle from adapters/itch50/include/ and
+# include/animus/ in the full repo (thread_affinity.hpp, schema.hpp,
+# execution_event.hpp) -- see README.md's Contents section. Flags mirror the
+# root CMakeLists.txt's verified build for this same source file
+# (-O3 -Wall -Wextra -Wpedantic on GCC/Clang, /W4 /permissive- /wd4324 on
+# MSVC) rather than bench_ring_buffer's -march=native tuning above, since
+# this target's own build matrix requirement is portability, not peak
+# single-host tuning -- see adapters/itch50/README.md §5.1.
+add_executable(bench_itch_ingest
+    benchmarks/bench_itch_ingest.cpp
+)
+
+target_include_directories(bench_itch_ingest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(bench_itch_ingest PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(bench_itch_ingest PRIVATE rt)
+endif()
+
+if(MSVC)
+    # /wd4324: alignas(64) ItchFrame/SpscRingBuffer cache-line padding is
+    # intentional, not a layout bug -- same suppression the root
+    # CMakeLists.txt applies to this identical translation unit.
+    target_compile_options(bench_itch_ingest PRIVATE /W4 /permissive- /O2 /wd4324)
+else()
+    target_compile_options(bench_itch_ingest PRIVATE -O3 -Wall -Wextra -Wpedantic)
+endif()
