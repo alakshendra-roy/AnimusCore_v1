@@ -156,11 +156,12 @@ tailwind.config = {
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
     <div class="w-full max-w-full mx-auto box-border py-4 pl-6 pr-8 flex items-center justify-between gap-6">
-      <div class="flex items-center gap-3 min-w-0 flex-shrink-0">
-        <img src="./animus-logo.png" alt="ANIMUS" id="brand-logo" class="h-20 w-auto object-contain flex-shrink-0"
+      <a href="/" aria-label="Animus home" class="flex items-center gap-3 min-w-0 flex-shrink-0">
+        <img src="/animus-icon.png" alt="Animus" id="brand-logo" class="h-8 w-auto object-contain flex-shrink-0"
              style="image-rendering:-webkit-optimize-contrast;"
              onerror="this.style.display='none';">
-      </div>
+        <span style="font-family: monospace; font-weight: 700; letter-spacing: 0.05em; font-size: 1.1rem; color: #fff;">ANIMUS</span>
+      </a>
       <div class="hidden lg:flex items-center gap-6 xl:gap-8 min-w-0 text-sm font-mono">
         <div class="flex items-center gap-6 xl:gap-8 min-w-0">
           <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap">Specs</a>
