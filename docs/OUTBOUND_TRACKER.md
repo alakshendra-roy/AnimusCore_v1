@@ -80,6 +80,17 @@ Same web-research approach and verification bar as Batch 1. Weaker overall hit r
 
 ---
 
+## Ad Hoc Outreach — Firms Outside the 25-Firm ICP List
+
+Geneva Trading is not one of the 25 firms in [`ICP_TARGET_LIST.md`](ICP_TARGET_LIST.md) and has had no ICP scoring or hook-research pass — these two contacts came in through direct LinkedIn networking rather than the batch process above. Tracked here so real outreach activity isn't lost, not folded into the Week 1–5 tables since the Tier/Technical Angle columns don't apply the same way.
+
+| Firm Name | Tier | Contact Name | Title | Outreach Channel | First Touch Date | Day-5 Bump Date | Status | Technical Angle / Hook Note |
+|---|---|---|---|---|---|---|---|---|
+| Geneva Trading (Chicago) | Ad hoc | David Nuelle | Team Lead — Digital Assets | LinkedIn | 2026-09-08 | 2026-09-15 | Sent — connection request only | Not yet determined — no ICP hook-research pass done for Geneva Trading. |
+| Geneva Trading (London) | Ad hoc | Gaurav Mane | Software Engineer — HFT & Quant Tech | LinkedIn | 2026-09-08 | 2026-09-15 | Sent — connection request only | Not yet determined — no ICP hook-research pass done for Geneva Trading. |
+
+**Status caveat:** "Sent — connection request only" means a LinkedIn *connection request* went out, not a templated first-touch outreach message (the Status vocabulary elsewhere in this tracker — Not Started → Sent → Replied → Scheduled PoP — assumes Sent means the actual outreach template went out). Once either connection is accepted, send the real first-touch message (pick a template variant from [`OUTREACH_TEMPLATES.md`](OUTREACH_TEMPLATES.md) once a hook is researched) and update Status to plain "Sent" with that as the real First Touch Date.
+
 ## Notes
 
 - Dates above are the planned schedule, not confirmed sends — update First Touch Date to the actual send date once a message goes out, and recompute Day-5 Bump Date from that real date if it slips.
@@ -87,3 +98,4 @@ Same web-research approach and verification bar as Batch 1. Weaker overall hit r
 - Tier A goes out first by design: strongest evidence, highest expected response rate, and any pattern in what lands (which variant, which channel) should inform how Batches 2–5 are actually sent, not just this static schedule.
 - "[To Be Sourced]" placeholders should be replaced firm-by-firm via LinkedIn before First Touch — no individual names were sourced during the original ICP research pass.
 - Batch 1 and Batch 2 have each had one named-contact research pass (see "Contact sourcing notes" under each batch above) — every name found carries a real caveat (unconfirmed title, no surname, conflicting sources, or no verified contact channel), so treat each as a lead to verify on LinkedIn before sending, not a ready-to-use contact. No email address or LinkedIn URL was fabricated for any firm above.
+- Geneva Trading (David Nuelle, Gaurav Mane — see "Ad Hoc Outreach" above) is the first outreach activity actually sent, ahead of Batch 1's planned 2026-09-08 first touch — it's outside the 25-firm ICP list, so it's tracked separately rather than folded into Week 1.
