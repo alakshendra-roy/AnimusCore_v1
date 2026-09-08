@@ -21,6 +21,10 @@ Release/
 *.recipe
 *.lastbuildstate
 .vs/
+.vscode/
+
+# OS files
+.DS_Store
 
 # Runtime generated benchmark / telemetry output
 BENCHMARK_REPORT.json

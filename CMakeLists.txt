@@ -54,7 +54,7 @@ if(WIN32)
 endif()
 
 if(NOT MSVC)
-    target_compile_options(animus_native PRIVATE -fvisibility=hidden)
+    target_compile_options(animus_native PRIVATE -fvisibility=hidden -Wall -Wextra -Wpedantic)
     # Statically link the GCC/MinGW runtime (libstdc++/libgcc/winpthread) so
     # the produced binary is redistributable on its own -- without this, a
     # MinGW-built AnimusNative.dll only loads on a machine that also has
