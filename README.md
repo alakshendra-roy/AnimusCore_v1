@@ -1,10 +1,14 @@
-﻿# Animus Core v1.0: High-Performance Event Processing Engine
+﻿# AnimusCore: Zero-Alloc C++17 NASDAQ ITCH 5.0 Feed Handler & Lock-Free SPSC Pipeline
 
 [![Build](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml)
 [![Benchmark](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/benchmark.yml)
 ![License: Proprietary](https://img.shields.io/badge/license-Proprietary-red.svg)
 ![Python: 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
+![Clang: 17+](https://img.shields.io/badge/Clang-17%2B-blue.svg)
+![GCC: 13+](https://img.shields.io/badge/GCC-13%2B-blue.svg)
+![MSVC: 2022](https://img.shields.io/badge/MSVC-2022-blue.svg)
+![Architecture: x86_64](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)
 
 > **Licensing.** Animus Core includes an offline RSA-signed hardware
 > licensing layer (Phase 17) and lock-free market data feed adapters
@@ -17,11 +21,42 @@
 > execution node.
 
 ## Overview
-Animus Core is an enterprise-grade, low-latency telemetry ingestion and automated response engine engineered in C++ with native Python SDK bindings. It bridges C-ABI execution memory boundaries with high-level orchestrators to process high-throughput telemetry streams without zero-copy buffer degradation.
+AnimusCore's market-data path (`adapters/itch50/`) is a zero-copy,
+zero-heap-allocation NASDAQ TotalView-ITCH 5.0 wire decoder feeding a
+cache-line-padded, lock-free SPSC ring buffer -- built on top of the same
+core engine (C++17, native Python SDK bindings over a direct C-ABI, no
+IPC serialization overhead) that also backs AnimusCore's general-purpose
+telemetry ingestion, rule evaluation, and clustering features documented
+in the Phase sections below. This README leads with the feed-handler path;
+see [`adapters/itch50/README.md`](adapters/itch50/README.md) for the full
+ITCH 5.0 technical reference.
+
+## Core Architecture
+
+```
+ [Packet / PCAP Stream]
+          |
+          v
+ [Zero-Copy ITCH 5.0 Parser]        adapters/itch50/include/itch50_codec.hpp
+   no heap alloc, no wire copy      decode() straight into a fixed-size
+   beyond one memcpy/field          ItchFrame record (64B, normalized)
+          |
+          v
+ [Cache-Line-Aligned SPSC Ring Buffer]   animus::eval::SpscRingBuffer<T>
+   alignas(64), lock-free push/pop        (animus-eval-kit/include/spsc_ring_buffer.hpp)
+          |
+          v
+ [Zero-Copy Shared Memory IPC / Python C-ABI]
+   animus::SharedMemorySegment + SharedTelemetryChannel (animus.hpp) --
+   NumPy structured-array view over the same shared segment, no copy,
+   no per-message Python parsing (adapters/itch50/itch50_shm_bridge.cpp,
+   verify_zero_copy_numpy.py)
+```
 
 ## Key Architectural Principles
+* **Zero-copy, zero-heap-allocation decode path:** the ITCH parser writes directly into a fixed-size normalized record with no intermediate allocation or buffer copy beyond the unavoidable per-field memcpy off the wire.
 * **Direct C-ABI Shared Library Interop:** Bypasses IPC overhead by loading native compiled binaries directly (.dll / .so).
-* **Deterministic Execution:** Engineered for high-frequency telemetry parsing and automated mitigation.
+* **Deterministic Execution:** Engineered for high-frequency market-data and telemetry parsing with a bounded, allocation-free hot path.
 * **Zero-Dependency SDK Integration:** Packaged as an installable Python SDK (`pip install -e .`) for seamless staging and production pilots.
 
 ## Quick Start
@@ -66,9 +101,41 @@ See [`eval_kit/`](eval_kit/README.md) instead -- a turnkey tarball with a
 prebuilt binary and both Python wheels bundled in, running end to end via
 `./run_demo.sh` with no compiler on the evaluation machine.
 
-## Benchmark Performance
-* **Peak Throughput:** >238 Million ops/sec
-* **Latency Profile:** Sub-millisecond batch ingestion
+## Verified Benchmark Telemetry
+
+Real `bench_itch_ingest --messages 10000000` runs, one per platform, on
+the same physical development machine (not a dedicated, CPU-isolated
+benchmark rig). Full methodology, message-type distribution, and
+reproduction steps: [`adapters/itch50/README.md` §3](adapters/itch50/README.md#3-verified-benchmark-telemetry-dual-platform-10000000-message-runs).
+
+| Metric | Measured Value | Methodology |
+|---|---|---|
+| Sustained Throughput (Linux, GCC 15.2 `-O3`) | 7.80M msgs/sec | `bench_itch_ingest`, 10,000,000-message synthetic ITCH 5.0 burst feed |
+| Sustained Throughput (Windows, MSVC 19.51 `/O2`) | 6.82M msgs/sec | Same harness, Release `/O2` |
+| Parser Latency p50 (Linux / Windows) | 70 ns / 82 ns | RDTSC-calibrated parse+enqueue latency profile, per-message |
+| Parser Latency p99 (Linux / Windows) | 130 ns / 98 ns | Same run; 0 heap allocations, 0 decode failures, 0 sequence corruption on both platforms |
+| SPSC Ring Push Latency | ~35-40 ns | Native `push()` call, measured directly (see Phase 16 below) |
+
+These are real, reproducible numbers from actual runs, not projected or
+hand-typed figures -- rerun them yourself with the commands below.
+
+### Reproducibility
+
+```bash
+# Clone and build (Release, both ITCH benchmark binaries)
+git clone <this-repo-url>
+cd AnimusCore_v1
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --target bench_itch_ingest --target itch50_shm_bridge
+
+# Run the ITCH 5.0 ingestion benchmark (10M synthetic messages)
+build/bin/bench_itch_ingest --messages 10000000    # Linux/macOS layout
+# build/bin/Release/bench_itch_ingest.exe --messages 10000000   # Windows multi-config generator
+```
+
+Compiles cleanly under GCC 13+/Clang 17+ (`-O3 -Wall -Wextra -Wpedantic`,
+zero warnings) and MSVC 2022 (`/W4 /permissive-`, zero warnings other than
+the deliberately-suppressed `/wd4324` cache-line-padding note).
 
 ## Continuous Benchmark Regression
 
