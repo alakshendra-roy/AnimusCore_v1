@@ -35,6 +35,24 @@ from scratch each time.
       plus a clean process exit. First run:
       https://github.com/alakshendra-roy/AnimusCore_v1/actions/runs/34112907821
       (all three jobs green).
+- [x] **No turnkey eval kit distribution package** -- `animus-eval-kit/`
+      (2026-09-08) now bundles the complete ITCH 5.0 header set
+      (`adapters/itch50/include/`) and the `animus/` headers it depends on
+      (`thread_affinity.hpp`, `schema.hpp`, `execution_event.hpp`)
+      alongside the SPSC ring buffer bench, with `run_demo.sh` /
+      `run_itch_demo.sh` turnkey build+run wrappers (CMake, pinned core
+      affinity defaults) -- verified by extracting the packaged tarball
+      into an isolated scratch directory and compiling/running both
+      binaries from it with no reference back to the parent repo. Packaged
+      as `dist/animus-eval-kit-linux-x86_64.tar.gz`, with a
+      copy-pasteable client runbook (`dist/QUICKSTART_PILOT.txt`) and a
+      signed-off checksum manifest (`dist/SHA256SUMS`, covering the
+      tarball, `docs/PILOT_EVAL_CHECKLIST.md`, and
+      `benchmarks/reports/ANIMUS_BENCHMARK_REPORT.html`) --
+      `sha256sum -c SHA256SUMS` verified clean from within `dist/`. `dist/`
+      is gitignored, so the packaged artifacts themselves aren't committed
+      -- only the eval-kit source under `animus-eval-kit/` is (commits
+      `a431cdd`/`553a4db`).
 
 ## Should-fix
 
