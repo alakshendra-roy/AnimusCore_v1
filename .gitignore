@@ -156,3 +156,8 @@ build_linux/
 # as command-center.html above, for the same reason (real financial and
 # competitive-strategy detail, not a client-facing document).
 /docs/ROADMAP_2026_2031.md
+
+# Screen recording of the personal-use command-center dashboard -- same
+# never-public-repo category as command-center.html itself above (shows
+# the same real outreach data and internal directives on screen).
+/AnimusCore_v1/dashboard.mp4
