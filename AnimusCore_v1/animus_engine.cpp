@@ -482,6 +482,26 @@ extern "C" {
         });
     }
 
+    // Combined pin + priority-elevation entry point (Phase 14 fix -- see
+    // animus::sys::pin_current_thread_to_core_exclusive's doc comment,
+    // include/animus/thread_affinity.hpp, for why plain pinning alone
+    // regressed p99.99). Same entitlement gate as
+    // animus_pin_current_thread_to_core: fails closed if no license has
+    // been verified, and core_id must be within the license's entitled
+    // max_cores. Priority elevation itself stays best-effort underneath --
+    // this call's return value reflects only whether the pin succeeded,
+    // matching animus_pin_current_thread_to_core's contract so callers can
+    // switch to this in place of a separate pin_current_thread_to_core +
+    // set_thread_high_priority pair with no other change.
+    ANIMUS_API bool animus_pin_current_thread_to_core_exclusive(int core_id) {
+        return abi_guard(false, [&]() {
+            if (core_id < 0) return false;
+            if (!g_license_verified.load(std::memory_order_acquire)) return false;
+            if (static_cast<uint32_t>(core_id) >= g_license_max_cores.load(std::memory_order_acquire)) return false;
+            return animus::sys::pin_current_thread_to_core_exclusive(static_cast<size_t>(core_id));
+        });
+    }
+
     ANIMUS_API unsigned animus_get_cpu_count(void) {
         return abi_guard(1u, [&]() {
             unsigned n = std::thread::hardware_concurrency();

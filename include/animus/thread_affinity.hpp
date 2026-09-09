@@ -239,6 +239,36 @@ namespace animus {
 #endif
         }
 
+        // Pins the calling thread to `core_id` AND raises it to the host's
+        // highest realtime/time-critical scheduling tier, in one call.
+        //
+        // Why this exists (Phase 14 finding, see BENCHMARKS.md): affinity
+        // alone (pin_thread_to_core / pin_current_thread_to_core) binds a
+        // thread to one core but does not reserve that core *exclusively*.
+        // At default scheduling priority, the OS is still free to preempt
+        // the pinned thread for other normal-priority runnable work on that
+        // same core (background processes, interrupt/DPC handling, other
+        // threads) -- and because the thread is pinned, it has nowhere else
+        // to go until its one core frees up again, unlike an unpinned
+        // thread that can simply migrate to an idle core. That preemption
+        // is what specifically inflated p99.99 (worse in 12/15 trials,
+        // sometimes 5-6x) in the original fintech-tail-latency benchmark,
+        // which pinned but never raised priority. Requesting SCHED_FIFO /
+        // THREAD_PRIORITY_TIME_CRITICAL (below) puts the pinned thread
+        // ahead of that normal-priority work in the scheduler's queue, so
+        // it isn't preempted off its core in the first place -- attacking
+        // the exact mechanism the regression traced back to, not just the
+        // symptom.
+        //
+        // Priority elevation is still best-effort (see
+        // set_thread_high_priority below) and never affects the return
+        // value: a caller who successfully pinned but got a weaker priority
+        // tier than requested (e.g. no CAP_SYS_NICE on Linux) still holds a
+        // real, working pin and should be told so. Returns false only if
+        // the pin itself failed, matching pin_current_thread_to_core's
+        // contract exactly so existing callers can switch to this drop-in.
+        inline bool pin_current_thread_to_core_exclusive(size_t core_id) noexcept;
+
         // Raises the calling thread (and, on Windows, its process priority
         // class) to the highest realtime/time-critical scheduling tier the
         // OS will grant without elevated privileges, falling back a step
@@ -271,6 +301,16 @@ namespace animus {
 #else
             detail::log_failure("set_thread_high_priority", "unsupported platform", 0);
 #endif
+        }
+
+        // Definition of the forward declaration above -- placed after
+        // set_thread_high_priority so it can call it directly.
+        inline bool pin_current_thread_to_core_exclusive(size_t core_id) noexcept {
+            const bool pinned = pin_current_thread_to_core(core_id);
+            if (pinned) {
+                set_thread_high_priority();
+            }
+            return pinned;
         }
 
     } // namespace sys

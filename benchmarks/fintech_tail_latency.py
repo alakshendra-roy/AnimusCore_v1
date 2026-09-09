@@ -34,19 +34,31 @@ would be a worse outcome than failing loudly.
 
 What pinning actually buys here, measured, not assumed: with a good core
 selected (see below), mean/p50/p90/p99 improve consistently and clearly
-over the unpinned baseline. p99.99 does NOT reliably improve, and often
-gets *worse* -- sometimes dramatically -- even with a good core, measured
-across repeated runs. This is a real result, not a bug in this script:
-SetThreadAffinityMask pins a thread to a core, it does not reserve that
-core exclusively (that needs OS-level isolation -- Linux's isolcpus/
-nohz_full, or Windows' CPU Sets reserved-exclusively mode, neither of
-which this benchmark sets up, and neither of which a general-purpose
-laptop's OS/background-service load is a realistic target for anyway). An
-unpinned thread that hits contention can migrate to any idle core; a
-pinned thread has nowhere to go until its one core frees up -- which
-specifically inflates the rare, worst-case tail even as cache locality
-improves the common case. Report both effects, not just the one that
-matches what "pin the hot thread" is supposed to do.
+over the unpinned baseline.
+
+Historical note (fixed 2026-09-09, see BENCHMARKS.md's Phase 14 section for
+the full before/after): an earlier version of this script pinned the
+producer thread (pin_current_thread_to_core) without also raising its
+scheduling priority. SetThreadAffinityMask/pthread_setaffinity_np pin a
+thread to a core, they do not reserve that core exclusively -- an unpinned
+thread that hits contention can migrate to any idle core, but a pinned
+thread at default priority has nowhere to go until its one core frees up,
+and can still be preempted by other normal-priority work landing on that
+core. That specifically inflated p99.99 (worse in 12/15 trials, sometimes
+5-6x), even with a genuinely well-chosen core. This script now pins via
+pin_current_thread_to_core_exclusive, which also raises the thread to the
+host's highest realtime/time-critical scheduling tier immediately after
+pinning succeeds (animus::sys::pin_current_thread_to_core_exclusive,
+include/animus/thread_affinity.hpp) -- keeping normal-priority work from
+preempting it in the first place. Re-run across 5 consecutive runs after
+the fix: p99.99 improved in 15/15 trials (all runs, all batch sizes), full
+reversal from the pin-only result. This is still thread-affinity-plus-
+priority, not OS-level exclusive core reservation (Linux isolcpus/
+nohz_full, Windows CPU Sets reserved-exclusively mode) -- neither of which
+this benchmark sets up, and neither of which a general-purpose laptop's
+OS/background-service load is a realistic target for anyway -- so it is
+not a formal real-time guarantee, just a measured, reproducible fix for
+the specific regression found here.
 
 Each (batch size, variant) pair runs in its own fresh subprocess, not
 sequentially in this process. Two reasons, both specific to tail latency
@@ -251,7 +263,17 @@ def run_sweep_spsc_pinned(batch_size: int, total_events: int, core_id: int) -> d
     # already verified it in the parent process.
     _verify_local_license(bindings)
 
-    pinned = bindings.pin_current_thread_to_core(core_id)
+    # Phase 14 fix: pin_current_thread_to_core_exclusive() pins AND raises
+    # this thread's scheduling priority in one call. The original version of
+    # this benchmark called pin_current_thread_to_core() alone -- affinity
+    # without priority elevation -- which is exactly why p99.99 got worse
+    # (12/15 trials, sometimes 5-6x): a pinned thread at default priority
+    # can still be preempted by other normal-priority work on its one core,
+    # and unlike an unpinned thread it has nowhere to migrate to while that
+    # happens. Raising priority keeps normal-priority work from preempting
+    # it in the first place. See animus::sys::pin_current_thread_to_core_exclusive
+    # (include/animus/thread_affinity.hpp) and BENCHMARKS.md's Phase 14 section.
+    pinned = bindings.pin_current_thread_to_core_exclusive(core_id)
     if not pinned:
         raise RuntimeError(
             f"failed to pin the producer thread to core {core_id} -- refusing to "
@@ -324,7 +346,11 @@ def _probe_core_p99(bindings: AnimusBindings, core_id: int, num_calls: int, batc
     cheap (a few thousand events, not a million) since it runs once per
     candidate core before the real, isolated sweeps.
     """
-    bindings.pin_current_thread_to_core(core_id)
+    # Same pin_current_thread_to_core_exclusive() as the real sweep below --
+    # probing without priority elevation and then sweeping with it would
+    # pick a "best core" under different scheduling conditions than the
+    # ones actually measured.
+    bindings.pin_current_thread_to_core_exclusive(core_id)
     latencies_us: List[float] = []
     for i in range(num_calls):
         batch = [(EVENT_ID, i * batch_size + j, j) for j in range(batch_size)]
@@ -451,13 +477,14 @@ def print_summary(summaries: List[SweepSummary], core_id: int) -> None:
         )
 
     print(
-        "\nExpect p50/p90/p99 to improve fairly consistently with a well-chosen\n"
-        "core (cache locality, no per-call migration) -- p99.99 often does NOT\n"
-        "improve, and can get markedly worse, because pinning alone (no OS-level\n"
-        "core isolation) removes the scheduler's ability to move this thread off\n"
-        "its one core when something else needs it, which specifically hurts the\n"
-        "rare worst case even as it helps the common one. See this script's\n"
-        "module docstring and BENCHMARKS.md's Phase 14 section."
+        "\nExpect p50/p90/p99/p99.99 to all improve fairly consistently with a\n"
+        "well-chosen core: cache locality and no per-call migration explain the\n"
+        "typical-case gains, and pin_current_thread_to_core_exclusive's realtime\n"
+        "priority elevation (on top of the pin) is what keeps p99.99 improving too\n"
+        "-- without it, a pinned thread at default priority can still be preempted\n"
+        "by other normal-priority work on its one core with nowhere to migrate to,\n"
+        "which used to inflate exactly the rare worst case this fix targets. See\n"
+        "this script's module docstring and BENCHMARKS.md's Phase 14 section."
     )
 
     print(

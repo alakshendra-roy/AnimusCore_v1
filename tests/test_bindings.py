@@ -368,6 +368,18 @@ class _FakeNativeLib:
             self.state["high_priority_requested"] = True
         self.animus_set_thread_high_priority = animus_set_thread_high_priority
 
+        def animus_pin_current_thread_to_core_exclusive(core_id):
+            # Fake: same shape as animus_pin_current_thread_to_core above
+            # (only cores 0-3 "exist"), plus the priority elevation that
+            # pin_current_thread_to_core_exclusive bundles on a successful
+            # pin -- see animus::sys::pin_current_thread_to_core_exclusive,
+            # include/animus/thread_affinity.hpp.
+            pinned = core_id in (0, 1, 2, 3)
+            if pinned:
+                self.state["high_priority_requested"] = True
+            return pinned
+        self.animus_pin_current_thread_to_core_exclusive = animus_pin_current_thread_to_core_exclusive
+
         self.state["licensed"] = False
         self.state["licensed_max_cores"] = 0
 
