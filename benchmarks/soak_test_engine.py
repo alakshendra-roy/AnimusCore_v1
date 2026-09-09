@@ -253,14 +253,22 @@ def try_pin_producer_thread(bindings: AnimusBindings) -> Tuple[bool, Optional[in
         marker = "  <- selected" if cid == core_id else ""
         print(f"  core {cid:>3}: p99 = {p99:8.2f} us{marker}")
 
-    pinned = bindings.pin_current_thread_to_core(core_id)
+    # pin_current_thread_to_core_exclusive (Phase 14 fix, 2026-09-09) pins
+    # and raises scheduling priority in one call -- this soak test already
+    # did both manually (pin_current_thread_to_core + set_thread_high_priority
+    # as two calls) before that primitive existed, which is exactly why its
+    # own p99 latency didn't show the drift the pin-only fintech_tail_latency.py
+    # benchmark found. Switched to the combined call so this soak test now
+    # exercises the actual fixed primitive, not just the workaround that
+    # happened to already do the right thing.
+    pinned = bindings.pin_current_thread_to_core_exclusive(core_id)
     if not pinned:
-        print(f"pin_current_thread_to_core({core_id}) failed despite a verified license "
+        print(f"pin_current_thread_to_core_exclusive({core_id}) failed despite a verified license "
               f"-- running unpinned.")
         return False, None, probe_results
 
-    bindings.set_thread_high_priority()
-    print(f"Producer thread pinned to logical core {core_id} and raised to high priority.")
+    print(f"Producer thread pinned to logical core {core_id} and raised to high priority "
+          f"(pin_current_thread_to_core_exclusive).")
     return True, core_id, probe_results
 
 

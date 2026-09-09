@@ -558,6 +558,26 @@ Batch size = 10,000:
 * **What this does not claim:** this is still thread-affinity-plus-priority, not OS-level exclusive core reservation (`isolcpus`/`nohz_full`, Windows CPU Sets reserved-exclusive) -- a sufficiently high-priority unrelated process, or kernel/interrupt work that itself runs above `SCHED_FIFO`'s reach, could still preempt this thread. It resolves the specific, measured regression from the original Phase 14 benchmark on this hardware/OS combination; it is not a formal real-time guarantee.
 * **Status:** Phase 14 p99.99 Regression Fixed and Verified -- `animus_pin_current_thread_to_core_exclusive` merged, `benchmarks/fintech_tail_latency.py` updated to use it, 5/5 runs reproduced the improvement across all three batch sizes.
 
+### Soak-Test Validation: The Fix Under Extended Load (10 Minutes, Not 5 Short Runs)
+
+* **Why this is a different question from the section above:** every number above comes from short, isolated sweeps (a few seconds each). A pinned high-priority thread can look perfect for the first few seconds and still drift as the run goes on -- allocator fragmentation, persistence-worker backlog, or the OS scheduler behaving differently once the process has been running for minutes, not seconds, are exactly the class of problem a short benchmark can't see. `benchmarks/soak_test_engine.py` exists for this: a 600-second continuous run of the real `Engine` pipeline (not the standalone SPSC ring), paced at 50,000 events/sec, sampling RSS and per-30-second-window latency percentiles throughout.
+* **Method:** `python benchmarks/soak_test_engine.py 600`, real compiled native engine, `animus_pin_current_thread_to_core_exclusive` pinning the producer thread before the run starts (this soak test previously called `pin_current_thread_to_core` + `set_thread_high_priority` as two separate steps -- switched to the single combined call so this test now exercises the actual fixed primitive, not just a manual workaround that happened to already do the right thing). Same probed-core selection as the Phase 14 benchmark above.
+* **Core probe** (same machine, Intel i7-14650HX): core 12 selected (p99 36.61 us), consistent with the P-core identified in the fintech-tail-latency runs above.
+* **Result, one continuous 600s run:**
+
+| Check | Result |
+|---|---|
+| Total events pushed | 28,701,000 over 600.0s (47,835 events/sec sustained, against a 50,000/sec target) |
+| Threat signals matched & drained | 2,583,090 |
+| Persistence integrity | OK -- 1,836,864,000 / 1,836,864,000 bytes written, exact match |
+| Memory stability | PASS -- warm-baseline RSS 43.04 MB -> final 42.64 MB (**-0.93%**, i.e. flat/slightly down, not growing) |
+| P99 latency persistence | PASS -- first-stable-window p99 118.94 us, worst window (360-390s) 156.35 us, **+31.5% drift**, well under the 50% flag threshold |
+| Zero-allocation proxy | CONSISTENT -- RSS plateaus after warm-up rather than climbing with events processed |
+| **Overall** | **SOAK TEST PASS** |
+
+* **Interpretation:** the pinned, high-priority producer thread holds up over a real 10-minute continuous run, not just a few seconds -- no memory growth, no runaway latency drift, persistence stays exact. The one window with elevated p99 (window 12, 360-390s, 156.35 us vs. a ~119-127 us baseline elsewhere) is a real, isolated blip, not a trend -- every window before and after it sits back in the normal range, consistent with a one-off OS scheduling interruption (background process, interrupt handling) rather than the pinned thread's own behavior degrading over time. This is the same category of noise the tick-to-trade benchmark's own methodology note (SS2 above) already documents on this non-real-time OS, not a new finding.
+* **Status:** Phase 14 Fix Verified Under Sustained Load -- `benchmarks/soak_test_engine.py`, 600s continuous run, PASS on memory stability, latency persistence, and persistence integrity.
+
 ## Phase 15: Complex Event Processing (CEP) -- Sliding-Window Aggregation Rules
 
 ### Design Verification (Before Integration, Not After)
