@@ -135,3 +135,11 @@ AnimusCore_v1/logo.png
 # running deploy_verify.sh under WSL) -- same "build output, never
 # tracked" rule as build/ above, just a different directory name.
 build_linux/
+
+# Personal-use executive dashboard + its live telemetry bridge. Contains
+# real outreach data (which firms, exact invite counts) and internal
+# directives that must never land in this public repo's history. Was
+# briefly committed at dd315a1 -- do not push that commit; kept local-only.
+/command-center.html
+/command_center_bridge.py
+/.command_center_bridge_scratch.log
