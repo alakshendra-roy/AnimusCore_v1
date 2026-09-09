@@ -176,3 +176,10 @@ build_linux/
 # never-public-repo category as command-center.html itself above (shows
 # the same real outreach data and internal directives on screen).
 /AnimusCore_v1/dashboard.mp4
+
+# Local recreation of the outbound tracker as a self-contained, file://
+# viewable HTML dashboard (built 2026-09-09 to replace an expired preview
+# link) -- embeds the exact same real named-individual data as
+# OUTBOUND_TRACKER.md above, so it gets the same never-public-repo
+# treatment for the same reason. Permanent on disk, never tracked.
+/docs/dashboard.html
