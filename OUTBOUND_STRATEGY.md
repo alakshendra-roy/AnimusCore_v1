@@ -1,10 +1,12 @@
 # Animus — Outbound Go-To-Market & Prospecting Package
 
-**Owner:** Chief Commercial Officer, Animus
-**Product:** Animus Core — C++20/Python deterministic IPC & telemetry engine (sub-40ns p50 latency, 16M+ events/sec sustained throughput)
+**Owner:** Founder (solo) — Animus
+**Product:** Animus Core — C++17/Python deterministic IPC & telemetry engine (p50 53.3ns / p99 64.9ns cross-core SPSC dispatch, RDTSC-measured; 47.3M msgs/sec sustained throughput — see [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) §2)
 **Licensing:** Dual-License Gateway — Community Evaluation (free, non-production) / Enterprise Tier 1 $35,000/yr / Enterprise Tier 2 $90,000/yr / Enterprise Tier 3 OEM $150,000+/yr / Enterprise Tier 4 Global Strategic Master Agreement $350,000–$750,000+/yr
 
-> Note on Section 2: company names are realistic, publicly known firms in each vertical, used as **illustrative targets**. Stack/bottleneck notes are **inferred from public engineering blogs, job postings, and conference talks**, not confirmed insider information — verify before referencing specifics in outreach.
+> **Relationship to the real outreach pipeline:** this document is a reusable ICP/GTM strategy framework — qualification scorecard, objection playbook, and Tier-4-anchoring strategy — not the live, tracked pipeline. The **actual, evidence-cited target list and send status** live in [`docs/ICP_TARGET_LIST.md`](docs/ICP_TARGET_LIST.md) and [`docs/OUTBOUND_TRACKER.md`](docs/OUTBOUND_TRACKER.md); the 30-account matrix in §2 below predates and does not match that list (different firms, different count, no per-contact log) — do not treat it as the current send target. `docs/OUTREACH_TEMPLATES.md` is the current, in-use set of cold-email/InMail copy; the templates in §3 below are an earlier, superseded draft (see the numbers/verification-command fixes below) — check both against `docs/OUTREACH_TEMPLATES.md` before reusing.
+>
+> Note on §2: company names are realistic, publicly known firms in each vertical, used as **illustrative targets**. Stack/bottleneck notes are **inferred from public engineering blogs, job postings, and conference talks**, not confirmed insider information — verify before referencing specifics in outreach.
 
 ---
 
@@ -69,7 +71,7 @@ Never present Tier 4 as the default ask for a single-desk or single-platform pro
 |---|----------|---------------------------|------------|-------------------|------------------------------|---------------------|
 | 1 | Trading | Jump Trading | Chicago, IL | Head of Low-Latency Engineering | Custom C++ core, kernel-bypass NICs; likely in-house ring buffers with high maintenance overhead | Offer independent benchmark vs. their in-house buffer under identical NIC/kernel config |
 | 2 | Trading | Jane Street | New York, NY | Director of Trading Systems | OCaml + C++ hybrid; cross-language IPC between OCaml research and C++ execution is a known pain point | Position as neutral zero-copy bridge layer, language-agnostic C-ABI |
-| 3 | Trading | Hudson River Trading | New York, NY | Principal Engineer, Trading Infra | Heavy custom FPGA + C++ stack; software-side IPC between strategy containers likely still socket/shm hybrid | Pitch sub-40ns software layer as complement to FPGA fast path, not competitor |
+| 3 | Trading | Hudson River Trading | New York, NY | Principal Engineer, Trading Infra | Heavy custom FPGA + C++ stack; software-side IPC between strategy containers likely still socket/shm hybrid | Pitch the sub-100ns software layer as complement to FPGA fast path, not competitor |
 | 4 | Trading | Citadel Securities | Chicago, IL | Head of Execution Engineering | Large internal platform team; Python research (alpha) to C++ execution gateway bridge | Target the Python/C++ alpha-to-execution tax specifically |
 | 5 | Trading | DRW | Chicago, IL | VP, Trading Technology | Mixed C++/Java market-making stack; cross-service messaging likely ZeroMQ-based | Middleware bottleneck angle — ZeroMQ jitter replacement |
 | 6 | Trading | Optiver | Amsterdam, NL / Chicago, IL | Head of Software Engineering, Trading | Proprietary low-latency C++ stack; discovery-based IPC scaling issues at multi-region scale | Determinism + p999 tail-latency proof point for risk committee sign-off |
@@ -107,16 +109,14 @@ All variants target senior ICs and engineering directors. No marketing fluff, no
 ### Variant 1 — Direct Benchmark Challenge
 
 **Email (3 sentences):**
-> Subject: sub-40ns IPC — verify it yourself in one line
+> Subject: 64.9ns p99 IPC, RDTSC-measured — verify it yourself
 >
-> [Name] — we built a deterministic IPC engine that holds sub-40ns p50 / <150ns p99 latency at 16M+ events/sec on commodity hardware, and I'd rather you verify that than take my word for it. Run this against your own box and compare it to whatever ring buffer or message bus you're running today:
-> ```bash
-> curl -sL https://animus.dev/bench.sh | bash -s -- --events 16000000 --report json
-> ```
+> [Name] — we built a deterministic IPC engine that holds p50 53.3ns / p99 64.9ns cross-core dispatch latency at 47.3M msgs/sec sustained, RDTSC-resolution not clock-quantized guesswork, and I'd rather you verify that than take my word for it. Full methodology and reproduction commands are public — see the datasheet — and we run a paid 30-day Proof-of-Performance to validate the numbers against your own hardware and event shapes, not ours:
+> [`Animus_Core_Benchmark_Datasheet.pdf`](docs/Animus_Core_Benchmark_Datasheet.pdf)
 > If our numbers don't beat your current stack on your own hardware, I won't follow up again — if they do, worth 15 minutes to talk about where it'd slot into your execution path?
 
 **LinkedIn connection note (<300 chars):**
-> Hi [Name] — built a sub-40ns / 16M+ events-per-sec deterministic IPC engine, benchmarkable in one bash command on your own hardware. Not pitching, just want a systems engineer to try to break the numbers. Worth connecting?
+> Hi [Name] — built a p99 64.9ns / 47.3M msgs/sec deterministic IPC engine, RDTSC-measured with public reproduction commands. Not pitching, just want a systems engineer to try to break the numbers. Worth connecting?
 
 ---
 
@@ -125,10 +125,10 @@ All variants target senior ICs and engineering directors. No marketing fluff, no
 **Email (3 sentences):**
 > Subject: replacing DDS/ZeroMQ jitter under your transport layer
 >
-> [Name] — if your sensor fusion or market-data fan-out is still fighting CycloneDDS/FastDDS discovery overhead or ZeroMQ copy/jitter under load, we built a drop-in zero-copy transport that sits under your existing API (ROS2 topics stay ROS2 topics) and holds deterministic sub-40ns latency at 16M+ events/sec. No re-architecture, no protocol migration — just swap the transport layer and rerun your existing jitter benchmarks. Happy to send a 30-day evaluation key if you want to run it against your current p99/p999 numbers before we talk pricing.
+> [Name] — if your sensor fusion or market-data fan-out is still fighting CycloneDDS/FastDDS discovery overhead or ZeroMQ copy/jitter under load, we built a drop-in zero-copy transport that sits under your existing API (ROS2 topics stay ROS2 topics) and holds deterministic p99 64.9ns cross-core dispatch latency at 47.3M msgs/sec sustained. No re-architecture, no protocol migration — just swap the transport layer and rerun your existing jitter benchmarks. Happy to send a 30-day evaluation key if you want to run it against your current p99/p999 numbers before we talk pricing.
 
 **LinkedIn connection note (<300 chars):**
-> Hi [Name] — we replace DDS/ZeroMQ under the hood (ROS2 API stays intact) with a zero-copy transport holding sub-40ns latency at 16M+ events/sec. If jitter under load is a live problem for you, worth a quick look?
+> Hi [Name] — we replace DDS/ZeroMQ under the hood (ROS2 API stays intact) with a zero-copy transport holding p99 64.9ns dispatch latency at 47.3M msgs/sec sustained. If jitter under load is a live problem for you, worth a quick look?
 
 ---
 
@@ -137,10 +137,10 @@ All variants target senior ICs and engineering directors. No marketing fluff, no
 **Email (3 sentences):**
 > Subject: killing the Python↔C++ tax between your alpha and your execution gateway
 >
-> [Name] — every microsecond your strategy loses marshaling data between Python research code and your C++ execution gateway is a microsecond a competitor with a tighter bridge doesn't lose. Animus gives you a zero-copy shared-memory bridge with a C-ABI and ctypes-only Python wrapper — no pickling, no protobuf, no gRPC round trip — holding sub-40ns latency at 16M+ events/sec. I can get you a 30-day evaluation key today if you want to benchmark it against your current bridge before your next strategy promotion cycle.
+> [Name] — every microsecond your strategy loses marshaling data between Python research code and your C++ execution gateway is a microsecond a competitor with a tighter bridge doesn't lose. Animus gives you a zero-copy shared-memory bridge with a C-ABI and ctypes-only Python wrapper — no pickling, no protobuf, no gRPC round trip — with the underlying transport holding p99 64.9ns cross-core dispatch latency at 47.3M msgs/sec sustained. I can get you a 30-day evaluation key today if you want to benchmark it against your current bridge before your next strategy promotion cycle.
 
 **LinkedIn connection note (<300 chars):**
-> Hi [Name] — we eliminate the Python↔C++ serialization tax between research/alpha code and execution gateways with a zero-copy C-ABI bridge (sub-40ns, 16M+ events/sec). If that tax is costing you latency, worth comparing notes?
+> Hi [Name] — we eliminate the Python↔C++ serialization tax between research/alpha code and execution gateways with a zero-copy C-ABI bridge (transport at p99 64.9ns, 47.3M msgs/sec sustained). If that tax is costing you latency, worth comparing notes?
 
 ---
 
@@ -168,7 +168,7 @@ If fewer than 3 are met, keep them on Community Evaluation (non-production) unti
 
 **2. "Why not just use open-source Aeron, Iceoryx, or Boost.Interprocess?"**
 
-> Those are real, credible options — this isn't "open source is bad." The gap is deterministic latency floor and support surface: Aeron is JVM-centric with GC-adjacent tuning overhead for a pure-C++ hot path; Iceoryx is solid for pub/sub robotics IPC but isn't built for the Python↔C++ bridge case (no zero-copy ctypes-native path); Boost.Interprocess gives you the primitives but you're still building and maintaining the ring-buffer logic, backpressure handling, and telemetry yourself. Animus gives you sub-40ns determinism, the C-ABI/Python bridge, and telemetry out of the box, with a support contract instead of a GitHub issue queue when it breaks in production. Benchmark it against whichever of the three you're evaluating — same bash command, your hardware.
+> Those are real, credible options — this isn't "open source is bad." The gap is deterministic latency floor and support surface: Aeron is JVM-centric with GC-adjacent tuning overhead for a pure-C++ hot path; Iceoryx is solid for pub/sub robotics IPC but isn't built for the Python↔C++ bridge case (no zero-copy ctypes-native path); Boost.Interprocess gives you the primitives but you're still building and maintaining the ring-buffer logic, backpressure handling, and telemetry yourself. Animus gives you sub-100ns determinism, the C-ABI/Python bridge, and telemetry out of the box, with a support contract instead of a GitHub issue queue when it breaks in production. Benchmark it against whichever of the three you're evaluating — same 30-day Proof-of-Performance, your hardware.
 
 **3. "We don't buy third-party infrastructure for live execution nodes."**
 
@@ -180,4 +180,4 @@ If fewer than 3 are met, keep them on Community Evaluation (non-production) unti
 
 ---
 
-*Prepared for Animus Business Development. Update the 30-account matrix quarterly as firms are contacted, qualified, or disqualified — track status in a CRM, not in this file.*
+*Prepared for the founder's own use — Animus is a solo operation, no Business Development team exists. Treat this as a reusable strategy framework (ICPs, qualification criteria, objection playbook), not a status tracker: the real, evidence-cited target list and send status live in [`docs/ICP_TARGET_LIST.md`](docs/ICP_TARGET_LIST.md) and [`docs/OUTBOUND_TRACKER.md`](docs/OUTBOUND_TRACKER.md), not in the illustrative 30-account matrix above.*
