@@ -143,3 +143,9 @@ build_linux/
 /command-center.html
 /command_center_bridge.py
 /.command_center_bridge_scratch.log
+
+# Self-issued .lic for the command-center bridge above, signed for this
+# specific dev machine's fingerprint (MachineGuid + MAC) so the dashboard's
+# license-gated features (core pinning) work locally -- same "machine-
+# specific, personal-use, never public repo" reasoning as eval_keys/ above.
+/customer.lic
