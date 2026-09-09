@@ -149,3 +149,10 @@ build_linux/
 # license-gated features (core pinning) work locally -- same "machine-
 # specific, personal-use, never public repo" reasoning as eval_keys/ above.
 /customer.lic
+
+# Internal 5-year strategy/execution blueprint: real cash-on-hand and burn
+# figures, deal-mix math behind the ARR targets, and an explicit "base
+# case vs. stretch target" gap analysis -- same never-public-repo category
+# as command-center.html above, for the same reason (real financial and
+# competitive-strategy detail, not a client-facing document).
+/docs/ROADMAP_2026_2031.md
