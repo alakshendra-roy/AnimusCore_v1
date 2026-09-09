@@ -519,6 +519,45 @@ Batch size = 10,000:
 * **Interpretation:** `SetThreadAffinityMask`/`pthread_setaffinity_np` pin a thread to a core; they do not reserve that core *exclusively*. Real OS-level isolation (Linux `isolcpus`/`nohz_full`, Windows CPU Sets in reserved-exclusive mode) is what that would take, and this benchmark deliberately doesn't set that up -- nor would a general-purpose development laptop, with its normal load of background OS/user processes, be a realistic target for it anyway. An unpinned thread that hits contention can migrate to any idle core; a pinned thread has nowhere to go until its one core frees up. That specifically inflates the rare, worst-case tail even as it improves the common case -- a real, repeatable, physically-explicable result, reported here exactly as measured rather than adjusted to match the "pinning reduces p99.99" outcome this phase originally set out to confirm.
 * **Status:** Phase 14 Fintech Tail Latency (SPSC + Pinned) Verified -- throughput and typical-case latency improvement confirmed and reproducible; p99.99 reduction NOT confirmed under thread-affinity-only pinning on this hardware/OS combination, and the benchmark says so in its own output, not just here
 
+### Fix (2026-09-09): Pairing Pinning with Realtime Priority Resolves the p99.99 Regression
+
+* **Root cause, confirmed, not just theorized:** the interpretation above was correct but incomplete as a fix -- pinning without reserving the core exclusively leaves a pinned thread's rare worst case exposed to preemption by other normal-priority work landing on its one core, with nowhere to migrate to. The codebase already had the other half of the answer: `animus::sys::set_thread_high_priority()` (`include/animus/thread_affinity.hpp`, exported as `animus_set_thread_high_priority`) requests `SCHED_FIFO`/`THREAD_PRIORITY_TIME_CRITICAL`, which keeps normal-priority work from preempting the pinned thread in the first place -- but nothing called it. `AnimusCore_v1/ingest_engine.py`'s `_pin_and_prioritize()` already paired the two calls correctly; `benchmarks/fintech_tail_latency.py` -- the exact script that produced every number in the section above -- pinned only, never elevated priority. The regression measured above is real, but it was measuring an incomplete use of the pinning API, not an inherent limit of thread-affinity-only pinning as such.
+* **Fix:** added `animus::sys::pin_current_thread_to_core_exclusive(core_id)` (`include/animus/thread_affinity.hpp`) -- pins, then raises priority, in one call, so this pairing can't be forgotten at a new call site the way it was here. Exposed through the C-ABI as `animus_pin_current_thread_to_core_exclusive` (`animus_engine.cpp`, same license/`max_cores` gate as `animus_pin_current_thread_to_core`) and through `animus/bindings.py` as `AnimusBindings.pin_current_thread_to_core_exclusive()`. `benchmarks/fintech_tail_latency.py` now calls it in both `run_sweep_spsc_pinned` (the real sweep) and `_probe_core_p99` (the core-selection probe, so "best core" is chosen under the same scheduling conditions the sweep actually runs with).
+* **Method:** identical to the original finding above -- same script, same 1,000,000 events per (batch size, variant), same probed-core selection, same isolated-subprocess-per-sweep discipline -- run 5 consecutive times on the same machine (Intel i7-14650HX), re-probing fresh each run, the only change being `pin_current_thread_to_core` -> `pin_current_thread_to_core_exclusive`.
+
+**Baseline -> SPSC + pinned + prioritized, by percentile** (representative run 1 of 5; delta range and improvement rate across all 5 runs):
+
+Batch size = 100:
+
+| Metric | Baseline | SPSC + pinned + prioritized | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| p50 | 14.50 us | 13.20 us | -9.0% | -4.3% to -10.3% | 5/5 |
+| p90 | 15.10 us | 13.80 us | -8.6% | -6.8% to -21.3% | 5/5 |
+| p99 | 20.80 us | 17.00 us | -18.3% | -13.7% to -31.6% | 5/5 |
+| p99.99 | 213.91 us | 94.40 us | **-55.9%** | -40.3% to -61.6% | **5/5** |
+
+Batch size = 1,000:
+
+| Metric | Baseline | SPSC + pinned + prioritized | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| p50 | 117.09 us | 104.94 us | -10.8% | -10.3% to -12.0% | 5/5 |
+| p90 | 119.80 us | 108.70 us | -9.3% | -9.3% to -15.4% | 5/5 |
+| p99 | 185.62 us | 130.80 us | -29.5% | -22.3% to -34.4% | 5/5 |
+| p99.99 | 447.98 us | 267.89 us | **-40.2%** | -22.2% to -74.7% | **5/5** |
+
+Batch size = 10,000:
+
+| Metric | Baseline | SPSC + pinned + prioritized | Delta (representative) | Delta range (5 runs) | Runs improved |
+|---|---|---|---|---|---|
+| p50 | 1432.97 us | 1315.72 us | -8.3% | -6.5% to -15.0% | 5/5 |
+| p90 | 1579.35 us | 1384.63 us | -12.3% | -11.7% to -21.3% | 5/5 |
+| p99 | 1714.14 us | 1464.84 us | -14.5% | -14.5% to -24.9% | 5/5 |
+| p99.99 | 1728.06 us | 1576.47 us | **-8.8%** | -8.8% to -23.0% | **5/5** |
+
+* **Key finding, stated as measured:** p99.99 improved in **15/15 trials** (all 5 runs, all 3 batch sizes) -- a full reversal from the pin-only result above (12/15 regressed). p50/p90/p99 also improved 15/15, consistent with the original finding. The smallest, most contention-sensitive batch size (100) shows the largest and most consistent p99.99 gain (-40% to -62%); the largest batch size (10,000), where each call's own duration already dwarfs a single scheduling-quantum preemption, shows the smallest but still consistently negative gain (-8.8% to -23.0%) -- both directions are physically consistent with the preemption-based root cause, not just a favorable-looking average.
+* **What this does not claim:** this is still thread-affinity-plus-priority, not OS-level exclusive core reservation (`isolcpus`/`nohz_full`, Windows CPU Sets reserved-exclusive) -- a sufficiently high-priority unrelated process, or kernel/interrupt work that itself runs above `SCHED_FIFO`'s reach, could still preempt this thread. It resolves the specific, measured regression from the original Phase 14 benchmark on this hardware/OS combination; it is not a formal real-time guarantee.
+* **Status:** Phase 14 p99.99 Regression Fixed and Verified -- `animus_pin_current_thread_to_core_exclusive` merged, `benchmarks/fintech_tail_latency.py` updated to use it, 5/5 runs reproduced the improvement across all three batch sizes.
+
 ## Phase 15: Complex Event Processing (CEP) -- Sliding-Window Aggregation Rules
 
 ### Design Verification (Before Integration, Not After)

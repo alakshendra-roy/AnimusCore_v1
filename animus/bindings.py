@@ -842,6 +842,9 @@ class AnimusBindings:
         self._lib.animus_set_thread_high_priority.argtypes = []
         self._lib.animus_set_thread_high_priority.restype = None
 
+        self._lib.animus_pin_current_thread_to_core_exclusive.argtypes = [ctypes.c_int]
+        self._lib.animus_pin_current_thread_to_core_exclusive.restype = ctypes.c_bool
+
         self._lib.animus_get_cpu_count.argtypes = []
         self._lib.animus_get_cpu_count.restype = ctypes.c_uint
 
@@ -1109,6 +1112,25 @@ class AnimusBindings:
         """
         self._require_native("set_thread_high_priority")
         self._lib.animus_set_thread_high_priority()
+
+    def pin_current_thread_to_core_exclusive(self, core_id: int) -> bool:
+        """Pins the calling OS thread to `core_id` and raises it to the
+        host's highest realtime/time-critical scheduling tier, in one call
+        (see animus::sys::pin_current_thread_to_core_exclusive,
+        include/animus/thread_affinity.hpp). Prefer this over a separate
+        pin_current_thread_to_core() + set_thread_high_priority() pair for
+        any latency-sensitive producer/consumer thread: affinity alone pins
+        a thread to a core without reserving it exclusively, so at default
+        priority the OS can still preempt the pinned thread for other
+        normal-priority work on that core -- and because it's pinned, it
+        has nowhere else to go until the core frees up, which is what
+        inflated p99.99 in the original Phase 14 pin-only benchmark (see
+        BENCHMARKS.md). Same license gate and return contract as
+        pin_current_thread_to_core: returns False only if the pin itself
+        failed; the priority half stays best-effort underneath.
+        """
+        self._require_native("pin_current_thread_to_core_exclusive")
+        return bool(self._lib.animus_pin_current_thread_to_core_exclusive(ctypes.c_int(core_id)))
 
     def get_cpu_count(self) -> int:
         """Logical CPU count on this machine, for sanity-checking a core_id

@@ -5,7 +5,7 @@
 // GENERATED FILE -- do not edit directly. Produced by amalgamate.py from
 // the four source headers below; re-run `python amalgamate.py` after any
 // change to those originals and commit the regenerated output alongside.
-// Generated: 2026-09-03
+// Generated: 2026-09-09
 //
 // Sections:
 //   - animus.hpp (portable) -- Phase 1-7: Core Engine, Ring Buffer, Rule Engine, Broker/Execution Interop
@@ -40,6 +40,17 @@
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
 #include <intrin.h>
 #pragma intrinsic(__rdtsc)
+#endif
+
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // "structure was padded due to alignment specifier" -- this whole file's
+                                // hot-path types (TelemetryPayload, LockFreeRingBuffer, SpscRingBuffer)
+                                // use alignas(64) deliberately, to keep a producer's and a consumer's
+                                // cursors on separate cache lines and avoid false sharing; the padding
+                                // MSVC is warning about is that design working as intended, not a bug.
+                                // Popped at the bottom of this file, so it doesn't leak into whatever
+                                // includes this header next.
 #endif
 
 // Cross-platform named shared-memory mapping, used by SharedMemorySegment
@@ -1602,6 +1613,23 @@ extern "C" {
     // right after pinning, on a thread about to enter its hot loop.
     ANIMUS_API void animus_set_thread_high_priority(void);
 
+    // Combined pin + priority-elevation call (Phase 14 fix -- see
+    // animus::sys::pin_current_thread_to_core_exclusive,
+    // include/animus/thread_affinity.hpp): pinning alone does not reserve a
+    // core exclusively, so a pinned thread at default priority can still be
+    // preempted by other normal-priority work on that core with nowhere to
+    // migrate to, which is what inflated p99.99 in the original
+    // pin-only benchmark. This raises the thread's scheduling priority
+    // immediately after pinning succeeds, closing that gap in one call.
+    // Same license gate and return-value contract as
+    // animus_pin_current_thread_to_core (core_id must be within the
+    // license's entitled max_cores; returns false only if the pin itself
+    // failed -- priority elevation underneath stays best-effort). Prefer
+    // this over a separate pin_current_thread_to_core +
+    // set_thread_high_priority pair for any new latency-sensitive producer
+    // or consumer thread.
+    ANIMUS_API bool animus_pin_current_thread_to_core_exclusive(int core_id);
+
     // Logical CPU count on this machine, for sanity-checking a core_id
     // before calling animus_pin_current_thread_to_core.
     ANIMUS_API unsigned animus_get_cpu_count(void);
@@ -1775,6 +1803,10 @@ extern "C" {
     // copy the string out immediately on the Python side.
     ANIMUS_API const char* animus_get_last_error(void);
 }
+
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 // -------------------------------------------------------------------------
 // animus_security.hpp -- Phase 8: RBAC + Multi-Tenant Isolation
