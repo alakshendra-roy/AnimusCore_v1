@@ -78,8 +78,8 @@ The figures below are what this project has **measured and published**, reproduc
 | Cross-core SPSC dispatch latency — p99.9 | 111.6 ns | same |
 | Sustained SPSC throughput | 47.3M msgs/sec | same |
 | Native decision-loop latency (tick-to-trade) — p50/p99 | 100 ns | `AnimusCore_v1/animus_benchmark_suite.cpp` |
-| Python zero-copy interop — drain() only | ~4.5 ns/event (amortized) | `bindings/animus_py.cpp` (nanobind) |
-| Python zero-copy interop — full decode | ~560 ns/event (amortized) | `animus/consumer.py` |
+| Python zero-copy interop — drain() only | ~26 ns/event (amortized) | `benchmarks/python_interop_latency.py` |
+| Python zero-copy interop — full decode | ~539 ns/event (amortized) | same |
 
 A production SLA proposed at Week 4 is written against **the numbers your own Week 3 run actually produced**, with the methodology and any tuning applied (core pinning, isolation, batch sizing) documented alongside it — not against the reference table above, which exists to set expectations going in, not to substitute for your own measurement.
 
