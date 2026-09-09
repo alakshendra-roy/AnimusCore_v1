@@ -16,7 +16,7 @@ The [Pilot Kit](../Pilot_Kit/PILOT_README.md) is a free, self-serve, hardware-lo
 | | Pilot Kit (free) | Institutional Pilot Program (this document) |
 |---|---|---|
 | Cost | Free | Paid engagement — scoped per desk, see §5 |
-| Duration | 30 days, self-serve | 30 days, structured weekly with our engineering team |
+| Duration | 30 days, self-serve | 30 days, structured weekly with direct founder-level engineering engagement |
 | Data | Synthetic telemetry | Your own historical and (optionally) shadow-live market data |
 | Deliverable | A measured latency number on your machine | A signed-off performance report + a licensing decision |
 | Best for | "Let me kick the tires" | "We're deciding whether to put this in production" |
