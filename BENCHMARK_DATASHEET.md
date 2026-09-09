@@ -118,6 +118,19 @@ A different question again from the cross-core SPSC figures above: not thread-to
 
 *A single representative run, not yet averaged across multiple runs the way the C++23 harness above is — this is the first real Linux execution of this transport, reported as measured rather than held back for more samples. Verified two ways: the CI run's own build/binary/wheel inspection steps (confirmed a genuine ELF executable and `linux_x86_64` wheel tags, not a cross-compiled or misidentified artifact), and independently by downloading the produced tarball (`gh run download 33806378357`) and recomputing its SHA-256 locally, which matched the checksum CI itself reported byte-for-byte (`24f0902f0b28eda5d34ed05cd686765ff39b3bca02ff5a35c1c12675aa1ba1fd`). This same CI run is what caught and fixed a real bug in `include/animus/shm_ipc.hpp`'s POSIX consumer-attach path — see `AnimusCore_v1/BENCHMARKS.md`'s Phase 29 for the full account.*
 
+### Python zero-copy interop — drain() vs. full decode
+
+*Source: `benchmarks/python_interop_latency.py`, 5 consecutive runs. Reproduce with `python benchmarks/python_interop_latency.py` (requires the compiled `_animus_native` nanobind extension — see that script's own docstring for the build steps).*
+
+A different question from every table above: not the native ring's own throughput, but what a Python caller actually pays per event to get data out of it, through `animus/consumer.py`'s `TelemetryConsumer` (wrapping `bindings/animus_py.cpp`'s nanobind `TelemetryStream`). A background native producer thread feeds the ring unthrottled while the main Python thread drains it in a tight loop — concurrent, steady-state streaming, not a pre-filled snapshot — timed per batch (2,000,000 events/run, batch=8,192) with `time.perf_counter_ns()`, since a per-event timer call would cost more than the thing being measured at this scale.
+
+| Path | Representative run | Range across 5 runs |
+|---|---|---|
+| **`drain()` only** — zero-copy view, no per-event Python object | **26.4 ns/event** | 25.4 – 27.3 ns/event |
+| **Full decode** — `drain()` + `animus.consumer.decode()` (real copy + per-record `struct.unpack`) | **538.8 ns/event** | 537.4 – 542.8 ns/event |
+
+*This is the same distinction `docs/PILOT_PROGRAM.md` §4 and `docs/OUTREACH_TEMPLATES.md` cite in outbound material — see those documents for how these two figures are used in a pitch. An earlier version of both cited "~4.5 ns/event" for `drain()` only, asserted with no benchmark script or reproduction command behind it anywhere in this repo; measured here for the first time, the real number is ~6x higher. The "full decode" figure they cited (~560 ns/event) was close to what this benchmark actually measures.*
+
 ---
 
 ## 3. System Diagram
