@@ -294,3 +294,64 @@ endif()
 set_target_properties(itch50_shm_bridge PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
+
+# cme_ingest -- CME MDP 3.0 adapter (adapters/cme_mdp3/). Standalone UDP
+# receiver binary: decodes MDIncrementalRefreshBook46 (SBE, cme_sbe_messages.hpp)
+# directly off a multicast/unicast UDP socket into the same
+# animus::eval::SpscRingBuffer<T> the itch50 adapter above uses, via the
+# 64-byte MdBookUpdateFrame (cme_ring_frame.hpp). See
+# adapters/cme_mdp3/include/cme_ingest_loop.hpp for the loop itself.
+add_executable(cme_ingest
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/cme_mdp3/src/cme_ingest.cpp
+)
+target_include_directories(cme_ingest PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/animus-eval-kit/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/cme_mdp3/include
+)
+target_compile_features(cme_ingest PRIVATE cxx_std_17)
+target_link_libraries(cme_ingest PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(cme_ingest PRIVATE ws2_32)
+endif()
+if(MSVC)
+    target_compile_options(cme_ingest PRIVATE /W4 /permissive- /O2 /wd4324)
+else()
+    target_compile_options(cme_ingest PRIVATE -O3 -Wall -Wextra -Wpedantic)
+endif()
+set_target_properties(cme_ingest PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# cme_ingest_smoke_test -- end-to-end verification for the adapter above:
+# opens a real loopback UDP socket through the same open_udp_receiver()/
+# run_ingest_loop() production code path, sends synthetic self-verifying
+# MDP 3.0 packets to it over an actual socket, and checks every decoded
+# frame's fields against a deterministic formula. See the file header in
+# adapters/cme_mdp3/tests/cme_ingest_smoke_test.cpp for why loopback
+# unicast rather than real multicast, and exits non-zero on any mismatch,
+# drop, or duplicate -- runnable directly or wired into ctest.
+add_executable(cme_ingest_smoke_test
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/cme_mdp3/tests/cme_ingest_smoke_test.cpp
+)
+target_include_directories(cme_ingest_smoke_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/animus-eval-kit/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/adapters/cme_mdp3/include
+)
+target_compile_features(cme_ingest_smoke_test PRIVATE cxx_std_17)
+target_link_libraries(cme_ingest_smoke_test PRIVATE Threads::Threads)
+if(WIN32)
+    target_link_libraries(cme_ingest_smoke_test PRIVATE ws2_32)
+endif()
+if(MSVC)
+    target_compile_options(cme_ingest_smoke_test PRIVATE /W4 /permissive- /O2 /wd4324)
+else()
+    target_compile_options(cme_ingest_smoke_test PRIVATE -O3 -Wall -Wextra -Wpedantic)
+endif()
+set_target_properties(cme_ingest_smoke_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+enable_testing()
+add_test(NAME cme_ingest_smoke_test COMMAND cme_ingest_smoke_test 20000)
