@@ -157,6 +157,21 @@ build_linux/
 # competitive-strategy detail, not a client-facing document).
 /docs/ROADMAP_2026_2031.md
 
+# Outbound outreach working tracker: names, employers, and real LinkedIn
+# profile URLs for 20+ real third-party individuals, plus candid sales-
+# targeting commentary about them ("verify before using", pitch angles) --
+# real personal data about people who never consented to being profiled in
+# a public repo, same never-public-repo category as command-center.html
+# above (that entry's own reasoning -- "real outreach data ... must never
+# land in this public repo's history" -- was written for exactly this kind
+# of file but never applied here until a 2026-09-09 audit caught it).
+# Removed from tracking via `git rm --cached`; still on disk as a working
+# local tracker. NOT scrubbed from prior commit history -- if that's ever
+# needed, it's a deliberate, separate history-rewrite decision, not a
+# side effect of this gitignore entry. docs/ICP_TARGET_LIST.md stays
+# public -- company-level research only, no named individuals.
+/docs/OUTBOUND_TRACKER.md
+
 # Screen recording of the personal-use command-center dashboard -- same
 # never-public-repo category as command-center.html itself above (shows
 # the same real outreach data and internal directives on screen).
