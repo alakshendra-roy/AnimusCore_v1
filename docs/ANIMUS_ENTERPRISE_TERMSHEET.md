@@ -31,7 +31,7 @@
 
 **2.3 Currency & Settlement.** All amounts are stated and payable in **USD**, by wire transfer via **SWIFT or Fedwire**. Licensee bears all wire, correspondent-bank, and currency-conversion fees; invoiced amounts are net of any such fees or withholding, subject to applicable tax treaty documentation (see [`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)).
 
-**2.4 Scope of Use.** The license covers **unlimited CPU cores, threads, and packet volumes** within Licensee's designated trading unit/desk, as identified in the definitive MSLA. There are no per-core, per-thread, or per-tick metering penalties within that scope. Use outside the designated trading unit/desk requires a separate license or scope amendment.
+**2.4 Scope of Use.** The license covers **unlimited CPU cores, threads, packet volumes, and production nodes** within Licensee's designated trading unit/desk, as identified in the definitive MSLA — this is the scope boundary that distinguishes this tier from the single-node Desk License ([`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) §2.4): Institutional Enterprise is **single-desk, multi-node**, not single-node. There are no per-core, per-thread, per-tick, or per-node metering penalties within that scope. Use outside the designated trading unit/desk (a second desk, a different business unit) requires a separate license or scope amendment.
 
 ---
 
