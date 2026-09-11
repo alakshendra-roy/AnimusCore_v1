@@ -29,14 +29,14 @@ The appendix is a mandatory exhibit to every Enterprise Production License order
 
 The specific values above are the reference profile customers are onboarded against. The appendix executed with each order form additionally records the customer's actual measured configuration (core map, NUMA layout, NIC driver mode) at UAT sign-off, so "reference topology" is a verified fact of that deployment, not a boilerplate assertion.
 
-### 1.1a Tier 4 Custom Hardware Environments — Engineering Sprint Addendum
+### 1.1a Global Strategic Master Agreement Custom Hardware Environments — Engineering Sprint Addendum
 
-Tier 4 order forms (`COMMERCIAL.md` §2, `LEGAL_EULA.md` §3.1) commonly involve custom hardware environments outside the reference profile above — customer-owned FPGA bitstreams, proprietary SmartNIC drivers, or bespoke kernel-bypass stacks built as part of the one structured annual engineering sprint included at that tier. The following governs the sub-40ns commitment in that context:
+Global Strategic Master Agreement order forms (`COMMERCIAL.md` §2, `LEGAL_EULA.md` §3.1) commonly involve custom hardware environments outside the reference profile above — customer-owned FPGA bitstreams, proprietary SmartNIC drivers, or bespoke kernel-bypass stacks built as part of the one structured annual engineering sprint included at that tier. The following governs the sub-40ns commitment in that context:
 
-- The sub-40ns p50 enqueue-latency guarantee remains **strictly tied to the documented Reference Topology Appendix (Section 1.1)** regardless of contract tier. Tier 4's global deployment scope and its engineering sprint do not, by themselves, extend that guarantee to a customer's custom FPGA/SmartNIC environment.
+- The sub-40ns p50 enqueue-latency guarantee remains **strictly tied to the documented Reference Topology Appendix (Section 1.1)** regardless of contract tier. The Global Strategic Master Agreement's global deployment scope and its engineering sprint do not, by themselves, extend that guarantee to a customer's custom FPGA/SmartNIC environment.
 - A custom hardware environment is only brought within a contractual performance commitment when it has been **co-designed and validated under an executed engineering sprint addendum** — a scoped exhibit, signed by both Parties, that documents the specific FPGA bitstream, SmartNIC driver, or kernel-bypass configuration measured, the methodology used, and the resulting latency figure warranted for that environment specifically.
-- Absent such an addendum, performance on a Tier 4 customer's custom hardware is governed by the Section 1.2 best-effort operational band below, identical to any non-reference topology at any tier — Tier 4 pricing and support SLA do not implicitly upgrade an unvalidated custom environment to a guaranteed figure.
-- Each engineering sprint addendum executed under a Tier 4 order form is retained alongside that customer's Reference Topology Appendix and UAT Sign-Off exhibit (Section 1.3), so the full set of hardware environments under contractual guarantee for that customer is a single auditable record, not scattered across sprint engagement notes.
+- Absent such an addendum, performance on a Global Strategic Master Agreement customer's custom hardware is governed by the Section 1.2 best-effort operational band below, identical to any non-reference topology at any tier — that tier's pricing and support SLA do not implicitly upgrade an unvalidated custom environment to a guaranteed figure.
+- Each engineering sprint addendum executed under a Global Strategic Master Agreement order form is retained alongside that customer's Reference Topology Appendix and UAT Sign-Off exhibit (Section 1.3), so the full set of hardware environments under contractual guarantee for that customer is a single auditable record, not scattered across sprint engagement notes.
 
 ### 1.2 Non-Reference & Virtualized Topology — Best-Effort Operational Band
 
@@ -74,7 +74,7 @@ Every order form and invoice issued to a US or EU customer characterizes the pay
 This characterization tracks the Indian Supreme Court's holding in *Engineering Analysis Centre of Excellence Pvt. Ltd. v. CIT* (2021) — payments for the use of a copyrighted *article* (a licensed copy of software) rather than the underlying *copyright* itself do not constitute "royalty" under India's tax treaties, including the India–US DTAA. Correct characterization is a drafting decision made at contract execution, not a position taken retroactively at audit time:
 
 - Order forms and invoices use "License Fee" terminology exclusively, never "consulting," "services," "royalty," or "IP transfer."
-- No order form grants source-code modification, sublicensing, or redistribution rights outside the explicit Tier 3 OEM Distribution Agreement carve-out (`COMMERCIAL.md` §2) — those instruments require separate tax analysis before execution, as a distribution right shifts the characterization risk.
+- No order form grants source-code modification, sublicensing, or redistribution rights outside the explicit OEM / Redistribution Distribution Agreement carve-out (`COMMERCIAL.md` §2) — those instruments require separate tax analysis before execution, as a distribution right shifts the characterization risk.
 - This position is a starting framework, not a substitute for a jurisdiction-specific opinion from qualified Indian and counterparty-country tax counsel before the first cross-border invoice of a given fact pattern is issued.
 
 ### 2.2 Mandatory Pre-Invoice Compliance Filings
@@ -110,7 +110,7 @@ A standing CA/FEMA compliance retainer sits inside the Corporate Reserve & Legal
 
 The core lock-free ring buffer and low-latency hot-path implementation (`include/animus/shm_ipc.hpp`'s `ShmRing<T>` / `SpmcRing<T>` and their supporting concurrency primitives, per `ARCHITECTURE.md`) is segmented into a **protected, private submodule** with access restricted to the founder and any core engineer under a full IP-assignment agreement (Section 3.2). No contractor or integrator is granted access to this submodule as a matter of course, regardless of project deadline pressure.
 
-External contractors and integrators — including those retained for the Tier 2/3 wire-schema and integration engineering described in `COMMERCIAL.md` §2 — receive access strictly to:
+External contractors and integrators — including those retained for the Institutional Enterprise / OEM-Redistribution wire-schema and integration engineering described in `COMMERCIAL.md` §2 — receive access strictly to:
 
 - The **public ABI headers** (`AnimusCore_v1/animus.hpp`) defining the stable C-ABI surface;
 - **Integration stubs and mock implementations** sufficient to build and test against the public interface without the hot-path implementation;
