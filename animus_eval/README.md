@@ -15,6 +15,7 @@ animus_eval/
 │   └── replay_bench.cpp         # standalone replay benchmark harness
 ├── python/animus_py.cpp         # nanobind zero-copy bridge (numpy views, no serialization)
 ├── CMakeLists.txt
+├── run_bench.sh                 # turnkey configure+build+run, taskset-confined to cores 2/3
 └── README.md
 ```
 
@@ -40,6 +41,13 @@ consumer core.
   (`pip install nanobind`).
 
 ## Build and run (under 2 minutes)
+
+```sh
+./run_bench.sh                  # configures, builds, and runs in one step
+./run_bench.sh 4 5               # override: producer=core 4, consumer=core 5
+```
+
+Or run the three steps yourself if you want to inspect the build in between:
 
 ```sh
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
