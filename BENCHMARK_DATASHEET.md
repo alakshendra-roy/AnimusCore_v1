@@ -13,13 +13,23 @@
 
 * **Zero-copy C-ABI boundary.** The Python SDK talks to the native engine (`AnimusNative.dll` / `libanimus_native.so`) through direct buffer pointers via `ctypes`, not serialized IPC. Batched ingestion (`animus_record_events_batch`) passes a raw byte buffer once per batch rather than marshalling one object per event.
 * **Lock-free MPMC ring buffer.** `animus::LockFreeRingBuffer<T>` implements the Vyukov multi-producer/multi-consumer algorithm — the same ring `EngineImpl`'s telemetry path uses internally. Verified correct under real contention: an 8-producer-thread run pushing 1,600,000 records drains back out exactly once per push, with the benchmark harness hard-failing on any mismatch rather than assuming correctness.
-* **Cache-line-aware layout.** Hot counters and ring slots are padded to cache-line boundaries to eliminate false sharing between contending threads. Measured impact: **4.55x** throughput improvement from padding alone, on an otherwise-identical two-thread contention benchmark (see §2).
+* **Cache-line-aware layout.** Hot counters and ring slots are padded to cache-line boundaries to eliminate false sharing between contending threads. Measured impact: **4.55x** throughput improvement from padding alone, on an otherwise-identical two-thread contention benchmark (see §3).
 * **Shared-memory IPC option.** `SharedMemorySegment` (POSIX `shm_open`/Windows equivalent) exposes a cross-process ring for deployments that need to fan telemetry out to a separate consumer process without a socket or broker in the loop.
 * **Optional hardware-locked feature gating.** CPU core pinning and similar tail-latency tuning knobs are gated by an offline, RSA-2048-verified license — fail-closed by design, with zero effect on the core ingestion path when unlicensed.
 
 ---
 
-## 2. Latency & Throughput Profile
+## 2. Test Environment & Recommended Production Deployment Profile
+
+**2.1 As-measured test rig (what every number in §3 actually ran on).** A single development machine: **Intel Core i7-14650HX** (hybrid 6P+10E, 16 cores / 24 threads, confirmed via `Get-CimInstance Win32_Processor`), Windows, MSVC (`cl /O2`) and GCC/Clang cross-checks per benchmark. This is a laptop-class part, not a server SKU — stated plainly rather than left ambiguous, per `AnimusCore_v1/BENCHMARKS.md`'s own standing rule to report hardware exactly as used. Thread-to-core affinity (`SetThreadAffinityMask` / `pthread_setaffinity_np`) is applied per benchmark; OS-level exclusive core reservation, HugePages, and NUMA-aware allocation are **not** — `AnimusCore_v1/BENCHMARKS.md` Phase 14/19 measured and documented that affinity pinning alone improves p50/p90 consistently but does not reliably bound p99.99 without that additional isolation layer, and reports that limit rather than omitting it.
+
+**2.2 Profiling methodology (used for the cross-core SPSC figures in §3).** Cycle-accurate timestamps via `__rdtsc()`, serialized with `_mm_lfence()` immediately before/after each read (an unserialized RDTSC read can retire out of order relative to the instructions it's meant to bracket, which understates true latency), calibrated against `std::chrono::steady_clock` rather than an assumed clock speed. Each reported run follows a warm-up burst (representative sample sizes and phase separation — depth-1 latency vs. unthrottled throughput — are documented per-benchmark in §3, since they differ by harness) before the measured window starts, so first-touch page faults and branch-predictor/cache warm-up don't contaminate the reported percentiles. Every reproduction command is cited inline in §3 — this is not a black-box number.
+
+**2.3 Recommended production deployment profile (not yet measured — applied to *your* hardware during a paid pilot, per `docs/PILOT_PROGRAM.md`, not asserted as our own test bench).** For a client evaluating this on server-class hardware, the tuning pass we bring to Week 3 of the pilot typically includes: CPU-vendor-appropriate server parts (e.g. AMD EPYC 7763 or Intel Xeon Gold generations, in place of the laptop part in §2.1), Linux `isolcpus=`/`nohz_full=` kernel boot parameters to reserve producer/consumer cores exclusively (closing exactly the gap §2.1 documents), 2MB/1GB HugePages for the ring-buffer allocation, `numactl --membind`/`--cpunodebind` to pin memory to the same NUMA node as the pinned cores, the `performance` CPU frequency governor locked for the duration of the run, and `-O3 -march=native` (or a specific `-march=` target matching your deployment CPU) at build time. We do not claim these will reproduce a specific number in advance — that is what Week 3's tail-latency characterization on your own hardware is for (`docs/PILOT_PROGRAM.md` §3), and `AnimusCore_v1/BENCHMARKS.md`'s own Phase 14 finding above is a reason for that caution, not against it.
+
+---
+
+## 3. Latency & Throughput Profile
 
 > **Methodology note:** the figures below come from two distinct measurement layers of the same engine — read the "Layer" column before comparing rows. Native, single-threaded decision-loop latency and Python-SDK batched-ingestion throughput answer different engineering questions, and this repo's own benchmark culture (see `AnimusCore_v1/BENCHMARKS.md`) treats conflating them as a methodology error, not a rounding choice.
 
@@ -133,7 +143,7 @@ A different question from every table above: not the native ring's own throughpu
 
 ---
 
-## 3. System Diagram
+## 4. System Diagram
 
 ```
                           ┌────────────────────────────┐
@@ -163,7 +173,7 @@ A different question from every table above: not the native ring's own throughpu
 
 ---
 
-## 4. Client Integration Quickstart
+## 5. Client Integration Quickstart
 
 Zero third-party Python dependencies — `animus/` imports only `ctypes`, `threading`, and `multiprocessing.shared_memory` from the standard library.
 
@@ -188,7 +198,7 @@ engine.init(ring_capacity=4096)
 engine.add_rule(event_id=1, comparator=">", threshold=2000, severity="HIGH", action="ALERT")
 
 # Batched ingestion -- one C-ABI call per batch, not per event.
-# This is the call the throughput/latency numbers in §2 measure directly.
+# This is the call the throughput/latency numbers in §3 measure directly.
 engine.record_events_batch(events)
 
 # Drain any threat signals the rule above matched.

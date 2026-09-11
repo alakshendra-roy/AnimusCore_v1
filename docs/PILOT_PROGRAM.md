@@ -53,7 +53,7 @@ Each week builds on the last: correctness and baseline throughput first, then no
 
 **Goal: characterize p50/p99/p99.9/p99.99 on your own hardware, with the same rigor this project holds itself to internally.**
 
-* We run the RDTSC-resolution, cross-core SPSC latency harness (the same one behind the [Cross-core SPSC dispatch latency](../BENCHMARK_DATASHEET.md#2-latency--throughput-profile) figures in the datasheet) directly on your target deployment hardware — not a reference machine.
+* We run the RDTSC-resolution, cross-core SPSC latency harness (the same one behind the [Cross-core SPSC dispatch latency](../BENCHMARK_DATASHEET.md#3-latency--throughput-profile) figures in the datasheet) directly on your target deployment hardware — not a reference machine.
 * This includes the CPU-pinning tuning pass **and its honest limits**: [`BENCHMARKS.md` Phase 14](../AnimusCore_v1/BENCHMARKS.md) found, on real hardware, that thread pinning improves p50/p90 consistently but does *not* reliably improve p99.99 without OS-level core isolation — we bring that finding into your environment rather than promising a number pinning alone can't guarantee, and scope real isolation (`isolcpus`/`nohz_full`, Windows CPU Sets) if your SLA needs it.
 * **Exit criterion:** a full percentile latency report against your own hardware and your own workload shape, with methodology fully disclosed — reproducible by your team, not taken on faith.
 
