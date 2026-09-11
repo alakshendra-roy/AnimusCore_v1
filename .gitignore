@@ -1,3 +1,13 @@
+# Cloudflare Tunnel runtime config + credentials for the 24/7 telemetry
+# bridge -- config.yml embeds a real tunnel ID and a path to the
+# credentials JSON, which is a bearer secret for that tunnel. Only the
+# .example template is tracked.
+/cloudflared/config.yml
+/cloudflared/*.json
+
+# Scheduled-task wrapper log output for the 24/7 telemetry bridge.
+/scripts/logs/
+
 # Python artifacts
 __pycache__/
 *.py[cod]
@@ -177,9 +187,13 @@ build_linux/
 # the same real outreach data and internal directives on screen).
 /AnimusCore_v1/dashboard.mp4
 
-# Local recreation of the outbound tracker as a self-contained, file://
-# viewable HTML dashboard (built 2026-09-09 to replace an expired preview
-# link) -- embeds the exact same real named-individual data as
-# OUTBOUND_TRACKER.md above, so it gets the same never-public-repo
-# treatment for the same reason. Permanent on disk, never tracked.
-/docs/dashboard.html
+# NOTE: docs/dashboard.html used to be a local recreation of the outbound
+# tracker (same real named-individual data as OUTBOUND_TRACKER.md above)
+# and was ignored here for that reason. It was rewritten on 2026-09-11 into
+# a telemetry-only public dashboard (Live Engine Bridge + historical
+# benchmarks, no CRM/financial/roadmap content) and is now meant to be
+# tracked and deployed -- see docs/index.html (identical copy) and
+# telemetry_bridge.py. The private, full-featured version with CRM/
+# financial/roadmap sections stays local-only as command-center.html above.
+# If docs/dashboard.html ever regains real outreach/financial data, re-add
+# an ignore rule for it immediately.
