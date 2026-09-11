@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Animus Engine // Live Telemetry</title>
+<meta name="description" content="Live telemetry from the Animus Engine C++17 zero-copy execution core — real-time latency, throughput, and hardware metrics streamed over WebSocket.">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.25.6/babel.min.js" crossorigin></script>
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.462.0/dist/umd/lucide.js" crossorigin></script>
+
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
+      },
+      colors: {
+        obsidian: { 950: '#07090E', 900: '#0D1117', 800: '#161B22', 700: '#1F2733' },
+        signal: { cyan: '#00F2FE', emerald: '#10B981', amber: '#F59E0B', crimson: '#EF4444' },
+      },
+    },
+  },
+}
+</script>
+
+<style>
+  :root { color-scheme: dark; }
+  html, body { background: #07090E; margin: 0; padding: 0; }
+  body { font-family: 'Inter', ui-sans-serif, system-ui, sans-serif; overflow-x: hidden; }
+  * { -webkit-tap-highlight-color: transparent; }
+
+  ::selection { background: rgba(0,242,254,0.25); color: #fff; }
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-track { background: #0D1117; }
+  ::-webkit-scrollbar-thumb { background: #1F2733; border-radius: 6px; border: 2px solid #0D1117; }
+  ::-webkit-scrollbar-thumb:hover { background: #2A3542; }
+
+  .ambient-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; background: #07090E; }
+  .ambient-bg::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      linear-gradient(rgba(148,163,184,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(148,163,184,0.035) 1px, transparent 1px);
+    background-size: 44px 44px;
+    -webkit-mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 40%, transparent 100%);
+            mask-image: radial-gradient(ellipse 80% 55% at 50% 0%, #000 40%, transparent 100%);
+  }
+  .ambient-blob { position: absolute; border-radius: 50%; filter: blur(120px); }
+  .ambient-blob.b1 { width: 620px; height: 620px; top: -220px; left: -140px; background: #00F2FE; opacity: 0.10; animation: driftA 48s ease-in-out infinite alternate; }
+  .ambient-blob.b2 { width: 520px; height: 520px; bottom: -180px; right: -120px; background: #10B981; opacity: 0.09; animation: driftB 54s ease-in-out infinite alternate; }
+  .ambient-blob.b3 { width: 420px; height: 420px; top: 35%; left: 55%; background: #F59E0B; opacity: 0.05; animation: driftC 60s ease-in-out infinite alternate; }
+  @keyframes driftA { from { transform: translate(0,0); } to { transform: translate(70px,50px); } }
+  @keyframes driftB { from { transform: translate(0,0); } to { transform: translate(-50px,-40px); } }
+  @keyframes driftC { from { transform: translate(-50%,-50%) scale(1); } to { transform: translate(-42%,-55%) scale(1.12); } }
+
+  .app-root { position: relative; z-index: 10; }
+
+  .glass-panel { background: rgba(13,17,23,0.55); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(148,163,184,0.12); }
+  .glass-panel-solid { background: rgba(22,27,34,0.65); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border: 1px solid rgba(148,163,184,0.14); }
+  .hairline-top { border-top: 1px solid rgba(148,163,184,0.1); }
+  .hairline-b { border-bottom: 1px solid rgba(148,163,184,0.1); }
+
+  @keyframes blink-dot { 0%,100% { opacity:1; box-shadow:0 0 8px currentColor; } 50% { opacity:0.35; box-shadow:0 0 2px currentColor; } }
+  .live-dot { animation: blink-dot 1.6s ease-in-out infinite; }
+
+  @keyframes glow-emerald { 0%,100% { box-shadow: 0 0 14px 1px rgba(16,185,129,0.30); } 50% { box-shadow: 0 0 26px 5px rgba(16,185,129,0.5); } }
+  @keyframes glow-amber   { 0%,100% { box-shadow: 0 0 14px 1px rgba(245,158,11,0.30); } 50% { box-shadow: 0 0 26px 5px rgba(245,158,11,0.5); } }
+  @keyframes glow-crimson { 0%,100% { box-shadow: 0 0 14px 1px rgba(239,68,68,0.30); } 50% { box-shadow: 0 0 26px 5px rgba(239,68,68,0.5); } }
+  .pulse-emerald { animation: glow-emerald 2.2s ease-in-out infinite; }
+  .pulse-amber { animation: glow-amber 1.5s ease-in-out infinite; }
+  .pulse-crimson { animation: glow-crimson 0.9s ease-in-out infinite; }
+
+  @keyframes ticker-scroll { 0% { transform: translateX(0%); } 100% { transform: translateX(-50%); } }
+  .ticker-track { animation: ticker-scroll 42s linear infinite; }
+
+  @keyframes fade-in-up { 0% { opacity:0; transform: translateY(6px); } 100% { opacity:1; transform: translateY(0); } }
+  .fade-in { animation: fade-in-up 0.4s ease both; }
+
+  .metric-tabular { font-variant-numeric: tabular-nums; letter-spacing: 0.01em; }
+</style>
+</head>
+<body class="text-slate-200 antialiased">
+
+<div class="ambient-bg">
+  <div class="ambient-blob b1"></div>
+  <div class="ambient-blob b2"></div>
+  <div class="ambient-blob b3"></div>
+</div>
+<div id="root" class="app-root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+/* ------------------------------------------------------------------ */
+/*  ICONS                                                              */
+/* ------------------------------------------------------------------ */
+function Icon({ name, size = 16, className = "", strokeWidth = 1.8, onClick }) {
+  const lib = window.lucide && window.lucide.icons;
+  const iconNode = lib && lib[name];
+  const children = iconNode && iconNode[2];
+  if (!children) return <span className={className} style={{ width: size, height: size, display: "inline-block" }} onClick={onClick} />;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={className} onClick={onClick}>
+      {children.map((n, i) => React.createElement(n[0], { key: i, ...(n[1] || {}) }))}
+    </svg>
+  );
+}
+
+function AnimusLogo({ size = 34 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 64 64" fill="none">
+      <defs>
+        <filter id="logoGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="1.6" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      <g opacity="0.55" stroke="#00F2FE" strokeWidth="1">
+        <circle cx="32" cy="46" r="10" fill="none" />
+        <circle cx="32" cy="46" r="17" fill="none" opacity="0.6" />
+        <circle cx="32" cy="46" r="24" fill="none" opacity="0.3" />
+      </g>
+      <g filter="url(#logoGlow)">
+        <path d="M32 8 L54 50 H44.5 L32 25 L19.5 50 H10 Z" fill="#0D1117" stroke="#00F2FE" strokeWidth="2.5" strokeLinejoin="round" />
+        <path d="M25 38 H39" stroke="#00F2FE" strokeWidth="2.5" strokeLinecap="round" />
+      </g>
+      <circle cx="32" cy="46" r="2" fill="#00F2FE">
+        <animate attributeName="opacity" values="1;0.3;1" dur="1.6s" repeatCount="indefinite" />
+      </circle>
+    </svg>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PRIMITIVES                                                         */
+/* ------------------------------------------------------------------ */
+const ACCENTS = {
+  cyan: { text: "text-signal-cyan", border: "border-signal-cyan/30", bg: "bg-signal-cyan/10", dot: "bg-signal-cyan" },
+  emerald: { text: "text-signal-emerald", border: "border-signal-emerald/30", bg: "bg-signal-emerald/10", dot: "bg-signal-emerald" },
+  amber: { text: "text-signal-amber", border: "border-signal-amber/30", bg: "bg-signal-amber/10", dot: "bg-signal-amber" },
+  crimson: { text: "text-signal-crimson", border: "border-signal-crimson/30", bg: "bg-signal-crimson/10", dot: "bg-signal-crimson" },
+  slate: { text: "text-slate-400", border: "border-slate-700", bg: "bg-slate-800/40", dot: "bg-slate-500" },
+};
+
+function StatusDot({ accent = "emerald", label, pulse = false }) {
+  const a = ACCENTS[accent];
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${a.dot} ${pulse ? "live-dot" : ""}`} />
+      {label && <span className={`text-[10px] font-mono uppercase tracking-widest ${a.text}`}>{label}</span>}
+    </span>
+  );
+}
+
+function PriorityBadge({ level }) {
+  const map = {
+    CRITICAL: "text-signal-crimson border-signal-crimson/40 bg-signal-crimson/10",
+    OPERATIONAL: "text-signal-amber border-signal-amber/40 bg-signal-amber/10",
+    ADVISORY: "text-signal-cyan border-signal-cyan/40 bg-signal-cyan/10",
+  };
+  return <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-widest border ${map[level] || map.ADVISORY}`}>{level}</span>;
+}
+
+function SectionHeader({ icon, title, subtitle, accent = "cyan", right }) {
+  const a = ACCENTS[accent];
+  return (
+    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+      <div className="flex items-center gap-3">
+        <div className={`w-8 h-8 rounded flex items-center justify-center border ${a.border} ${a.bg}`}>
+          <Icon name={icon} size={16} className={a.text} />
+        </div>
+        <div>
+          <h2 className="font-mono text-sm md:text-base font-bold tracking-wide text-slate-100 uppercase">{title}</h2>
+          {subtitle && <p className="text-[11px] text-slate-500 font-mono">{subtitle}</p>}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function MetricCard({ icon, label, value, sub, accent = "cyan", statusLabel, glow }) {
+  const a = ACCENTS[accent];
+  const glowClass = glow === "emerald" ? "pulse-emerald" : glow === "amber" ? "pulse-amber" : glow === "crimson" ? "pulse-crimson" : "";
+  return (
+    <div className={`glass-panel-solid rounded-lg p-4 relative overflow-hidden border ${a.border} ${glowClass}`}>
+      <div className="flex items-start justify-between relative z-10">
+        <div className={`w-8 h-8 rounded flex items-center justify-center ${a.bg} border ${a.border}`}>
+          <Icon name={icon} size={15} className={a.text} />
+        </div>
+        {statusLabel && <StatusDot accent={accent} label={statusLabel} />}
+      </div>
+      <div className="mt-3 relative z-10">
+        <div className={`font-mono text-lg md:text-xl font-bold metric-tabular ${a.text}`}>{value}</div>
+        <div className="text-[11px] text-slate-400 font-mono mt-1 uppercase tracking-wide">{label}</div>
+        {sub && <div className="text-[10px] text-slate-500 font-mono mt-1 leading-snug">{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function fmtNs(v) { return v == null ? "—" : `${v < 1000 ? v.toFixed(1) + "ns" : (v / 1000).toFixed(2) + "µs"}`; }
+function fmtNum(v, digits = 0) { return v == null ? "—" : Number(v).toLocaleString(undefined, { maximumFractionDigits: digits }); }
+function fmtBytes(v) { return v == null ? "—" : `${(v / (1024 * 1024)).toFixed(1)} MB`; }
+function fmtByteRate(v) {
+  if (v == null) return "—";
+  if (v >= 1e9) return `${(v / 1e9).toFixed(2)} GB/s`;
+  if (v >= 1e6) return `${(v / 1e6).toFixed(2)} MB/s`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(2)} KB/s`;
+  return `${v.toFixed(0)} B/s`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  STATIC REAL DATA -- sourced from README.md / BENCHMARKS.md          */
+/* ------------------------------------------------------------------ */
+const VERIFIED_BENCHMARKS = [
+  { id: "itch", label: "NASDAQ ITCH 5.0 Feed Handler", detail: "10,000,000-message runs: 7.80M msgs/sec (Linux) / 6.82M msgs/sec (Windows), 0 heap allocations, 0 decode failures.", tag: "adapters/itch50" },
+  { id: "ring", label: "Lock-Free Ring Buffer, 8-Thread Contention", detail: "6.9-9.6M pushes/sec sustained, zero lost or duplicated pushes on every run.", tag: "Phase 19" },
+  { id: "tick", label: "Tick-to-Trade End-to-End Latency", detail: "500,000-tick round trip (feed → poll → execution submit): p50/p99 = 100ns, p99.9 = 100-200ns.", tag: "Phase 19" },
+  { id: "cache", label: "Cache-Line Padding (alignas(64))", detail: "4.21x-4.99x throughput improvement over false sharing, measured across runs.", tag: "Phase 19" },
+  { id: "soar", label: "SOAR Threat-Response Pipeline", detail: "600,000-event synthetic stream: 1,455,398 events/sec sustained, 15,834 signals matched & dispatched, 0 drops.", tag: "Phase 5" },
+  { id: "cluster", label: "3-Node Raft-Lite Cluster Failover", detail: "25/25 consecutive runs passed — ~500ms leader election, ~716ms re-election after a real leader kill.", tag: "Phase 9" },
+];
+const BENCHMARK_CAVEAT = "Historical, one-time runs on the founder's own development machine — not a dedicated, CPU-isolated benchmark rig. Reproducible via scripts/run_benchmarks.sh / .ps1. Distinct from the live panel above, which re-measures the real engine right now.";
+
+const TICKER_ITEMS = [
+  "31/31 BUILD PHASES COMPLETE", "ITCH 5.0: 7.80M msgs/s VERIFIED (historical)", "0 HEAP ALLOCATIONS",
+  "ZERO-ALLOC HOT PATH: CI-ENFORCED", "CACHE-LINE PADDING: alignas(64)", "SOLO-FOUNDER · BOOTSTRAPPED · SELF-FUNDED",
+];
+
+const FAULT_GUIDANCE = {
+  RING_BUFFER_OVERFLOW: "The batch's accept count came in below what was requested — the native ring is momentarily full. Increase RING_CAPACITY in telemetry_bridge.py, or add a faster/second consumer draining the ring (see animus::SpscRingBuffer's capacity notes in animus.hpp).",
+  LATENCY_RULE_TRIGGERED: "A measured push-batch latency exceeded the configured threshold rule, evaluated by the real native rule engine. Check for background CPU contention, thermal throttling, or OS scheduling jitter on this host.",
+  BRIDGE_DISCONNECTED: "The dashboard lost its WebSocket connection to the telemetry bridge. Confirm telemetry_bridge.py (or tools/simulate_telemetry_feed.py for local testing) is still running and reachable.",
+};
+
+/* ------------------------------------------------------------------ */
+/*  LIVE ENGINE BRIDGE (WebSocket client — real data only)             */
+/* ------------------------------------------------------------------ */
+const DEFAULT_BRIDGE_PORT = 8766;
+
+// Stable public URL for the 24/7 Cloudflare Tunnel in front of
+// telemetry_bridge.py (see cloudflared/config.yml.example + README notes).
+// Every visitor to the publicly hosted page falls back to this -- it can't
+// rely on a per-browser query param/localStorage override like local
+// testing can, since a first-time visitor has neither. Update this the
+// day the tunnel's hostname is finalized.
+const PRODUCTION_BRIDGE_URL = "wss://telemetry.animusinfra.com";
+
+function resolveBridgeUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get("bridge");
+    if (fromQuery) {
+      localStorage.setItem("animus_bridge_url", fromQuery);
+      return fromQuery;
+    }
+    const stored = localStorage.getItem("animus_bridge_url");
+    if (stored) return stored;
+  } catch (e) { /* localStorage unavailable (e.g. file://, privacy mode) */ }
+
+  const host = window.location.hostname;
+  const isLocal = window.location.protocol === "file:" || !host || host === "localhost" || host === "127.0.0.1";
+  if (isLocal) return `ws://127.0.0.1:${DEFAULT_BRIDGE_PORT}`;
+
+  // Publicly hosted (surge.sh etc.) -- use the stable tunnel URL, not a
+  // guess derived from this page's own hostname (the dashboard's static
+  // host and the bridge's tunnel host are two different domains).
+  return PRODUCTION_BRIDGE_URL;
+}
+
+function useEngineBridge() {
+  const [connected, setConnected] = useState(false);
+  const [telemetry, setTelemetry] = useState(null);
+  const [faults, setFaults] = useState([]);
+  const [bridgeUrl] = useState(resolveBridgeUrl);
+  const wsRef = useRef(null);
+  const timerRef = useRef(null);
+  const mountedRef = useRef(true);
+  const wasConnectedRef = useRef(false);
+  const backoffRef = useRef(1500);
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    function pushFault(f) {
+      setFaults(prev => [{ ...f, id: `${f.ts}-${f.code}-${Math.random().toString(36).slice(2, 8)}` }, ...prev].slice(0, 80));
+    }
+
+    function scheduleReconnect() {
+      clearTimeout(timerRef.current);
+      backoffRef.current = Math.min(backoffRef.current * 1.5, 10000);
+      timerRef.current = setTimeout(connect, backoffRef.current);
+    }
+
+    function connect() {
+      if (!mountedRef.current) return;
+      let ws;
+      try {
+        ws = new WebSocket(bridgeUrl);
+      } catch (e) {
+        scheduleReconnect();
+        return;
+      }
+      wsRef.current = ws;
+      ws.onopen = () => {
+        if (!mountedRef.current) return;
+        setConnected(true);
+        wasConnectedRef.current = true;
+        backoffRef.current = 1500;
+      };
+      ws.onmessage = (ev) => {
+        if (!mountedRef.current) return;
+        let msg;
+        try { msg = JSON.parse(ev.data); } catch (e) { return; }
+        if (msg.type === "telemetry") setTelemetry(msg);
+        else if (msg.type === "fault") pushFault(msg);
+      };
+      ws.onclose = () => {
+        if (!mountedRef.current) return;
+        if (wasConnectedRef.current) {
+          pushFault({ severity: "ADVISORY", code: "BRIDGE_DISCONNECTED", detail: `WebSocket connection to ${bridgeUrl} closed.`, ts: Date.now(), tick: null });
+        }
+        setConnected(false);
+        scheduleReconnect();
+      };
+      ws.onerror = () => { try { ws.close(); } catch (e) {} };
+    }
+
+    connect();
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(timerRef.current);
+      if (wsRef.current) { try { wsRef.current.close(); } catch (e) {} }
+    };
+  }, [bridgeUrl]);
+
+  return { connected, telemetry, faults, bridgeUrl };
+}
+
+function licenseTier(eng) {
+  if (!eng || !eng.license_status) return null;
+  if (eng.license_status === "SIMULATED") return { label: "SIMULATED FEED", sub: "not a real license check", accent: "amber" };
+  if (eng.license_status !== "VALID") return { label: eng.license_status, sub: null, accent: "slate" };
+  const noExpiry = !eng.license_expires_at;
+  const unrestricted = eng.licensed_max_cores >= eng.cpu_count;
+  if (noExpiry && unrestricted) {
+    return { label: "ENTERPRISE / ACTIVE", sub: `self-issued vendor license · ${eng.licensed_max_cores} cores · no expiry`, accent: "emerald" };
+  }
+  if (!noExpiry) {
+    const daysLeft = Math.max(0, Math.ceil((eng.license_expires_at * 1000 - Date.now()) / 86400000));
+    return { label: "TRIAL / ACTIVE", sub: `${eng.licensed_max_cores} cores · expires in ${daysLeft}d`, accent: "amber" };
+  }
+  return { label: "LICENSED / ACTIVE", sub: `${eng.licensed_max_cores} cores · no expiry`, accent: "cyan" };
+}
+
+function latencyStatus(connected, telemetry) {
+  if (!connected || !telemetry || !telemetry.latency_window || telemetry.latency_window.p99_ns == null) {
+    return { level: "OFFLINE", accent: "slate", glow: null };
+  }
+  if (telemetry.batch && telemetry.batch.overflow) return { level: "RING OVERFLOW", accent: "crimson", glow: "crimson" };
+  const p99 = telemetry.latency_window.p99_ns;
+  if (p99 <= 130) return { level: "NOMINAL", accent: "emerald", glow: "emerald" };
+  if (p99 <= 500) return { level: "JITTER", accent: "amber", glow: "amber" };
+  return { level: "DEGRADED", accent: "crimson", glow: "crimson" };
+}
+
+/* ------------------------------------------------------------------ */
+/*  HEADER                                                             */
+/* ------------------------------------------------------------------ */
+function Clock() {
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { const t = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(t); }, []);
+  const p = n => String(n).padStart(2, "0");
+  return (
+    <span className="font-mono text-xs text-slate-400 tabular-nums flex items-center gap-1.5">
+      <span title="UTC">{p(now.getUTCHours())}:{p(now.getUTCMinutes())}:{p(now.getUTCSeconds())} UTC</span>
+    </span>
+  );
+}
+
+function BridgeStatusPill({ connected, hasEverConnected }) {
+  let label, accent, pulse;
+  if (connected) {
+    label = "CONNECTED (LIVE STREAM)"; accent = "emerald"; pulse = true;
+  } else if (hasEverConnected) {
+    label = "RECONNECTING…"; accent = "amber"; pulse = true;
+  } else {
+    label = "OFFLINE (SHOWING HISTORICAL BENCHMARKS)"; accent = "slate"; pulse = false;
+  }
+  return (
+    <span className={`flex items-center gap-2 px-3 py-1.5 rounded border font-mono text-[11px] font-bold tracking-widest ${
+      ACCENTS[accent].border} ${ACCENTS[accent].bg} ${ACCENTS[accent].text}`}>
+      <StatusDot accent={accent} pulse={pulse} />
+      {label}
+    </span>
+  );
+}
+
+function Header({ connected, hasEverConnected }) {
+  return (
+    <header className="sticky top-0 z-40">
+      <div className="glass-panel hairline-b">
+        <div className="max-w-[1300px] mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <AnimusLogo size={34} />
+            <div className="leading-tight">
+              <div className="font-mono text-sm md:text-base font-extrabold tracking-widest text-slate-100">
+                ANIMUS ENGINE <span className="text-signal-cyan">// LIVE TELEMETRY</span>
+              </div>
+              <div className="text-[10px] font-mono tracking-[0.15em] text-slate-500 mt-0.5">
+                C++17 ZERO-COPY EXECUTION CORE — REAL-TIME METRICS
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
+            <Clock />
+            <BridgeStatusPill connected={connected} hasEverConnected={hasEverConnected} />
+          </div>
+        </div>
+      </div>
+      <div className="glass-panel-solid hairline-b overflow-hidden">
+        <div className="flex whitespace-nowrap py-1.5">
+          <div className="ticker-track flex gap-8 pr-8">
+            {[...TICKER_ITEMS, ...TICKER_ITEMS].map((item, i) => (
+              <span key={i} className="font-mono text-[10px] text-slate-500 tracking-wider flex items-center gap-1.5">
+                <span className="w-1 h-1 rounded-full bg-signal-cyan/60" /> {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  FAULTS                                                             */
+/* ------------------------------------------------------------------ */
+function FaultRow({ f }) {
+  const [open, setOpen] = useState(false);
+  const sevAccent = f.severity === "CRITICAL" ? "crimson" : f.severity === "OPERATIONAL" ? "amber" : "cyan";
+  const a = ACCENTS[sevAccent];
+  return (
+    <div className="px-4 py-2.5 hover:bg-slate-800/20 transition-colors">
+      <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={`w-1.5 h-1.5 rounded-full ${a.dot} flex-shrink-0`} />
+          <div className="min-w-0">
+            <div className="font-mono text-xs text-slate-200 font-semibold truncate">{f.code}</div>
+            <div className="font-mono text-[10px] text-slate-500 truncate">{f.detail}</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <PriorityBadge level={f.severity} />
+          <span className="font-mono text-[9px] text-slate-600">{new Date(f.ts).toLocaleTimeString()}</span>
+          <Icon name={open ? "ChevronUp" : "ChevronDown"} size={13} className="text-slate-500" />
+        </div>
+      </div>
+      {open && (
+        <div className="mt-2 ml-4 pl-3 border-l border-slate-800">
+          <div className="text-[10px] font-mono text-slate-400 mb-1.5"><span className="text-slate-500">DIAGNOSTIC TRACE:</span></div>
+          <pre className="text-[10px] font-mono text-slate-500 bg-obsidian-950/60 rounded p-2 overflow-x-auto">{JSON.stringify(f, null, 2)}</pre>
+          <div className="text-[10px] font-mono text-signal-cyan/90 mt-1.5 leading-snug">
+            <span className="text-slate-500">REMEDIATION: </span>{FAULT_GUIDANCE[f.code] || "No documented remediation for this code yet."}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MAIN TELEMETRY SECTION                                             */
+/* ------------------------------------------------------------------ */
+function EngineBridgeSection({ connected, hasEverConnected, telemetry, faults, bridgeUrl }) {
+  const status = latencyStatus(connected, telemetry);
+  const eng = telemetry && telemetry.engine;
+  const batch = telemetry && telemetry.batch;
+  const lat = telemetry && telemetry.latency_window;
+  const tier = eng ? licenseTier(eng) : null;
+  const simulated = !!(telemetry && telemetry.simulated);
+
+  return (
+    <section>
+      <SectionHeader icon="Activity" title="Live Engine Bridge" accent="cyan"
+        subtitle={`Real-time telemetry via ${bridgeUrl}`}
+        right={<StatusDot accent={status.accent} label={status.level} pulse={connected} />} />
+
+      {simulated && connected && (
+        <div className="glass-panel-solid rounded-lg px-4 py-2.5 mb-4 border border-signal-amber/40 flex items-center gap-3 flex-wrap">
+          <Icon name="FlaskConical" size={16} className="text-signal-amber" />
+          <span className="font-mono text-xs font-bold tracking-widest text-signal-amber">SIMULATED FEED</span>
+          <span className="font-mono text-[10px] text-slate-500">tools/simulate_telemetry_feed.py is running — these numbers are synthetic, not from the compiled engine.</span>
+        </div>
+      )}
+
+      {!connected && (
+        <div className="glass-panel-solid rounded-lg p-5 mb-4 border border-slate-700 flex items-start gap-4 flex-wrap">
+          <Icon name="PlugZap" size={28} className="text-slate-500 flex-shrink-0" />
+          <div>
+            <div className="font-mono text-sm text-slate-200 font-bold">
+              {hasEverConnected ? "RECONNECTING TO ENGINE BRIDGE…" : "NO ENGINE CONNECTION"}
+            </div>
+            <p className="text-xs font-mono text-slate-500 mt-1 leading-relaxed">
+              This dashboard never simulates live telemetry as real. Start the bridge from the repo root, then reload:
+            </p>
+            <code className="block mt-2 px-3 py-2 rounded bg-obsidian-950/80 border border-slate-800 text-signal-emerald text-xs font-mono w-fit">python telemetry_bridge.py</code>
+            <p className="text-[10px] font-mono text-slate-600 mt-2">Just want to see the UI move? <code className="text-slate-400">python tools/simulate_telemetry_feed.py</code> emits a clearly-labeled synthetic feed instead.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+        <MetricCard icon="Zap" accent="cyan" glow={connected ? status.glow : null}
+          label="Live Throughput" value={batch && batch.throughput_events_sec != null ? `${(batch.throughput_events_sec / 1e6).toFixed(2)}M ev/s` : "—"}
+          sub={batch ? `${fmtByteRate(batch.throughput_bytes_sec)} · ${fmtNum(batch.pushed)}/${fmtNum(batch.requested)} events accepted this tick` : "Waiting for bridge…"}
+          statusLabel={connected ? "LIVE" : "OFFLINE"} />
+        <MetricCard icon="Gauge" accent="emerald" glow={connected ? status.glow : null}
+          label="Latency p50 / p99" value={lat ? `${fmtNs(lat.p50_ns)} / ${fmtNs(lat.p99_ns)}` : "—"}
+          sub={lat ? `p99.9: ${fmtNs(lat.p999_ns)} · jitter (σ): ${fmtNs(lat.jitter_ns)} — ${lat.samples} rolling samples` : "Waiting for bridge…"}
+          statusLabel={connected ? "LIVE" : "OFFLINE"} />
+        <MetricCard icon="ShieldAlert" accent={batch && batch.overflow ? "crimson" : "amber"} glow={connected && batch && batch.overflow ? "crimson" : null}
+          label="Ring Buffer Status" value={!connected ? "—" : batch && batch.overflow ? "OVERFLOW" : "HEALTHY"}
+          sub={connected ? "Detected from real record_events_batch() accept counts — see Not Instrumented for why there's no fill % gauge" : "Waiting for bridge…"}
+          statusLabel={connected ? "LIVE" : "OFFLINE"} />
+        <MetricCard icon="Cpu" accent="cyan" label="Host CPU / Core Pinning"
+          value={eng ? `${eng.cpu_count} cores` : "—"}
+          sub={eng ? `Pin core 0: ${eng.core_pin_result ? "GRANTED" : "DENIED (" + eng.license_status + ")"}` : "Waiting for bridge…"}
+          statusLabel={connected ? "LIVE" : "OFFLINE"} />
+        <MetricCard icon="HardDrive" accent="emerald" label="Bridge Process Memory"
+          value={telemetry ? fmtBytes(telemetry.process && telemetry.process.rss_bytes) : "—"}
+          sub={eng ? `License: ${tier ? tier.label : eng.license_status} · native engine: ${eng.native ? "loaded" : "NOT FOUND"}` : "Waiting for bridge…"}
+          statusLabel={connected ? "LIVE" : "OFFLINE"} />
+        <MetricCard icon="Layers" accent="amber" label="Cache-Line Isolation"
+          value="alignas(64)"
+          sub="Structural, build-time property — see Verified Historical Benchmarks below, not a live per-tick measurement" />
+      </div>
+
+      {tier && (
+        <div className={`glass-panel-solid rounded-lg px-4 py-2.5 mb-4 border ${ACCENTS[tier.accent].border} flex items-center gap-3 flex-wrap`}>
+          <Icon name="KeyRound" size={14} className={ACCENTS[tier.accent].text} />
+          <span className={`font-mono text-xs font-bold tracking-widest ${ACCENTS[tier.accent].text}`}>{tier.label}</span>
+          {tier.sub && <span className="font-mono text-[10px] text-slate-500">{tier.sub}</span>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div className="lg:col-span-3 glass-panel-solid rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 hairline-b flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Icon name="AlertTriangle" size={14} className="text-signal-crimson" />
+              <span className="font-mono text-xs font-bold tracking-widest text-slate-200 uppercase">Fault & Infrastructure Diagnostics</span>
+            </div>
+            <span className="font-mono text-[10px] text-slate-500">{faults.length} events this session</span>
+          </div>
+          <div className="divide-y divide-slate-800/70 max-h-[360px] overflow-y-auto">
+            {faults.length === 0 && (
+              <div className="px-4 py-8 text-center">
+                <Icon name="CheckCircle" size={20} className="text-signal-emerald/60 mx-auto mb-2" />
+                <p className="text-xs font-mono text-slate-500">No faults detected this session.</p>
+              </div>
+            )}
+            {faults.map(f => <FaultRow key={f.id} f={f} />)}
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 glass-panel-solid rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 hairline-b flex items-center gap-2">
+            <Icon name="EyeOff" size={14} className="text-slate-500" />
+            <span className="font-mono text-xs font-bold tracking-widest text-slate-200 uppercase">Not Instrumented</span>
+          </div>
+          <div className="p-4 space-y-2">
+            {(telemetry && telemetry.not_instrumented ? telemetry.not_instrumented : [
+              "Live ring-buffer occupancy / fill %", "L1/L2/L3 cache-miss rates", "Live exchange packet loss / kernel-bypass NIC status",
+            ]).map((line, i) => (
+              <div key={i} className="text-[10px] font-mono text-slate-500 leading-snug flex items-start gap-2">
+                <Icon name="Minus" size={10} className="text-slate-700 mt-0.5 flex-shrink-0" /> {line}
+              </div>
+            ))}
+            <p className="text-[10px] font-mono text-slate-600 mt-3 pt-3 hairline-top leading-snug">
+              Shown explicitly rather than faked. Wiring these up requires hardware perf-counter hooks / a live market-data feed not present in this codebase yet.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="glass-panel-solid rounded-lg overflow-hidden mt-4">
+        <div className="px-4 py-2.5 hairline-b flex items-center gap-2">
+          <Icon name="History" size={14} className="text-signal-cyan" />
+          <span className="font-mono text-xs font-bold tracking-widest text-slate-200 uppercase">Verified Historical Benchmarks (README.md)</span>
+        </div>
+        <div className="divide-y divide-slate-800/70">
+          {VERIFIED_BENCHMARKS.map(b => (
+            <div key={b.id} className="px-4 py-2.5 flex items-start justify-between gap-3 flex-wrap hover:bg-slate-800/20 transition-colors">
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-slate-600 flex-shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-mono text-xs text-slate-200 font-semibold">{b.label}</div>
+                  <div className="font-mono text-[10px] text-slate-500 mt-0.5 leading-snug">{b.detail}</div>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[9px] font-mono font-bold tracking-widest border text-slate-400 border-slate-600 bg-slate-800/40 whitespace-nowrap flex-shrink-0">{b.tag}</span>
+            </div>
+          ))}
+        </div>
+        <div className="px-4 py-2.5 hairline-top"><p className="text-[10px] font-mono text-slate-600 leading-snug">{BENCHMARK_CAVEAT}</p></div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  APP                                                                */
+/* ------------------------------------------------------------------ */
+function App() {
+  const { connected, telemetry, faults, bridgeUrl } = useEngineBridge();
+  const hasEverConnectedRef = useRef(false);
+  if (connected) hasEverConnectedRef.current = true;
+
+  return (
+    <React.Fragment>
+      <Header connected={connected} hasEverConnected={hasEverConnectedRef.current} />
+      <main className="max-w-[1300px] mx-auto px-4 md:px-6 py-6">
+        <EngineBridgeSection connected={connected} hasEverConnected={hasEverConnectedRef.current} telemetry={telemetry} faults={faults} bridgeUrl={bridgeUrl} />
+        <footer className="mt-8 pb-6 text-center">
+          <p className="text-[10px] font-mono text-slate-600">Animus Engine — solo-founder, bootstrapped, self-funded. No telemetry on this page is ever fabricated when the engine bridge is offline; it's shown as historical instead.</p>
+        </footer>
+      </main>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

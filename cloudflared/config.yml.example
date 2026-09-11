@@ -1,0 +1,30 @@
+# Cloudflare Tunnel config template for the Animus telemetry bridge.
+#
+# Copy this to cloudflared/config.yml and fill in the two placeholders
+# below (they're printed back to you by `cloudflared tunnel create` and
+# you choose the hostname yourself). config.yml (with your real tunnel ID)
+# and the credentials JSON cloudflared writes are both gitignored --
+# never commit the credentials file, it's a bearer secret for the tunnel.
+#
+# Setup (run once, from the repo root, in an elevated PowerShell):
+#   1. winget install --id Cloudflare.cloudflared
+#   2. cloudflared tunnel login
+#      (opens a browser -- pick the domain you're adding to Cloudflare)
+#   3. cloudflared tunnel create animus-telemetry
+#      -> prints a Tunnel ID and writes a credentials JSON, usually to
+#         %USERPROFILE%\.cloudflared\<tunnel-id>.json
+#   4. cloudflared tunnel route dns animus-telemetry telemetry.yourdomain.com
+#      -> creates the CNAME in Cloudflare DNS automatically
+#   5. Copy this file to cloudflared\config.yml and fill in tunnel/credentials-file/hostname
+#   6. cloudflared service install --config "<repo-root>\cloudflared\config.yml"
+#      -> installs cloudflared as a Windows service that starts on boot,
+#         no login required (same idea as the telemetry_bridge.py task)
+#   7. Reload docs/dashboard.html -- it should show CONNECTED (LIVE STREAM)
+
+tunnel: REPLACE_WITH_YOUR_TUNNEL_ID
+credentials-file: REPLACE_WITH_PATH_TO_YOUR_TUNNEL_CREDENTIALS_JSON
+
+ingress:
+  - hostname: telemetry.yourdomain.com
+    service: http://localhost:8766
+  - service: http_status:404
