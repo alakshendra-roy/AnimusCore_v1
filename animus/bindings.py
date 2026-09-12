@@ -1009,12 +1009,19 @@ class AnimusBindings:
         Never blocks; returns fewer than max_count (including zero) if
         fewer signals are currently pending.
 
-        On the native engine this is zero-copy: `buf` below is a single
-        contiguous ctypes array allocated once in this process, and its
+        On the native engine, no payload bytes are copied: `buf` below is a
+        fresh contiguous ctypes array, sized exactly to max_count and
+        allocated anew each call (deliberately not cached/reused across
+        calls -- see ZeroCopyPollSignalsTests.test_buffer_is_sized_to_max_count_not_reallocated_per_signal
+        in tests/test_bindings.py, which pins that contract), and its
         pointer is handed directly to animus_poll_signals, which writes
-        matched ThreatSignal records straight into that memory -- there is
-        no intermediate serialization/deserialization step, and the list
-        returned is built from slicing that same buffer.
+        matched ThreatSignal records straight into that memory. list(buf[:count])
+        does not copy those record bytes either -- ctypes Structure-array
+        slicing returns elements that alias the array's own memory
+        (verified: mutating the array after slicing is visible through the
+        sliced elements), so the only allocation on this path is the array
+        itself plus one lightweight Python object wrapper per returned
+        element, never a payload copy.
         """
         if not self._initialized:
             raise RuntimeError("AnimusBindings.init() must succeed before polling signals")
@@ -1074,10 +1081,12 @@ class AnimusBindings:
         return int(self._lib.animus_spsc_record_events_batch(buf, ctypes.c_size_t(count)))
 
     def spsc_drain(self, max_count: int = 1024) -> List[SpscTelemetryRecord]:
-        """Consumer-side drain from the SPSC ring. Zero-copy, same pattern
-        as poll_signals(). Single-consumer contract: never call this from
-        more than one thread concurrently (a different thread than the
-        producer is fine; more than one consumer thread is not).
+        """Consumer-side drain from the SPSC ring. No payload-byte copy,
+        same pattern (and same fresh-buffer-per-call contract) as
+        poll_signals() -- see its docstring. Single-consumer contract:
+        never call this from more than one thread concurrently (a
+        different thread than the producer is fine; more than one consumer
+        thread is not).
         """
         self._require_native("spsc_drain")
         if not self._spsc_initialized:
