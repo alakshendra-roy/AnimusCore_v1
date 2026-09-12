@@ -20,6 +20,167 @@
 > trading/production execution pipelines, or any revenue-generating
 > execution node.
 
+## Executive Architecture Overview
+
+Deterministic, zero-copy telemetry and market-data infrastructure for
+latency-critical execution pipelines: a lock-free C++ core exposed to
+Python with no serialization boundary in between.
+
+| Spec | Value |
+|---|---|
+| Language | C++17 (MSVC 2022 `/std:c++17`, GCC 13+, Clang 17+) |
+| Platform | Windows (full stack, including mTLS/RBAC/clustering) and Linux (portable core engine + RBAC layer via CMake's `animus_native` target -- see `CMakeLists.txt`) |
+| Python SDK | 3.8+, zero required third-party dependencies, ctypes C-ABI bindings (`animus/bindings.py`) |
+| License | Animus Dual-License Gateway -- free Community Grant for evaluation, benchmarking, and non-commercial research; paid Enterprise Production License for commercial/live deployment (`LICENSE`, `COMMERCIAL.md`) |
+| Measured hot-path enqueue | 30.3 ns p50 / 40.1 ns p99 (SPSC ring push, in-process) |
+| Measured tick-to-trade | 100 ns p50/p99 (`MarketDataFeed` -> `ExecutionClient::submit()`) |
+
+### Design principles
+
+* **Zero-allocation hot path.** `animus::SpscRingBuffer<T>` and
+  `animus::LockFreeRingBuffer<T>` (`AnimusCore_v1/animus.hpp`) both hold
+  one contiguous, pre-allocated backing store sized at construction --
+  `push()`/`pop()` do a fixed number of atomic loads/stores and a
+  `memcpy`-equivalent element copy, nothing else. No `new`, no
+  `std::vector::push_back`, no lock, on the path a producer or consumer
+  thread actually runs per event.
+* **Cache-line isolated SPSC ring buffer layout.** The record type
+  (`TelemetryPayload`, `L2Update`, `TradeTick`) and the ring's own
+  head/tail counters are each `alignas(64)`, so a producer writing
+  `head_` and a consumer writing `tail_` never share a cache line --
+  Phase 19's false-sharing A/B test measured a **4.21x-4.99x** throughput
+  penalty with that padding removed, validating the design with data
+  rather than assertion (see `AnimusCore_v1/BENCHMARKS.md`, "CPU Cache Locality").
+
+  ```
+   Cache line 0 (64B)          Cache line 1 (64B)          Cache line N (64B)
+  +----------------------+    +----------------------+    +----------------------+
+  | atomic<size_t> head_ |    | atomic<size_t> tail_ |    | cells_[i]: T (record)|
+  | (producer-owned)     |    | (consumer-owned)     |    | alignas(64), copied  |
+  +----------------------+    +----------------------+    | in whole by push/pop |
+                                                            +----------------------+
+  ```
+
+* **Zero-copy IPC / Python interop architecture.** `animus::SharedMemorySegment`
+  + `animus::SharedTelemetryChannel` (Phase 16) map an SPSC ring directly
+  into a named OS shared-memory segment (`CreateFileMappingA`/`mmap`);
+  a Python consumer attaches a NumPy structured-array view over the same
+  segment, so there is no per-message parsing or copy step between the
+  native writer and the Python reader. Where a segment isn't shared, the
+  SDK still avoids per-event marshalling cost by batching -- see
+  `record_events_batch()` / `spsc_record_events_batch()` below and Phase
+  11/13's measurement of ctypes call overhead.
+
+### Representative (measured) latency profile
+
+Every figure below is a real run recorded in `AnimusCore_v1/BENCHMARKS.md`, not a
+projected or target number -- cells marked `--` are percentiles that
+benchmark's own harness does not capture, left blank rather than
+interpolated.
+
+| Path (payload) | p50 | p90 | p99 | p99.9 | Source |
+|---|---|---|---|---|---|
+| SPSC ring push, in-process, decoupled overwrite (`TelemetryPayload`, 24B) | 30.3 ns | 40.1 ns | 40.1 ns | 2,695.2 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 27 |
+| Cross-process lockstep round trip, `animus::sys::ipc::ShmRing<T>`, depth-1 (cross-core) | 53.3 ns | 57.9 ns | 64.9 ns | 111.6 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 20/26, "Cross-Process Lockstep Latency" |
+| Tick-to-trade, `MarketDataFeed` -> `ExecutionClient::submit()` | 100.0 ns | -- | 100.0 ns | 200.0 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 19 |
+| ITCH 5.0 parse + enqueue, 64B normalized `ItchFrame` (Linux / Windows) | 70 ns / 82 ns | -- | 130 ns / 98 ns | -- | "Verified Benchmark Telemetry" table below; `adapters/itch50/README.md` |
+
+### Quickstart
+
+**CMake integration** (links against the portable `animus_native` target
+this repo's own `CMakeLists.txt` builds -- `libanimus_native.so` on
+Linux, `AnimusNative.dll` on Windows):
+
+```cmake
+cmake_minimum_required(VERSION 3.15)
+project(my_consumer LANGUAGES CXX)
+
+add_subdirectory(AnimusCore_v1 animus_core)   # brings in the animus_native target
+
+add_executable(my_consumer main.cpp)
+target_link_libraries(my_consumer PRIVATE animus_native)
+target_include_directories(my_consumer PRIVATE AnimusCore_v1/AnimusCore_v1)
+```
+
+**Minimal C++ hot-path telemetry logging** (header-only, no DLL needed --
+`#include "animus.hpp"` directly):
+
+```cpp
+#include "animus.hpp"
+#include <thread>
+
+using animus::SpscRingBuffer;
+using animus::TelemetryPayload;
+using animus::read_cycle_counter;
+
+SpscRingBuffer<TelemetryPayload> ring(1 << 16);   // pre-allocated, no further heap use
+
+// Hot path -- producer thread, e.g. an order-submission callback.
+inline void log_event(uint32_t event_id, uint32_t trace_id, uint64_t metric_value) noexcept {
+    const TelemetryPayload payload{
+        read_cycle_counter(),   // TSC-based (RDTSC/RDTSCP)
+        event_id,
+        trace_id,
+        metric_value
+    };
+    ring.push(payload);   // never blocks; false if the ring is full
+}
+
+// Consumer thread -- drains independently, off the hot path.
+void drain_loop(std::atomic<bool>& running) {
+    TelemetryPayload out;
+    while (running.load(std::memory_order_relaxed)) {
+        while (ring.pop(out)) {
+            // persist / forward / evaluate rules against `out`
+        }
+    }
+}
+```
+
+**Minimal Python consumer** (batched, zero-dependency ctypes SDK --
+`pip install -e .` from the repo root first):
+
+```python
+from animus.bindings import AnimusBindings
+
+bindings = AnimusBindings()
+bindings.spsc_init(buffer_capacity=1 << 16)
+
+# Producer side (could equally be the native process above, sharing the
+# same ring via animus_shm_create/attach instead of spsc_init):
+bindings.spsc_record_events_batch([(event_id, trace_id, metric_value)])
+
+# Consumer side -- drains without per-event marshalling.
+for record in bindings.spsc_drain(max_count=1024):
+    print(record.event_id, record.trace_id, record.metric_value)
+```
+
+### Build & benchmarking
+
+```bash
+# Configure a Release build (the portable CMake path; MSVC users can instead
+# open AnimusCore_v1.sln / build AnimusCore_v1.vcxproj directly)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+# Build the native shared library (libanimus_native.so / AnimusNative.dll)
+cmake --build build --target animus_native
+
+# Build and run the ITCH 5.0 ingestion benchmark (10M synthetic messages)
+cmake --build build --target bench_itch_ingest
+build/bin/bench_itch_ingest --messages 10000000
+
+# Build, run, and render the full institutional benchmark suite (tick-to-trade,
+# 8-thread ring throughput, cache-locality sweep) to benchmarks/BENCHMARK_REPORT.md
+python benchmarks/generate_benchmark_report.py
+
+# Batched-ingestion tail latency (p50-p99.99), the source of the table above
+python benchmarks/fintech_tail_latency.py
+```
+
+Full phase-by-phase methodology, every raw run, and every defect found
+while measuring is in [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) -- nothing in the
+table above is asserted without a reproduction command behind it.
+
 ## Overview
 AnimusCore's market-data path (`adapters/itch50/`) is a zero-copy,
 zero-heap-allocation NASDAQ TotalView-ITCH 5.0 wire decoder feeding a
