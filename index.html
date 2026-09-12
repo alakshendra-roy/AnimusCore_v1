@@ -175,11 +175,11 @@ tailwind.config = {
             <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live flex-shrink-0"></span>
             BARE-METAL &middot; p99 <span id="hdr-p99">51.5</span>ns
           </span>
-          <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Benchmark</button>
+          <a href="mailto:royalekhshendra@gmail.com?subject=Animus%20Core%20-%20Institutional%20Benchmark%20Access%20Request&body=Hello%20Alakshendra%2C%0A%0AWe%20would%20like%20to%20request%20access%20to%20the%20Animus%20Core%20benchmark%20evaluation%20kit%20and%20reproduction%20datasheet.%0A%0AOrganization%3A%20%0ATeam%20%2F%20Use-Case%3A%20" class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0 inline-block">Request Benchmark</a>
         </div>
       </div>
       <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
-        <button data-open-modal class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase">Access</button>
+        <a href="mailto:royalekhshendra@gmail.com?subject=Animus%20Core%20-%20Institutional%20Benchmark%20Access%20Request&body=Hello%20Alakshendra%2C%0A%0AWe%20would%20like%20to%20request%20access%20to%20the%20Animus%20Core%20benchmark%20evaluation%20kit%20and%20reproduction%20datasheet.%0A%0AOrganization%3A%20%0ATeam%20%2F%20Use-Case%3A%20" class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase inline-block">Access</a>
         <button id="mobile-menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Toggle navigation menu" class="flex items-center justify-center w-9 h-9 border border-border rounded-sm text-slate-300 hover:text-cyan hover:border-cyan/50 transition">
           <svg id="mobile-menu-icon-open" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
           <svg id="mobile-menu-icon-close" class="w-5 h-5 hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -830,11 +830,11 @@ TelemetryEvent evt;
       <div class="text-[11px] text-slate-400 bg-black/30 border border-border rounded-sm px-3 py-2 mb-3 font-mono leading-relaxed">
         Licensing is offline, RSA-2048, hardware-fingerprint bound &mdash; zero cloud pinging. Run
         <code class="text-cyan">Pilot_Kit\get_fingerprint.ps1</code> on the target machine and paste the printed 64-hex fingerprint below, or leave it blank and we'll send you the instructions. Prefer email? Send it directly to
-        <a href="mailto:access@animusinfra.com" class="text-cyan hover:underline">access@animusinfra.com</a>.
+        <a href="mailto:royalekhshendra@gmail.com" class="text-cyan hover:underline">royalekhshendra@gmail.com</a>.
       </div>
 
       <form id="benchmark-form" class="space-y-2.5">
-        <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
+        <input type="text" name="_honey" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
 
         <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
         <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
@@ -871,7 +871,7 @@ TelemetryEvent evt;
       <div id="modal-success" class="hidden text-center py-4 font-mono">
         <div class="border border-emerald/40 bg-emerald/5 rounded-sm px-4 py-4 text-left">
           <div class="text-emerald text-xs">&gt; [STATUS: 200 OK]</div>
-          <div class="text-slate-300 text-xs mt-1.5 leading-relaxed">Evaluation request logged. Evaluation kit details dispatched.</div>
+          <div class="text-slate-300 text-xs mt-1.5 leading-relaxed">Request submitted &mdash; we will be in touch shortly.</div>
         </div>
         <button data-close-modal class="mt-5 text-sm text-cyan hover:underline">Close</button>
       </div>
@@ -1336,24 +1336,29 @@ TelemetryEvent evt;
       organization: formData.get('organization'),
       orgType: formData.get('orgType'),
       coreFootprint: formData.get('coreFootprint'),
+      hardwareFingerprint: formData.get('hardwareFingerprint'),
       useCase: formData.get('useCase'),
-      botcheck: !!formData.get('botcheck')
+      _honey: formData.get('_honey') || '',
+      _subject: 'Animus Core — Benchmark Access Request',
+      _template: 'table',
+      _captcha: 'false'
     };
 
-    fetch('/api/request-access', {
+    fetch('https://formsubmit.co/ajax/royalekhshendra@gmail.com', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify(payload)
     })
       .then(function(r){
         return r.json().then(function(data){ return { ok: r.ok, data: data }; });
       })
       .then(function(result){
-        if (result.ok && result.data && result.data.success){
+        var success = result.ok && result.data && (result.data.success === true || result.data.success === 'true');
+        if (success){
           modalForm.classList.add('hidden');
           modalSuccess.classList.remove('hidden');
         } else {
-          throw new Error((result.data && result.data.error) || 'Submission failed.');
+          throw new Error((result.data && result.data.message) || 'Submission failed.');
         }
       })
       .catch(function(err){
