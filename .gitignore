@@ -197,3 +197,18 @@ build_linux/
 # financial/roadmap sections stays local-only as command-center.html above.
 # If docs/dashboard.html ever regains real outreach/financial data, re-add
 # an ignore rule for it immediately.
+
+# Founder-drafted corporate/incorporation template package and local eval-kit
+# build artifacts -- not meant to be published to the public repo. (Removed
+# from tracking via git rm --cached on 2026-09-12; the previously-committed
+# version remains in this repo's public git history until/unless a separate
+# history rewrite is done.)
+/docs/CORPORATE_SETUP_PACKAGE.md
+/animus_eval_v1.tar.gz
+/animus_eval_v1.zip
+/LEGAL_INCORPORATION_BRIEF.md
+
+# Personal photo and a payment-provider transaction screenshot (real
+# transaction ID + VPA) -- never belongs in a public repo.
+/AnimusCore_v1/Founder's Pic.jpeg
+/AnimusCore_v1/Hostinger Payment Proof.jpeg
