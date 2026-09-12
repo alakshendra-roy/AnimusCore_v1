@@ -55,13 +55,24 @@
 
 namespace animus {
 
-    // Strictly aligned to 64 bytes to match standard CPU L1/L2 cache line boundaries
+    // Strictly aligned to 64 bytes to match standard CPU L1/L2 cache line boundaries.
+    // Real fields occupy exactly the first 24 bytes with zero internal padding
+    // (timestamp_cycles @0-7, event_id @8-11, trace_id @12-15, metric_value
+    // @16-23 -- each already lands on its own natural-alignment boundary in
+    // declaration order, so the compiler inserts no gaps between them); the
+    // alignas(64) requirement is what pads sizeof(...) up to a full 64-byte
+    // cache line, not scattered internal padding. The static_asserts below
+    // pin both halves of that guarantee at compile time -- if a future field
+    // addition ever breaks single-cacheline transfer, the build fails here
+    // instead of silently regressing a hot-path property nothing else checks.
     struct alignas(64) TelemetryPayload {
         uint64_t timestamp_cycles;
         uint32_t event_id;
         uint32_t trace_id;
         uint64_t metric_value;
     };
+    static_assert(sizeof(TelemetryPayload) == 64, "TelemetryPayload must occupy exactly one 64-byte cache line");
+    static_assert(alignof(TelemetryPayload) == 64, "TelemetryPayload must be 64-byte aligned for single-cacheline transfer");
 
     // Emitted when a registered rule matches an ingested telemetry event.
     // Deliberately NOT cache-line padded like TelemetryPayload: this struct
@@ -291,6 +302,25 @@ namespace animus {
 
     // Low-overhead cycle counter for hot-path timestamping. Falls back to a
     // monotonic clock on platforms without an invariant TSC intrinsic.
+    //
+    // Deliberately NOT lfence-serialized, audited and left that way: an
+    // unserialized __rdtsc() can retire slightly out of order relative to
+    // the instructions around it, which matters when you need a precise
+    // *bracketed interval* (start-read, do work, end-read) -- exactly why
+    // benchmarks/telemetry_benchmark.cpp and benchmarks/harness_benchmark.cpp
+    // each wrap their own rdtsc reads in _mm_lfence() (see BENCHMARKS.md
+    // Phase 28/29). This function instead stamps a single per-event
+    // timestamp_cycles value with no bracket to keep accurate, so that
+    // ordering guarantee buys nothing here -- it would only add a real
+    // pipeline-serializing stall to every single call on the exact hot path
+    // (record()/push()/record_batch()) this function exists to keep cheap.
+    // No additional compiler barrier is needed at the call sites either: all
+    // four production call sites embed this call as the first element of a
+    // C++17 aggregate/list-initializer (e.g. `TelemetryPayload{
+    // read_cycle_counter(), event_id, ...}`), and list-initialization has
+    // guaranteed left-to-right evaluation order since C++17 -- the read is
+    // already sequenced before the other members, standard-guaranteed, not
+    // by convention.
     inline uint64_t read_cycle_counter() noexcept {
 #if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
         return __rdtsc();
