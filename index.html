@@ -161,17 +161,17 @@ tailwind.config = {
              style="image-rendering:-webkit-optimize-contrast;"
              onerror="this.style.display='none';">
       </a>
-      <div class="hidden lg:flex items-center gap-6 xl:gap-8 min-w-0 text-sm font-mono">
-        <div class="flex items-center gap-6 xl:gap-8 min-w-0">
-          <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap">Specs</a>
-          <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap">Telemetry</a>
-          <a href="#memory" class="hover:text-cyan transition whitespace-nowrap">Memory Topology</a>
-          <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap">SDK Explorer</a>
-          <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap">Benchmarks</a>
-          <a href="#comparison" class="hover:text-cyan transition whitespace-nowrap">Compare</a>
-          <a href="/benchmark" class="hover:text-cyan transition whitespace-nowrap">Benchmark Spec</a>
-        </div>
+      <div class="hidden lg:flex items-center justify-between gap-4 xl:gap-8 min-w-0 flex-1 text-sm font-mono">
         <div class="flex items-center gap-4 xl:gap-6 flex-shrink-0">
+          <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Specs</a>
+          <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Telemetry</a>
+          <a href="#memory" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Memory Topology</a>
+          <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">SDK Explorer</a>
+          <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Benchmarks</a>
+          <a href="#comparison" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Compare</a>
+          <a href="/benchmark" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Spec</a>
+        </div>
+        <div class="flex items-center gap-4 xl:gap-6 flex-shrink-0 whitespace-nowrap ml-auto">
           <span id="hdr-status" class="flex items-center gap-1.5 font-mono text-xs text-emerald whitespace-nowrap flex-shrink-0">
             <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live flex-shrink-0"></span>
             BARE-METAL &middot; p99 <span id="hdr-p99">51.5</span>ns
@@ -196,7 +196,7 @@ tailwind.config = {
         <a href="#sdk" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">SDK Explorer</a>
         <a href="#benchmarks" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Benchmarks</a>
         <a href="#comparison" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Compare</a>
-        <a href="/benchmark" data-mobile-nav-link class="py-3 hover:text-cyan transition">Benchmark Spec</a>
+        <a href="/benchmark" data-mobile-nav-link class="py-3 hover:text-cyan transition">Spec</a>
       </div>
     </div>
   </nav>
