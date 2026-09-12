@@ -208,6 +208,10 @@ build_linux/
 /animus_eval_v1.zip
 /LEGAL_INCORPORATION_BRIEF.md
 
+# Final NOC (Registered Office) for incorporation filing -- names, address,
+# and Aadhaar-number field of a real family member; strictly local only.
+/NOC_Registered_Office_Animus_Core_Systems_Official.docx
+
 # Personal photo and a payment-provider transaction screenshot (real
 # transaction ID + VPA) -- never belongs in a public repo.
 /AnimusCore_v1/Founder's Pic.jpeg
