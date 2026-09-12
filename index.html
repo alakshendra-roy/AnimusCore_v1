@@ -169,6 +169,7 @@ tailwind.config = {
           <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap">SDK Explorer</a>
           <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap">Benchmarks</a>
           <a href="#comparison" class="hover:text-cyan transition whitespace-nowrap">Compare</a>
+          <a href="/benchmark" class="hover:text-cyan transition whitespace-nowrap">Benchmark Spec</a>
         </div>
         <div class="flex items-center gap-4 xl:gap-6 flex-shrink-0">
           <span id="hdr-status" class="flex items-center gap-1.5 font-mono text-xs text-emerald whitespace-nowrap flex-shrink-0">
@@ -194,7 +195,8 @@ tailwind.config = {
         <a href="#memory" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Memory Topology</a>
         <a href="#sdk" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">SDK Explorer</a>
         <a href="#benchmarks" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Benchmarks</a>
-        <a href="#comparison" data-mobile-nav-link class="py-3 hover:text-cyan transition">Compare</a>
+        <a href="#comparison" data-mobile-nav-link class="py-3 border-b border-border/60 hover:text-cyan transition">Compare</a>
+        <a href="/benchmark" data-mobile-nav-link class="py-3 hover:text-cyan transition">Benchmark Spec</a>
       </div>
     </div>
   </nav>
@@ -236,11 +238,12 @@ tailwind.config = {
       </div>
     </div>
     <p class="mt-4 text-[11px] text-slate-500 max-w-2xl mx-auto font-mono leading-relaxed">
-      Reported honestly as two distinct transport modes, not blended: overwrite mode maximizes producer speed and drops the oldest unread event once the ring saturates; backpressure mode guarantees zero loss at a throughput bounded by the attached consumer. See the <a href="#comparison" class="text-cyan hover:underline">Comparative Benchmark Table</a> below.
+      Reported honestly as two distinct transport modes, not blended: overwrite mode maximizes producer speed and drops the oldest unread event once the ring saturates; backpressure mode guarantees zero loss at a throughput bounded by the attached consumer. See the <a href="#comparison" class="text-cyan hover:underline">Comparative Benchmark Table</a> below, or the full <a href="/benchmark" class="text-cyan hover:underline">Technical Benchmark Specification</a> for reference hardware config and reproduction steps.
     </p>
 
     <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
       <button data-open-modal class="bg-cyan text-black font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:opacity-90 transition">Request Air-Gapped Evaluation Kit</button>
+      <a href="/benchmark" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">View Benchmark Specification</a>
       <a href="#memory" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">Explore Memory Topology</a>
     </div>
   </section>

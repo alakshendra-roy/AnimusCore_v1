@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Technical Specification &amp; Empirical Latency Evaluation | Animus Core Systems</title>
+<meta name="description" content="Animus Core Systems technical benchmark specification: zero-allocation SPSC ring architecture measured at 30.3ns median enqueue latency, with reproducible hardware config, empirical percentile data, and a hot-path integration blueprint.">
+<meta name="author" content="Alakshendra Roy">
+<link rel="icon" type="image/png" href="/animus-logo.png">
+<link rel="shortcut icon" type="image/png" href="/animus-logo.png">
+<link rel="apple-touch-icon" href="/animus-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+      },
+      colors: {
+        void: '#020408',
+        panel: '#0A0F1D',
+        border: '#1E293D',
+        cyan: '#00F0FF',
+        emerald: '#00FF66',
+        danger: '#FF4B4B'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root{ --void:#020408; --panel:#0A0F1D; --border:#1E293D; --cyan:#00F0FF; --emerald:#00FF66; --danger:#FF4B4B; }
+  html,body{ background:var(--void); }
+  .doc h2{ scroll-margin-top: 6rem; }
+
+  #benchmark-modal.modal-open{ display:flex; }
+  #benchmark-modal{ display:none; }
+  .modal-panel{ transform:translateY(14px); opacity:0; transition:opacity .22s ease, transform .22s ease; }
+  #benchmark-modal.modal-open .modal-panel{ transform:translateY(0); opacity:1; }
+
+  .modal-scroll{ scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+  .modal-scroll::-webkit-scrollbar{ width:6px; }
+  .modal-scroll::-webkit-scrollbar-track{ background:transparent; }
+  .modal-scroll::-webkit-scrollbar-thumb{ background:var(--border); border-radius:999px; }
+  .modal-scroll::-webkit-scrollbar-thumb:hover{ background:var(--cyan); }
+
+  select.custom-select{
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+    background-color:#0B1117;
+    color:#ffffff;
+    border:1px solid #1E293D;
+    border-radius:2px;
+    padding:0.625rem 2.75rem 0.625rem 1rem;
+    font-size:0.875rem;
+    line-height:1.25rem;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2300F0FF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat:no-repeat;
+    background-position:right 1rem center;
+    background-size:12px;
+    cursor:pointer;
+  }
+  select.custom-select::-ms-expand{ display:none; }
+  select.custom-select:focus{ outline:none; border-color:var(--cyan); }
+  select.custom-select option{ background-color:#0B1117; color:#ffffff; }
+
+  ::-webkit-scrollbar{ height:8px; width:8px; }
+  ::-webkit-scrollbar-track{ background:#0A0F1D; }
+  ::-webkit-scrollbar-thumb{ background:#1E293D; border-radius:4px; }
+  ::selection{ background:var(--cyan); color:#000; }
+
+  .corner-card{ position:relative; --accent: var(--cyan); }
+  .corner-card::before,.corner-card::after{
+    content:''; position:absolute; width:12px; height:12px; opacity:.6;
+    transition:opacity .2s ease, width .2s ease, height .2s ease;
+    pointer-events:none;
+  }
+  .corner-card::before{ top:-1px; left:-1px; border-top:2px solid var(--accent); border-left:2px solid var(--accent); }
+  .corner-card::after{ bottom:-1px; right:-1px; border-bottom:2px solid var(--accent); border-right:2px solid var(--accent); }
+  .corner-card:hover::before,.corner-card:hover::after{ opacity:1; width:18px; height:18px; }
+</style>
+</head>
+<body class="bg-void text-slate-300 font-sans antialiased">
+
+  <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
+    <div class="max-w-5xl mx-auto py-4 px-6 flex items-center justify-between gap-6">
+      <a href="/" class="flex items-center min-w-0 flex-shrink-0">
+        <img src="/animus-logo.png" alt="ANIMUS" class="h-14 w-auto object-contain" style="image-rendering:-webkit-optimize-contrast;" onerror="this.style.display='none';">
+      </a>
+      <div class="flex items-center gap-5 flex-shrink-0">
+        <a href="/" class="hidden sm:inline text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-cyan transition whitespace-nowrap">&larr; Back to Home</a>
+        <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Pilot Access</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="doc max-w-4xl mx-auto px-6 pt-32 pb-24">
+
+    <!-- Document Header -->
+    <div class="inline-flex items-center gap-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-sm text-cyan text-[11px] font-bold mb-6 font-mono uppercase tracking-widest">
+      <span class="w-2 h-2 rounded-full bg-cyan"></span>
+      <span>Architecture Brief &amp; Reproducible Benchmark Report</span>
+    </div>
+    <h1 class="text-3xl md:text-5xl font-extrabold text-white font-sans leading-tight">
+      ANIMUS CORE SYSTEMS <span class="text-slate-500">//</span><br class="hidden md:block">
+      Technical Specification &amp; Empirical Latency Evaluation
+    </h1>
+    <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-mono text-slate-500 uppercase tracking-wider">
+      <span>Document Class: Architecture Brief &amp; Reproducible Benchmark Report</span>
+      <span class="text-border">&middot;</span>
+      <span>Version: 1.0.4-PROD</span>
+      <span class="text-border">&middot;</span>
+      <span>Prepared by: Alakshendra Roy, Founder &amp; Systems Architect</span>
+    </div>
+    <p class="mt-6 text-sm text-slate-400 leading-relaxed max-w-2xl">
+      Every figure in this document is cited to a specific, reproducible source in this codebase &mdash; a benchmark harness, a CI run, or a header file &mdash; rather than asserted. Where a comparison row is a representative industry baseline instead of a measurement taken on this hardware, it is labeled as such. Run the harness yourself before you rely on it.
+    </p>
+
+    <!-- Section 1: Executive Summary -->
+    <section id="executive-summary" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">1. Executive Summary</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        On the critical execution path &mdash; order dispatch, tick ingestion, telemetry capture &mdash; the dominant latency cost is rarely the business logic itself. It is the serialization and IPC overhead surrounding it: marshalling a struct into a wire format, crossing a kernel syscall boundary, and copying the payload two to four times between producer and consumer. Conventional logging and messaging layers (synchronous file I/O, JSON/Protobuf encoding, socket-mediated queues) impose this cost on every single event, and that cost compounds directly into tail latency once thousands of events per second traverse the same path.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        <span class="text-white font-bold">Animus Core</span> removes that overhead structurally rather than optimizing around it: <code class="text-cyan">animus::sys::ipc::ShmRing&lt;T&gt;</code> is a zero-allocation, lock-free single-producer/single-consumer (SPSC) ring buffer placed directly in shared memory. A producer writes a trivially-copyable record straight into a pre-sized slot &mdash; no heap allocation, no encode step, no syscall &mdash; and a consumer in a separate process reads that same memory directly. There is no wire format to parse because there is no wire; the struct layout in shared memory <em>is</em> the interchange format.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        Measured on the reference configuration in Section 2, this architecture sustains a <span class="text-emerald font-bold">30.3ns median (p50) per-event enqueue latency</span> under a decoupled, non-blocking producer workload &mdash; see Section 3 for the full percentile distribution, methodology, and exact source citation, and Section 4 for the integration surface.
+      </p>
+    </section>
+
+    <!-- Section 2: Hardware & Reference System Configuration -->
+    <section id="reference-config" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">2. Hardware &amp; Reference System Configuration</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        The figures in Section 3 were produced by a real second OS process (not a mock, not an in-process simulation) on a GitHub Actions <code class="text-cyan">ubuntu-22.04</code> CI runner &mdash; <a href="https://github.com/alakshendra-roy/AnimusCore_v1/actions/runs/33806378357" class="text-cyan hover:underline">run 33806378357</a>. This is a shared cloud CI instance, not a dedicated, isolated bare-metal box, and that constraint is disclosed below exactly as it stands rather than omitted.
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-slate-500 uppercase tracking-wider border-b border-border font-mono">
+              <th class="p-3">Parameter</th>
+              <th class="p-3">Reference Configuration (as measured)</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Host</td><td class="p-3">GitHub Actions <code class="text-cyan">ubuntu-22.04</code> hosted runner &mdash; shared cloud instance, not dedicated bare-metal</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Compiler</td><td class="p-3">Ubuntu clang 14.0.0</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Compiler flags</td><td class="p-3"><code class="text-emerald">-O3 -march=x86-64-v3</code> (instruction-set level probed at build time; <code class="text-emerald">-march=native</code> documented fallback for older toolchains)</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">CPU isolation</td><td class="p-3 text-danger">Not applied on this run &mdash; <code class="text-slate-400">isolcpus</code>/<code class="text-slate-400">nohz_full</code> exclusive core reservation is a documented gap on the current reference rig, not a claimed feature of the numbers below (see Section 3 caveats)</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Timestamp source</td><td class="p-3">Serialized RDTSC (<code class="text-cyan">_mm_lfence()</code> immediately before/after <code class="text-cyan">__rdtsc()</code>), converted to nanoseconds via a 200ms wall-clock calibration performed once at process startup &mdash; not an assumed or "rated" clock frequency</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">TSC invariance</td><td class="p-3">Not independently verified on this runner; per-run wall-clock calibration is used specifically because a rated/assumed frequency cannot be trusted under cloud-CI turbo/power-state variance</td></tr>
+            <tr><td class="p-3 text-slate-500">Transport under test</td><td class="p-3"><code class="text-cyan">animus::sys::ipc::ShmRing&lt;ExecutionEvent&gt;</code>, decoupled overwrite mode (<code class="text-cyan">push_overwrite()</code>), cross-process over POSIX <code class="text-cyan">/dev/shm</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        Full production-tuning profile (server-class CPU, <code class="text-slate-400">isolcpus</code>/<code class="text-slate-400">nohz_full</code>, HugePages, NUMA pinning, locked <code class="text-slate-400">performance</code> governor) is applied to a client's own hardware during Week 3 of an institutional pilot engagement &mdash; not asserted as already measured here. See <code class="text-slate-400">BENCHMARK_DATASHEET.md</code> &sect;2.3 for that profile in full.
+      </p>
+    </section>
+
+    <!-- Section 3: Empirical Benchmark Data -->
+    <section id="benchmark-data" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">3. Empirical Benchmark Data</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Per-event enqueue latency, decoupled/non-blocking overwrite mode, 10,000,000 synthetic <code class="text-cyan">ExecutionEvent</code> records. The Animus Core Engine row below is measured directly on the reference configuration in Section 2 &mdash; source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code>, Phase 29. The Legacy Logging (spdlog) and Standard Async Ring rows are representative industry baselines for a synchronous file-backed logger and a typical allocating/lock-based async queue respectively &mdash; illustrative of the class of transport, not a measurement of a specific third-party deployment on this hardware.
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs min-w-[640px]">
+          <thead>
+            <tr class="text-left text-slate-500 uppercase tracking-wider border-b border-border font-mono">
+              <th class="p-3">Transport</th>
+              <th class="p-3 text-right">P50</th>
+              <th class="p-3 text-right">P90</th>
+              <th class="p-3 text-right">P99</th>
+              <th class="p-3 text-right">P99.9</th>
+              <th class="p-3 text-right">Throughput</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60">
+              <td class="p-3 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-danger"></span>Legacy Logging (spdlog, async)</td>
+              <td class="p-3 text-right">~1,200 ns</td>
+              <td class="p-3 text-right">~2,600 ns</td>
+              <td class="p-3 text-right">~9,500 ns</td>
+              <td class="p-3 text-right">~41,000 ns</td>
+              <td class="p-3 text-right">~0.8M msgs/sec</td>
+            </tr>
+            <tr class="border-b border-border/60">
+              <td class="p-3 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-cyan"></span>Standard Async Ring (allocating, lock-based)</td>
+              <td class="p-3 text-right">~180 ns</td>
+              <td class="p-3 text-right">~310 ns</td>
+              <td class="p-3 text-right">~890 ns</td>
+              <td class="p-3 text-right">~3,400 ns</td>
+              <td class="p-3 text-right">~4.2M msgs/sec</td>
+            </tr>
+            <tr class="bg-emerald/5">
+              <td class="p-3 flex items-center gap-2 text-white font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Animus Core Engine (measured)</td>
+              <td class="p-3 text-right text-emerald font-bold">30.3 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">40.1 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">40.1 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">2,695.2 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">13.856M msgs/sec</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        <span class="text-slate-300 font-bold">Read the tail honestly:</span> P99.9 is 2,695.2ns, not a smaller number &mdash; because CPU isolation was not applied on this run (Section 2), the reference host's own OS scheduling produces occasional tail outliers (max observed: 32,470.5 ns across 10M events) that a genuinely isolated core would suppress. That gap is disclosed here rather than rounded away, and closing it is exactly what the Week 3 isolation pass in a paid pilot is for. Reproduce these exact numbers: <code class="text-cyan">g++ -std=c++17 -O3 -march=x86-64-v3 -Iinclude benchmarks/harness_benchmark.cpp -o harness_benchmark -lpthread &amp;&amp; ./harness_benchmark --events 10000000 --mode overwrite</code>.
+      </p>
+    </section>
+
+    <!-- Section 4: Hot-Path Integration Blueprint -->
+    <section id="integration-blueprint" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. Hot-Path Integration Blueprint</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        The producer-side integration is two calls: create the ring once at startup, then call <code class="text-cyan">push_overwrite()</code> on the hot path. It never allocates, never blocks, and never refuses a write &mdash; a full ring reclaims its oldest unread slot and increments a deterministic drop counter instead of applying backpressure to the caller. This is the real API surface from <code class="text-slate-400">include/animus/shm_ipc.hpp</code> and <code class="text-slate-400">include/animus/execution_event.hpp</code>, not a simplified pseudocode stand-in.
+      </p>
+      <div class="corner-card bg-panel border border-border rounded-md overflow-hidden mt-5" style="--accent: var(--cyan)">
+        <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">C++17 &middot; telemetry_record.cpp</div>
+        <pre class="font-mono text-[12.5px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-slate-500">// One-time setup: a 40-byte, trivially-copyable wire record and a</span>
+<span class="text-slate-500">// zero-allocation SPSC ring placed directly in shared memory.</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/shm_ipc.hpp"</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/execution_event.hpp"</span>
+
+<span class="text-purple-400">using</span> animus::ExecutionEvent;
+<span class="text-purple-400">using</span> animus::sys::ipc::ShmRing;
+
+<span class="text-purple-400">auto</span> ring = ShmRing&lt;ExecutionEvent&gt;::create(<span class="text-cyan">"animus_telemetry"</span>, <span class="text-cyan">4096</span>);
+
+<span class="text-slate-500">// Hot path: zero heap allocation, never blocks, never refuses a write.</span>
+<span class="text-purple-400">void</span> record_execution_event(<span class="text-purple-400">uint64_t</span> seq, <span class="text-purple-400">int64_t</span> price_ticks, <span class="text-purple-400">int64_t</span> qty, <span class="text-purple-400">uint32_t</span> instrument_id) {
+    ExecutionEvent evt{};
+    evt.sequence        = seq;
+    evt.dispatch_ts_raw = __rdtsc();          <span class="text-slate-500">// serialized read, see Section 2</span>
+    evt.price_ticks     = price_ticks;
+    evt.quantity        = qty;
+    evt.instrument_id   = instrument_id;
+
+    ring-&gt;push_overwrite(evt);                <span class="text-slate-500">// non-blocking; drops oldest unread slot if full</span>
+}
+
+<span class="text-slate-500">// Deterministic loss visibility &mdash; always 0 if the consumer keeps pace.</span>
+<span class="text-purple-400">uint64_t</span> dropped = ring-&gt;dropped_count();</code></pre>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        A consumer in a separate process &mdash; C++ via <code class="text-cyan">ShmRing&lt;ExecutionEvent&gt;::open()</code>, or Python via the nanobind binding in <code class="text-slate-400">bindings/animus_shm_py.cpp</code> &mdash; attaches to the same named segment and reads the identical struct layout with no decode step in between.
+      </p>
+    </section>
+
+    <!-- Section 5: Institutional Pilot Verification Protocol -->
+    <section id="pilot-verification" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Institutional Pilot Verification Protocol</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        These are the same three steps we run to reproduce Section 3's numbers on a prospect's own hardware during pilot onboarding &mdash; nothing here depends on machinery you cannot see.
+      </p>
+      <ol class="mt-5 space-y-5">
+        <li class="flex gap-4">
+          <span class="flex-shrink-0 w-7 h-7 rounded-sm bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold font-mono text-xs">01</span>
+          <div>
+            <div class="text-sm font-bold text-white">Build the harness from source</div>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Clone the eval kit and compile <code class="text-cyan">benchmarks/harness_benchmark.cpp</code> against your own toolchain (no vendored binary): <code class="text-slate-300">g++ -std=c++17 -O3 -march=native -Iinclude benchmarks/harness_benchmark.cpp -o harness_benchmark -lpthread</code>.</p>
+          </div>
+        </li>
+        <li class="flex gap-4">
+          <span class="flex-shrink-0 w-7 h-7 rounded-sm bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold font-mono text-xs">02</span>
+          <div>
+            <div class="text-sm font-bold text-white">Run the producer, attach the consumer</div>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Launch <code class="text-slate-300">./harness_benchmark --events 10000000 --mode overwrite</code> and, for a full loss-accounting pass, attach <code class="text-slate-300">eval_kit/scripts/verify_stream.py</code> from a second, genuinely separate OS process before the run completes.</p>
+          </div>
+        </li>
+        <li class="flex gap-4">
+          <span class="flex-shrink-0 w-7 h-7 rounded-sm bg-cyan/10 border border-cyan/30 flex items-center justify-center text-cyan font-bold font-mono text-xs">03</span>
+          <div>
+            <div class="text-sm font-bold text-white">Cross-check sequence gaps against dropped_count()</div>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">The consumer's observed sequence gaps must equal the producer's own <code class="text-cyan">dropped_count()</code> exactly. Any mismatch is a real correctness finding, not a rounding difference &mdash; treat it as a stop-ship signal during your own pilot, the same way we do.</p>
+          </div>
+        </li>
+      </ol>
+      <p class="mt-6 text-xs text-slate-500 leading-relaxed">
+        Institutional pilots run this same protocol on your own hardware profile (Section 2's "Recommended production deployment profile") under an executed evaluation agreement. See <code class="text-slate-400">docs/PILOT_PROGRAM.md</code> for the full three-week structure.
+      </p>
+    </section>
+
+    <!-- Closing CTA -->
+    <section class="mt-16 pt-10 border-t border-border text-center">
+      <h2 class="text-2xl font-bold text-white font-sans">Request Institutional Pilot Access</h2>
+      <p class="text-slate-400 mt-2 text-sm max-w-xl mx-auto">Issued strictly under institutional evaluation agreements for qualified quantitative trading desks and fintech infrastructure teams.</p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <button data-open-modal class="bg-cyan text-black font-extrabold font-mono text-sm uppercase tracking-wider px-8 py-3.5 rounded-sm hover:opacity-90 transition">Request Pilot Access</button>
+        <a href="/" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">&larr; Back to Home</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
+    &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
+    <nav class="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wider">
+      <a href="/terms" class="text-slate-500 hover:text-cyan transition">Terms of Service</a>
+      <span class="text-border">&middot;</span>
+      <a href="/privacy" class="text-slate-500 hover:text-cyan transition">Privacy Policy</a>
+    </nav>
+  </footer>
+
+  <!-- Pilot Access Modal (same endpoint/fields as index.html's Request Access modal) -->
+  <div id="benchmark-modal" class="fixed inset-0 z-[100] items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+    <div class="modal-panel bg-panel border border-border rounded-md w-full max-w-md max-h-[90vh] relative flex flex-col" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button data-close-modal aria-label="Close" class="absolute top-3 right-3 z-20 w-7 h-7 flex items-center justify-center rounded-sm bg-panel/90 text-slate-500 hover:text-white transition">&#10005;</button>
+      <div class="modal-scroll overflow-y-auto p-5 sm:p-6">
+        <h3 id="modal-title" class="text-xl font-bold text-white mb-1 pr-8 font-sans">Request Institutional Pilot Access</h3>
+        <p class="text-xs text-slate-500 mb-3">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
+
+        <div class="text-[11px] text-slate-400 bg-black/30 border border-border rounded-sm px-3 py-2 mb-3 font-mono leading-relaxed">
+          Licensing is offline, RSA-2048, hardware-fingerprint bound &mdash; zero cloud pinging. Run
+          <code class="text-cyan">Pilot_Kit\get_fingerprint.ps1</code> on the target machine and paste the printed 64-hex fingerprint below, or leave it blank and we'll send you the instructions. Prefer email? Send it directly to
+          <a href="mailto:royalekhshendra@gmail.com" class="text-cyan hover:underline">royalekhshendra@gmail.com</a>.
+        </div>
+
+        <form id="benchmark-form" class="space-y-2.5">
+          <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
+
+          <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="text" name="hardwareFingerprint" placeholder="Hardware Fingerprint (optional, 64 hex chars)" pattern="[0-9a-fA-F]{64}" title="64 hex characters from Pilot_Kit\get_fingerprint.ps1" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+
+          <select name="orgType" required class="custom-select w-full">
+            <option value="" disabled selected>Organization Type</option>
+            <option value="HFT">HFT</option>
+            <option value="Prop Desk">Prop Desk</option>
+            <option value="Market Maker">Market Maker</option>
+            <option value="FinTech Platform">FinTech Platform</option>
+            <option value="Other">Other</option>
+          </select>
+
+          <select name="coreFootprint" required class="custom-select w-full">
+            <option value="" disabled selected>Estimated Core Footprint</option>
+            <option value="< 16 cores">&lt; 16 cores</option>
+            <option value="16-64 cores">16 &ndash; 64 cores</option>
+            <option value="64-256 cores">64 &ndash; 256 cores</option>
+            <option value="256+ cores">256+ cores</option>
+          </select>
+
+          <textarea name="useCase" required rows="3" placeholder="Use Case / Evaluation Goals" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full resize-none"></textarea>
+
+          <div id="modal-error" class="hidden text-xs text-danger bg-danger/10 border border-danger/40 rounded-sm px-3 py-2 font-mono"></div>
+
+          <button type="submit" id="modal-submit" class="w-full bg-cyan text-black font-extrabold font-mono text-xs sm:text-sm uppercase tracking-wider py-2.5 rounded-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
+            <svg id="modal-spinner" class="hidden animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+            <span id="modal-submit-label">Submit Request</span>
+          </button>
+        </form>
+
+        <div id="modal-success" class="hidden text-center py-4 font-mono">
+          <div class="border border-emerald/40 bg-emerald/5 rounded-sm px-4 py-4 text-left">
+            <div class="text-emerald text-xs">&gt; [STATUS: 200 OK]</div>
+            <div class="text-slate-300 text-xs mt-1.5 leading-relaxed">Request submitted &mdash; we will be in touch shortly.</div>
+          </div>
+          <button data-close-modal class="mt-5 text-sm text-cyan hover:underline">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var modal = document.getElementById('benchmark-modal');
+  var modalForm = document.getElementById('benchmark-form');
+  var modalSuccess = document.getElementById('modal-success');
+  var modalSubmit = document.getElementById('modal-submit');
+  var modalSpinner = document.getElementById('modal-spinner');
+  var modalSubmitLabel = document.getElementById('modal-submit-label');
+  var modalError = document.getElementById('modal-error');
+
+  function openModal(){
+    modalForm.classList.remove('hidden');
+    modalSuccess.classList.add('hidden');
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
+    modal.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(){
+    modal.classList.remove('modal-open');
+    document.body.style.overflow = '';
+  }
+  document.querySelectorAll('[data-open-modal]').forEach(function(btn){
+    btn.addEventListener('click', openModal);
+  });
+  document.querySelectorAll('[data-close-modal]').forEach(function(btn){
+    btn.addEventListener('click', closeModal);
+  });
+  modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+
+  modalForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
+    modalSubmit.disabled = true;
+    modalSpinner.classList.remove('hidden');
+    modalSubmitLabel.textContent = '[ TRANSMITTING TELEMETRY ACCESS REQUEST... ]';
+
+    var formData = new FormData(modalForm);
+    var payload = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      organization: formData.get('organization'),
+      orgType: formData.get('orgType'),
+      coreFootprint: formData.get('coreFootprint'),
+      hardwareFingerprint: formData.get('hardwareFingerprint'),
+      useCase: formData.get('useCase'),
+      botcheck: !!formData.get('botcheck')
+    };
+
+    fetch('/api/request-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function(r){
+        return r.json().then(function(data){ return { ok: r.ok, data: data }; });
+      })
+      .then(function(result){
+        if (result.ok && result.data && result.data.success){
+          modalForm.classList.add('hidden');
+          modalSuccess.classList.remove('hidden');
+        } else {
+          throw new Error((result.data && result.data.error) || 'Submission failed.');
+        }
+      })
+      .catch(function(err){
+        modalError.textContent = (err && err.message) || 'Something went wrong. Please try again or email us directly.';
+        modalError.classList.remove('hidden');
+      })
+      .finally(function(){
+        modalSubmit.disabled = false;
+        modalSpinner.classList.add('hidden');
+        modalSubmitLabel.textContent = 'Submit Request';
+      });
+  });
+})();
+</script>
+</body>
+</html>
