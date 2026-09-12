@@ -834,7 +834,7 @@ TelemetryEvent evt;
       </div>
 
       <form id="benchmark-form" class="space-y-2.5">
-        <input type="text" name="_honey" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
+        <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
 
         <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
         <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
@@ -1338,27 +1338,23 @@ TelemetryEvent evt;
       coreFootprint: formData.get('coreFootprint'),
       hardwareFingerprint: formData.get('hardwareFingerprint'),
       useCase: formData.get('useCase'),
-      _honey: formData.get('_honey') || '',
-      _subject: 'Animus Core — Benchmark Access Request',
-      _template: 'table',
-      _captcha: 'false'
+      botcheck: !!formData.get('botcheck')
     };
 
-    fetch('https://formsubmit.co/ajax/royalekhshendra@gmail.com', {
+    fetch('/api/request-access', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
       .then(function(r){
         return r.json().then(function(data){ return { ok: r.ok, data: data }; });
       })
       .then(function(result){
-        var success = result.ok && result.data && (result.data.success === true || result.data.success === 'true');
-        if (success){
+        if (result.ok && result.data && result.data.success){
           modalForm.classList.add('hidden');
           modalSuccess.classList.remove('hidden');
         } else {
-          throw new Error((result.data && result.data.message) || 'Submission failed.');
+          throw new Error((result.data && result.data.error) || 'Submission failed.');
         }
       })
       .catch(function(err){
