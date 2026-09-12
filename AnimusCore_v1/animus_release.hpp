@@ -5,7 +5,7 @@
 // GENERATED FILE -- do not edit directly. Produced by amalgamate.py from
 // the four source headers below; re-run `python amalgamate.py` after any
 // change to those originals and commit the regenerated output alongside.
-// Generated: 2026-09-09
+// Generated: 2026-09-12
 //
 // Sections:
 //   - animus.hpp (portable) -- Phase 1-7: Core Engine, Ring Buffer, Rule Engine, Broker/Execution Interop
@@ -327,6 +327,36 @@ namespace animus {
 #endif
     }
 
+    // Cache-line size used to keep a producer's and a consumer's index
+    // atomics (LockFreeRingBuffer's enqueue_pos_/dequeue_pos_, SpscRingBuffer's
+    // head_/tail_) on separate lines and avoid cross-core false sharing.
+    // Prefer the standard library's own platform value when the toolchain
+    // defines the __cpp_lib_hardware_interference_size feature-test macro
+    // (std::hardware_destructive_interference_size itself has been in <new>
+    // since C++17); whether that macro is actually defined varies by
+    // standard-library version and target -- some libstdc++ releases
+    // withhold it entirely over an ABI-stability concern (the "right" value
+    // can differ across translation units built with different -march
+    // flags, which would be a silent ODR violation if two TUs disagreed on
+    // it), while others define it and instead warn at each use site
+    // (GCC's -Winterference-size, suppressed below with the same
+    // documented-and-scoped approach this file already uses for MSVC's
+    // C4324 at the top) -- so gate on the feature-test macro, not on
+    // __has_include<new>, and fall back to the conservative,
+    // universally-safe 64-byte assumption everywhere the macro is absent.
+#if defined(__cpp_lib_hardware_interference_size)
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winterference-size"
+#endif
+    inline constexpr size_t kCachelineBytes = std::hardware_destructive_interference_size;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+#else
+    inline constexpr size_t kCachelineBytes = 64;
+#endif
+
     // Bounded lock-free MPMC ring buffer (Vyukov algorithm). Backing storage is
     // allocated once at construction; push()/pop() perform zero heap allocations
     // and never block, making them safe to call from multiple concurrent
@@ -412,8 +442,8 @@ namespace animus {
         size_t mask_;
         std::vector<Cell> cells_;
 
-        alignas(64) std::atomic<size_t> enqueue_pos_{ 0 };
-        alignas(64) std::atomic<size_t> dequeue_pos_{ 0 };
+        alignas(kCachelineBytes) std::atomic<size_t> enqueue_pos_{ 0 };
+        alignas(kCachelineBytes) std::atomic<size_t> dequeue_pos_{ 0 };
     };
 
     // Bounded lock-free single-producer/single-consumer ring buffer.
@@ -492,8 +522,8 @@ namespace animus {
         size_t mask_;
         std::vector<T> cells_;
 
-        alignas(64) std::atomic<size_t> head_{ 0 }; // written only by the producer
-        alignas(64) std::atomic<size_t> tail_{ 0 }; // written only by the consumer
+        alignas(kCachelineBytes) std::atomic<size_t> head_{ 0 }; // written only by the producer
+        alignas(kCachelineBytes) std::atomic<size_t> tail_{ 0 }; // written only by the consumer
     };
 
     // ---- IPC shared-memory transport ---------------------------------
