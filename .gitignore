@@ -36,6 +36,9 @@ Release/
 # OS files
 .DS_Store
 
+# Microsoft Office lock/temp files (created while a .docx/.xlsx/.pptx is open)
+~$*
+
 # Runtime generated benchmark / telemetry output
 BENCHMARK_REPORT.json
 benchmarks/SOAK_TEST_REPORT.json
@@ -207,6 +210,8 @@ build_linux/
 /animus_eval_v1.tar.gz
 /animus_eval_v1.zip
 /LEGAL_INCORPORATION_BRIEF.md
+/MOA_OBJECT_CLAUSES.md
+/NAME_AVAILABILITY_AUDIT.md
 
 # Final NOC (Registered Office) for incorporation filing -- names, address,
 # and Aadhaar-number field of a real family member; strictly local only.
