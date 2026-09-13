@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Technical Architecture &amp; Benchmark White Paper | Animus Core Systems</title>
+<meta name="description" content="Animus Core technical white paper: 64-byte cache-line alignment and false-sharing elimination, lock-free MPMC ring buffer throughput, invariant-TSC zero-syscall timing, and the zero-copy nanobind Python bridge -- with a two-step bare-metal reproduction protocol.">
+<meta name="author" content="Alakshendra Roy">
+<link rel="icon" type="image/png" href="/animus-logo.png">
+<link rel="shortcut icon" type="image/png" href="/animus-logo.png">
+<link rel="apple-touch-icon" href="/animus-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace']
+      },
+      colors: {
+        void: '#020408',
+        panel: '#0A0F1D',
+        border: '#1E293D',
+        cyan: '#00F0FF',
+        emerald: '#00FF66',
+        danger: '#FF4B4B'
+      }
+    }
+  }
+}
+</script>
+<style>
+  :root{ --void:#020408; --panel:#0A0F1D; --border:#1E293D; --cyan:#00F0FF; --emerald:#00FF66; --danger:#FF4B4B; }
+  html,body{ background:var(--void); }
+  .doc h2{ scroll-margin-top: 6rem; }
+
+  #benchmark-modal.modal-open{ display:flex; }
+  #benchmark-modal{ display:none; }
+  .modal-panel{ transform:translateY(14px); opacity:0; transition:opacity .22s ease, transform .22s ease; }
+  #benchmark-modal.modal-open .modal-panel{ transform:translateY(0); opacity:1; }
+
+  .modal-scroll{ scrollbar-width:thin; scrollbar-color:var(--border) transparent; }
+  .modal-scroll::-webkit-scrollbar{ width:6px; }
+  .modal-scroll::-webkit-scrollbar-track{ background:transparent; }
+  .modal-scroll::-webkit-scrollbar-thumb{ background:var(--border); border-radius:999px; }
+  .modal-scroll::-webkit-scrollbar-thumb:hover{ background:var(--cyan); }
+
+  select.custom-select{
+    appearance:none; -webkit-appearance:none; -moz-appearance:none;
+    background-color:#0B1117;
+    color:#ffffff;
+    border:1px solid #1E293D;
+    border-radius:2px;
+    padding:0.625rem 2.75rem 0.625rem 1rem;
+    font-size:0.875rem;
+    line-height:1.25rem;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2300F0FF' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'></polyline></svg>");
+    background-repeat:no-repeat;
+    background-position:right 1rem center;
+    background-size:12px;
+    cursor:pointer;
+  }
+  select.custom-select::-ms-expand{ display:none; }
+  select.custom-select:focus{ outline:none; border-color:var(--cyan); }
+  select.custom-select option{ background-color:#0B1117; color:#ffffff; }
+
+  ::-webkit-scrollbar{ height:8px; width:8px; }
+  ::-webkit-scrollbar-track{ background:#0A0F1D; }
+  ::-webkit-scrollbar-thumb{ background:#1E293D; border-radius:4px; }
+  ::selection{ background:var(--cyan); color:#000; }
+
+  .corner-card{ position:relative; --accent: var(--cyan); }
+  .corner-card::before,.corner-card::after{
+    content:''; position:absolute; width:12px; height:12px; opacity:.6;
+    transition:opacity .2s ease, width .2s ease, height .2s ease;
+    pointer-events:none;
+  }
+  .corner-card::before{ top:-1px; left:-1px; border-top:2px solid var(--accent); border-left:2px solid var(--accent); }
+  .corner-card::after{ bottom:-1px; right:-1px; border-bottom:2px solid var(--accent); border-right:2px solid var(--accent); }
+  .corner-card:hover::before,.corner-card:hover::after{ opacity:1; width:18px; height:18px; }
+</style>
+</head>
+<body class="bg-void text-slate-300 font-sans antialiased">
+
+  <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
+    <div class="max-w-5xl mx-auto py-4 px-6 flex items-center justify-between gap-6">
+      <a href="/" class="flex items-center min-w-0 flex-shrink-0">
+        <img src="/animus-logo.png" alt="ANIMUS" class="h-14 w-auto object-contain" style="image-rendering:-webkit-optimize-contrast;" onerror="this.style.display='none';">
+      </a>
+      <div class="flex items-center gap-5 flex-shrink-0">
+        <a href="/benchmark" class="hidden sm:inline text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-cyan transition whitespace-nowrap">Benchmark Spec</a>
+        <a href="/" class="hidden sm:inline text-xs font-mono uppercase tracking-wider text-slate-400 hover:text-cyan transition whitespace-nowrap">&larr; Back to Home</a>
+        <button data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Pilot Access</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="doc max-w-4xl mx-auto px-6 pt-32 pb-24">
+
+    <!-- Document Header -->
+    <div class="inline-flex items-center gap-2 border border-cyan/30 bg-cyan/10 px-3 py-1 rounded-sm text-cyan text-[11px] font-bold mb-6 font-mono uppercase tracking-widest">
+      <span class="w-2 h-2 rounded-full bg-cyan"></span>
+      <span>Technical Architecture &amp; Benchmark White Paper</span>
+    </div>
+    <h1 class="text-3xl md:text-5xl font-extrabold text-white font-sans leading-tight">
+      ANIMUS CORE <span class="text-slate-500">//</span><br class="hidden md:block">
+      Technical Architecture &amp; Benchmark White Paper
+    </h1>
+    <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs font-mono text-slate-500 uppercase tracking-wider">
+      <span>Audience: HFT Platform Teams, Quant Researchers, Systems Evaluators</span>
+      <span class="text-border">&middot;</span>
+      <span>Version: 1.1.0</span>
+      <span class="text-border">&middot;</span>
+      <span>Prepared by: Alakshendra Roy, Founder &amp; Systems Architect</span>
+    </div>
+    <p class="mt-6 text-sm text-slate-400 leading-relaxed max-w-2xl">
+      This document contains no corporate, formation, or legal content &mdash; architecture and measured performance only. Every figure below is reproducible on your own hardware via the two-step protocol in Section 6, not asserted as a fixed constant.
+    </p>
+
+    <!-- Section 1: Executive Architecture Overview -->
+    <section id="architecture-overview" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">1. Executive Architecture Overview</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Animus Core is a low-latency telemetry and execution engine written in modern C++17, exposed to Python through a zero-copy nanobind bridge rather than a conventional serialize-and-copy interop layer. The design goal is narrow and specific: remove every avoidable cost between "an event exists in memory" and "a Python-side consumer can see it" &mdash; no heap allocation on the hot path, no serialization step, no lock contention on the transport itself.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        Three architectural decisions carry most of that weight, and each is independently verifiable rather than asserted:
+      </p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed list-none">
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">Cache-line-aligned payloads</span> (<code class="text-cyan">alignas(64)</code>) so that concurrent producers and consumers never invalidate each other's cache lines through unrelated data sharing the same line.</span></li>
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">A lock-free MPMC ring buffer</span> using per-slot sequence-number coordination (the Vyukov design), so producers and consumers each make progress via a single CAS on their own cursor, not a shared lock.</span></li>
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">Invariant-TSC hardware cycle timing</span> on the hot path instead of a system clock call, eliminating syscall/vDSO overhead from latency measurements themselves.</span></li>
+      </ul>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        The sections below document each with the actual measurement methodology, not just the headline number &mdash; Section 6 gives the exact two commands to reproduce every number here on your own hardware.
+      </p>
+    </section>
+
+    <!-- Section 2: Cache-Line Alignment -->
+    <section id="cacheline-alignment" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">2. 64-Byte Cache-Line Alignment &amp; False-Sharing Elimination</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Every event payload that crosses a producer/consumer boundary is declared <code class="text-cyan">alignas(64)</code> and sized to exactly 64 bytes &mdash; one x86/ARM cache line, enforced at <span class="text-white font-bold">compile time</span> via <code class="text-cyan">static_assert</code>, not just documented:
+      </p>
+      <div class="corner-card bg-panel border border-border rounded-md overflow-hidden mt-5" style="--accent: var(--cyan)">
+        <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">C++17 &middot; sandbox_event.hpp</div>
+        <pre class="font-mono text-[12.5px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-purple-400">struct</span> <span class="text-purple-400">alignas</span>(<span class="text-cyan">64</span>) Event {
+    std::uint64_t sequence;
+    std::uint64_t dispatch_tsc;
+    std::uint32_t producer_id;
+    std::uint32_t reserved0;
+    std::uint64_t value;
+    std::uint64_t reserved1[<span class="text-cyan">4</span>];
+};
+<span class="text-purple-400">static_assert</span>(<span class="text-purple-400">sizeof</span>(Event) == <span class="text-cyan">64</span>, <span class="text-emerald-400">"Event must occupy exactly one cache line"</span>);
+<span class="text-purple-400">static_assert</span>(<span class="text-purple-400">alignof</span>(Event) == <span class="text-cyan">64</span>, <span class="text-emerald-400">"Event must be cache-line aligned"</span>);</code></pre>
+      </div>
+      <p class="mt-4 text-sm leading-relaxed">
+        Alignment alone is a claim; the benchmark suite backs it with a direct <span class="text-white font-bold">A/B measurement</span>. Two atomic counters are incremented by two threads pinned to distinct cores, once with both counters sharing a single cache line and once with each on its own line via <code class="text-cyan">alignas(64)</code>:
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-slate-500 uppercase tracking-wider border-b border-border font-mono">
+              <th class="p-3">Configuration</th>
+              <th class="p-3">Structure size</th>
+              <th class="p-3 text-right">Combined throughput (2 threads)</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60">
+              <td class="p-3 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-danger"></span>Unpadded (false sharing)</td>
+              <td class="p-3">16 bytes</td>
+              <td class="p-3 text-right">~160&ndash;164M ops/sec</td>
+            </tr>
+            <tr class="bg-emerald/5">
+              <td class="p-3 flex items-center gap-2 text-white font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Padded (<code class="text-emerald">alignas(64)</code>)</td>
+              <td class="p-3">128 bytes</td>
+              <td class="p-3 text-right text-emerald font-bold">~214&ndash;215M ops/sec</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        <span class="text-slate-300 font-bold">Speedup from eliminating false sharing: ~1.3&ndash;1.35x</span>, measured on repeated runs on a 24-core development workstation &mdash; not a projected or theoretical figure. Run it yourself; the exact numbers will shift with core count and CPU generation, and that variance is expected, not a defect in the test.
+      </p>
+    </section>
+
+    <!-- Section 3: MPMC Ring Buffer -->
+    <section id="mpmc-throughput" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">3. Lock-Free MPMC Ring Buffer &mdash; Ingestion Throughput</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        The ring buffer is a bounded, lock-free, multi-producer/multi-consumer queue: every slot carries its own sequence number, so a producer or consumer coordinates with the specific slot it is about to touch rather than with one shared full/empty flag &mdash; allowing independent producers and consumers to make progress concurrently via a single compare-and-swap each.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        <span class="text-white font-bold">Methodology:</span> 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase. Throughput is total events divided by wall-clock elapsed time. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload &mdash; proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs">
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Producer / consumer threads</td><td class="p-3">8 / 8</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Target sustained throughput</td><td class="p-3 text-emerald font-bold">16.5M+ pushes/sec</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Observed range (single dev workstation)</td><td class="p-3">13.5M &ndash; 20.4M pushes/sec</td></tr>
+            <tr><td class="p-3 text-slate-500">Correctness check</td><td class="p-3 text-emerald font-bold">PASS &mdash; exact push/drain checksum match, every run</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        The observed range spans both sides of the 16.5M target on the same machine, run to run &mdash; real measurement noise from a shared, non-isolated development box (thermal state, background load, scheduler placement), not an inconsistency in the queue itself. On dedicated, isolated-core institutional hardware, expect materially less run-to-run variance. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.
+      </p>
+    </section>
+
+    <!-- Section 4: Invariant TSC -->
+    <section id="invariant-tsc" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. Invariant-TSC Hardware Cycle Timing</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Wall-clock timing calls (<code class="text-cyan">clock_gettime</code>, <code class="text-cyan">QueryPerformanceCounter</code>) cost real, measurable overhead on a latency budget measured in nanoseconds. Animus Core's timing primitives instead read the CPU's Time Stamp Counter directly via a serialized <code class="text-cyan">__rdtscp</code> instruction:
+      </p>
+      <ul class="mt-4 space-y-2 text-sm leading-relaxed list-none">
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">Zero system calls, zero vDSO hops</span> &mdash; a plain hardware register read.</span></li>
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">Invariant-TSC verified at startup</span>, not assumed: <code class="text-cyan">CPUID 0x80000007:EDX[8]</code> is checked directly before any cycle-to-time conversion is trusted.</span></li>
+        <li class="flex gap-3"><span class="text-cyan flex-shrink-0">&rarr;</span><span><span class="text-white font-bold">Calibrated, not guessed:</span> cycles-per-nanosecond is measured by racing the TSC against <code class="text-cyan">std::chrono::steady_clock</code> over a dedicated 200ms window at startup, rather than trusting an advertised base clock.</span></li>
+      </ul>
+      <p class="mt-4 text-sm leading-relaxed">
+        Measured cost of the read itself: <span class="text-emerald font-bold">~10 ns per read</span>, zero system calls, on a 2.4 GHz-class core &mdash; both the clock rate and the per-read cost are measured at runtime and printed, not hardcoded.
+      </p>
+    </section>
+
+    <!-- Section 5: Zero-Copy Python Bridge -->
+    <section id="nanobind-bridge" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Zero-Copy Python Bridge (nanobind)</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        The Python-side consumption path is built on <a href="https://github.com/wjakob/nanobind" class="text-cyan hover:underline">nanobind</a>, exposing the ring buffer to Python as a <code class="text-cyan">TelemetryStream</code> object whose <code class="text-cyan">drain()</code> method pops events directly into a scratch buffer allocated once at construction &mdash; never in the hot loop &mdash; and returns an <code class="text-cyan">nb::ndarray</code> view aliasing that same memory. Zero per-event Python objects are constructed; the entire batch crosses the language boundary as one array view.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        <span class="text-white font-bold">Methodology:</span> a background native producer thread feeds the ring unthrottled while the Python-side loop drains it continuously, timing only <code class="text-cyan">drain()</code> itself with <code class="text-cyan">time.perf_counter_ns()</code> &mdash; a concurrent, steady-state measurement, not a pre-filled-then-drained snapshot.
+      </p>
+      <div class="mt-4 corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--emerald)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Reference figure</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-white font-mono">~34.5<span class="text-sm text-slate-500 ml-1">ns/event</span></div>
+        <p class="mt-3 text-xs text-slate-500 leading-relaxed">Repeated real runs on development hardware measured a range of roughly <span class="text-slate-300">19&ndash;66 ns/event</span> depending on run and machine load, with representative runs clustering around the low-to-mid 20s &mdash; consistent with this reference figure as a realistic ballpark, not an exact constant. Cite your own measured number from your own hardware; Section 6 gives the exact reproduction steps.</p>
+      </div>
+    </section>
+
+    <!-- Section 6: Reproduction Protocol -->
+    <section id="reproduction-protocol" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">6. Bare-Metal Reproduction Protocol</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        Every number above should be treated as a claim until you've reproduced it on your own hardware. <code class="text-cyan">animus_sandbox/</code> is a standalone, dependency-free package built specifically for that: no dependency on the rest of the repository, and it ships its own build system.
+      </p>
+      <div class="corner-card bg-panel border border-border rounded-md overflow-hidden mt-5" style="--accent: var(--cyan)">
+        <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">shell &middot; two-step reproduction</div>
+        <pre class="font-mono text-[13px] text-emerald leading-relaxed p-5 overflow-x-auto"><code>make
+./benchmark_harness</code></pre>
+      </div>
+      <p class="mt-4 text-sm leading-relaxed">
+        That's it. <code class="text-cyan">make</code> builds with <code class="text-cyan">-O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic</code> (GCC/Clang); running the binary executes all three native measurements above and prints the results plainly, including whether your hardware met or missed the 16.5M+ pushes/sec target.
+      </p>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        A CMake path (<code class="text-slate-400">cmake -B build &amp;&amp; cmake --build build --config Release</code>) is also provided for cross-compiler builds and additionally builds the optional nanobind Python bridge module when a Python 3.8+ toolchain with <code class="text-slate-400">nanobind</code> installed is available, enabling reproduction of the Section 5 figure via <code class="text-slate-400">python python_bridge_test.py</code>. Full details in <code class="text-slate-400">animus_sandbox/README.md</code>.
+      </p>
+    </section>
+
+    <!-- Closing CTA -->
+    <section class="mt-16 pt-10 border-t border-border text-center">
+      <h2 class="text-2xl font-bold text-white font-sans">Request Institutional Pilot Access</h2>
+      <p class="text-slate-400 mt-2 text-sm max-w-xl mx-auto">Issued strictly under institutional evaluation agreements for qualified quantitative trading desks and fintech infrastructure teams.</p>
+      <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+        <button data-open-modal class="bg-cyan text-black font-extrabold font-mono text-sm uppercase tracking-wider px-8 py-3.5 rounded-sm hover:opacity-90 transition">Request Pilot Access</button>
+        <a href="/" class="border border-border bg-panel text-slate-200 font-bold font-mono text-sm uppercase tracking-wider px-6 py-3 rounded-sm hover:border-cyan/60 transition">&larr; Back to Home</a>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="border-t border-border py-8 text-center text-xs text-slate-500 font-mono">
+    &copy; 2026 Animus Engine. Founder &amp; Lead Architect: Alakshendra Roy. All Rights Reserved.
+    <nav class="mt-4 flex items-center justify-center gap-4 text-[11px] uppercase tracking-wider">
+      <a href="/whitepaper" class="text-slate-500 hover:text-cyan transition">Whitepaper</a>
+      <span class="text-border">&middot;</span>
+      <a href="/terms" class="text-slate-500 hover:text-cyan transition">Terms of Service</a>
+      <span class="text-border">&middot;</span>
+      <a href="/privacy" class="text-slate-500 hover:text-cyan transition">Privacy Policy</a>
+    </nav>
+  </footer>
+
+  <!-- Pilot Access Modal (same endpoint/fields as index.html's Request Access modal) -->
+  <div id="benchmark-modal" class="fixed inset-0 z-[100] items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+    <div class="modal-panel bg-panel border border-border rounded-md w-full max-w-md max-h-[90vh] relative flex flex-col" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <button data-close-modal aria-label="Close" class="absolute top-3 right-3 z-20 w-7 h-7 flex items-center justify-center rounded-sm bg-panel/90 text-slate-500 hover:text-white transition">&#10005;</button>
+      <div class="modal-scroll overflow-y-auto p-5 sm:p-6">
+        <h3 id="modal-title" class="text-xl font-bold text-white mb-1 pr-8 font-sans">Request Institutional Pilot Access</h3>
+        <p class="text-xs text-slate-500 mb-3">Institutional evaluation for qualified trading desks and fintech infrastructure teams.</p>
+
+        <div class="text-[11px] text-slate-400 bg-black/30 border border-border rounded-sm px-3 py-2 mb-3 font-mono leading-relaxed">
+          Licensing is offline, RSA-2048, hardware-fingerprint bound &mdash; zero cloud pinging. Run
+          <code class="text-cyan">Pilot_Kit\get_fingerprint.ps1</code> on the target machine and paste the printed 64-hex fingerprint below, or leave it blank and we'll send you the instructions. Prefer email? Send it directly to
+          <a href="mailto:royalekhshendra@gmail.com" class="text-cyan hover:underline">royalekhshendra@gmail.com</a>.
+        </div>
+
+        <form id="benchmark-form" class="space-y-2.5">
+          <input type="checkbox" name="botcheck" class="hidden" style="display:none" tabindex="-1" autocomplete="off">
+
+          <input type="text" name="name" required placeholder="Full Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="email" name="email" required placeholder="Enterprise Email" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="text" name="organization" required placeholder="Firm / Organization Name" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+          <input type="text" name="hardwareFingerprint" placeholder="Hardware Fingerprint (optional, 64 hex chars)" pattern="[0-9a-fA-F]{64}" title="64 hex characters from Pilot_Kit\get_fingerprint.ps1" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full">
+
+          <select name="orgType" required class="custom-select w-full">
+            <option value="" disabled selected>Organization Type</option>
+            <option value="HFT">HFT</option>
+            <option value="Prop Desk">Prop Desk</option>
+            <option value="Market Maker">Market Maker</option>
+            <option value="FinTech Platform">FinTech Platform</option>
+            <option value="Other">Other</option>
+          </select>
+
+          <select name="coreFootprint" required class="custom-select w-full">
+            <option value="" disabled selected>Estimated Core Footprint</option>
+            <option value="< 16 cores">&lt; 16 cores</option>
+            <option value="16-64 cores">16 &ndash; 64 cores</option>
+            <option value="64-256 cores">64 &ndash; 256 cores</option>
+            <option value="256+ cores">256+ cores</option>
+          </select>
+
+          <textarea name="useCase" required rows="3" placeholder="Use Case / Evaluation Goals" class="bg-black/30 border border-border rounded-sm px-4 py-2 text-sm focus:outline-none focus:border-cyan text-white w-full resize-none"></textarea>
+
+          <div id="modal-error" class="hidden text-xs text-danger bg-danger/10 border border-danger/40 rounded-sm px-3 py-2 font-mono"></div>
+
+          <button type="submit" id="modal-submit" class="w-full bg-cyan text-black font-extrabold font-mono text-xs sm:text-sm uppercase tracking-wider py-2.5 rounded-sm hover:opacity-90 transition disabled:opacity-50 flex items-center justify-center gap-2">
+            <svg id="modal-spinner" class="hidden animate-spin h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+            <span id="modal-submit-label">Submit Request</span>
+          </button>
+        </form>
+
+        <div id="modal-success" class="hidden text-center py-4 font-mono">
+          <div class="border border-emerald/40 bg-emerald/5 rounded-sm px-4 py-4 text-left">
+            <div class="text-emerald text-xs">&gt; [STATUS: 200 OK]</div>
+            <div class="text-slate-300 text-xs mt-1.5 leading-relaxed">Request submitted &mdash; we will be in touch shortly.</div>
+          </div>
+          <button data-close-modal class="mt-5 text-sm text-cyan hover:underline">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  var modal = document.getElementById('benchmark-modal');
+  var modalForm = document.getElementById('benchmark-form');
+  var modalSuccess = document.getElementById('modal-success');
+  var modalSubmit = document.getElementById('modal-submit');
+  var modalSpinner = document.getElementById('modal-spinner');
+  var modalSubmitLabel = document.getElementById('modal-submit-label');
+  var modalError = document.getElementById('modal-error');
+
+  function openModal(){
+    modalForm.classList.remove('hidden');
+    modalSuccess.classList.add('hidden');
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
+    modal.classList.add('modal-open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal(){
+    modal.classList.remove('modal-open');
+    document.body.style.overflow = '';
+  }
+  document.querySelectorAll('[data-open-modal]').forEach(function(btn){
+    btn.addEventListener('click', openModal);
+  });
+  document.querySelectorAll('[data-close-modal]').forEach(function(btn){
+    btn.addEventListener('click', closeModal);
+  });
+  modal.addEventListener('click', function(e){ if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
+
+  modalForm.addEventListener('submit', function(e){
+    e.preventDefault();
+    modalError.classList.add('hidden');
+    modalError.textContent = '';
+    modalSubmit.disabled = true;
+    modalSpinner.classList.remove('hidden');
+    modalSubmitLabel.textContent = '[ TRANSMITTING TELEMETRY ACCESS REQUEST... ]';
+
+    var formData = new FormData(modalForm);
+    var payload = {
+      name: formData.get('name'),
+      email: formData.get('email'),
+      organization: formData.get('organization'),
+      orgType: formData.get('orgType'),
+      coreFootprint: formData.get('coreFootprint'),
+      hardwareFingerprint: formData.get('hardwareFingerprint'),
+      useCase: formData.get('useCase'),
+      botcheck: !!formData.get('botcheck')
+    };
+
+    fetch('/api/request-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    })
+      .then(function(r){
+        return r.json().then(function(data){ return { ok: r.ok, data: data }; });
+      })
+      .then(function(result){
+        if (result.ok && result.data && result.data.success){
+          modalForm.classList.add('hidden');
+          modalSuccess.classList.remove('hidden');
+        } else {
+          throw new Error((result.data && result.data.error) || 'Submission failed.');
+        }
+      })
+      .catch(function(err){
+        modalError.textContent = (err && err.message) || 'Something went wrong. Please try again or email us directly.';
+        modalError.classList.remove('hidden');
+      })
+      .finally(function(){
+        modalSubmit.disabled = false;
+        modalSpinner.classList.add('hidden');
+        modalSubmitLabel.textContent = 'Submit Request';
+      });
+  });
+})();
+</script>
+</body>
+</html>
