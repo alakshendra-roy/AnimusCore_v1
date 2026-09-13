@@ -232,3 +232,8 @@ build_linux/
 # LEGAL_INCORPORATION_BRIEF.md/MOA_OBJECT_CLAUSES.md above: founder-drafted,
 # not counsel-reviewed, and not meant to be published to the public repo.
 /legal/
+
+# Outreach follow-up drafts: named prospects, employer, and sales-timing/
+# cadence detail -- same never-public-repo category as
+# OUTBOUND_TRACKER.md/AnimusCore_Pipeline.csv above.
+/outreach/
