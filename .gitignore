@@ -226,3 +226,9 @@ build_linux/
 # sales-targeting commentary, same never-public-repo category as
 # OUTBOUND_TRACKER.md above -- local-only working CRM sheet.
 /AnimusCore_Pipeline.csv
+
+# Institutional legal templates (IP assignment naming the founder by name,
+# draft MoA object clauses) -- same never-public-repo category as
+# LEGAL_INCORPORATION_BRIEF.md/MOA_OBJECT_CLAUSES.md above: founder-drafted,
+# not counsel-reviewed, and not meant to be published to the public repo.
+/legal/
