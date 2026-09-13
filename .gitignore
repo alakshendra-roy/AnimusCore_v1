@@ -221,3 +221,8 @@ build_linux/
 # transaction ID + VPA) -- never belongs in a public repo.
 /AnimusCore_v1/Founder's Pic.jpeg
 /AnimusCore_v1/Hostinger Payment Proof.jpeg
+
+# Enterprise outreach pipeline tracker: real target-firm names and
+# sales-targeting commentary, same never-public-repo category as
+# OUTBOUND_TRACKER.md above -- local-only working CRM sheet.
+/AnimusCore_Pipeline.csv
