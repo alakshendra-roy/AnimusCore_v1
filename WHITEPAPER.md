@@ -16,7 +16,9 @@ Animus Core is an enterprise-grade telemetry ingestion and automated execution e
 * **Security Hardening:** Hardware-Bound RSA-2048 licensing enforcement ensuring zero performance degradation on shared memory rings.
 
 ## Core Performance Metrics
-* **P50 Latency (Median):** 0.84 µs
-* **P99.9 Latency (Tail):** < 1.85 µs
-* **Max Sustained Throughput:** 8.21M events/sec
-* **Memory Isolation Footprint:** < 16 MB Static Overhead
+* **Tick-to-Trade Latency (P50, native C++ decision loop):** ~100 ns
+* **Tick-to-Trade Latency (P99.9):** ~200 ns
+* **Multi-Producer Ring Buffer Throughput:** 16.5M+ pushes/sec target (8 concurrent producer threads; observed range 13.5M–19.7M pushes/sec across runs, hardware-dependent)
+* **Zero-Copy Python Bridge (nanobind):** ~34.5 ns/event reference figure; measured range ~22–66 ns/event depending on hardware and run
+
+All figures above are drawn from real, re-runnable benchmark code in this repository (`AnimusCore_v1/animus_benchmark_suite.cpp` and the standalone `animus_sandbox/` reproduction package) rather than fixed constants — reproduce them on your own hardware via `animus_sandbox/README.md`'s two-command build/run, or see `docs/AnimusCore_Technical_WhitePaper.md` for full methodology. Expect real variance run-to-run and machine-to-machine; that is expected measurement behavior, not a defect.
