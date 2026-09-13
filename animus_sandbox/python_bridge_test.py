@@ -22,7 +22,7 @@ Then run this script either from the build's output directory (where
 animus_sandbox_bridge*.pyd/.so was placed), or after copying that file
 next to this script:
 
-    python python_bridge_demo.py
+    python python_bridge_test.py
 """
 import statistics
 import time

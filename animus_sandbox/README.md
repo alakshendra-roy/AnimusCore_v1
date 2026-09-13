@@ -64,11 +64,11 @@ cmake --build build --config Release
 
 If nanobind is importable from the interpreter CMake finds, this also
 builds `animus_sandbox_bridge` (a `.so`/`.pyd` Python extension module).
-Copy it next to `python_bridge_demo.py` (or run the script from the
+Copy it next to `python_bridge_test.py` (or run the script from the
 build output directory), then:
 
 ```
-python python_bridge_demo.py
+python python_bridge_test.py
 ```
 
 This starts a real background native producer thread feeding the ring
@@ -91,7 +91,7 @@ own printed number is what to cite for your hardware.
 | `tsc_clock.hpp` | Invariant-TSC detection, serialized reads, wall-clock calibration -- zero system calls. |
 | `benchmark_harness.cpp` | The native benchmark: false-sharing A/B test, MPMC throughput + correctness check, TSC hot-loop cost. |
 | `nanobind_bridge.cpp` | Python extension module exposing the ring buffer as a zero-copy `TelemetryStream`. |
-| `python_bridge_demo.py` | Measures real drain() latency against the compiled bridge module. |
+| `python_bridge_test.py` | Measures real drain() latency against the compiled bridge module. |
 
 ## Notes for evaluators
 
