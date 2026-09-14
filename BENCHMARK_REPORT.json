@@ -37,6 +37,21 @@
     "system_info": {
         "cpu_count": 24,
         "platform": "Windows",
-        "compiler": "GCC 15.2"
+        "compiler": "GCC 15.2",
+        "cpu_topology": "hybrid 8P+8E (corrected from a prior 6P+10E claim that did not arithmetic to 24 threads; verified by isolating each logical core with a pinned busy-loop probe -- see AnimusCore_v1/BENCHMARKS.md)"
+    },
+    "_note": "ring_throughput above is a single historical producer-only burst run (no concurrent consumer) and is superseded, as a characterization of run-to-run variance, by the 5-run range in AnimusCore_v1/BENCHMARKS.md (6,929,317-9,565,082 pushes/sec, same producer-only methodology). Neither of those is the number for simultaneous producer+consumer load -- see sustained_mpmc_producer_consumer below.",
+    "sustained_mpmc_producer_consumer": {
+        "methodology": "8 producer threads + 8 consumer threads running simultaneously (not sequential phases), sampled every 10s over a 40s window, native Windows build (g++ -O3, no sanitizers)",
+        "source": "animus_sandbox/soak_harness.cpp; documented in AnimusCore_v1/BENCHMARKS.md",
+        "throughput_pushes_per_sec": 7276561.0,
+        "throughput_range_pushes_per_sec": [7255546.0, 7290000.0],
+        "p50_ns": 834,
+        "p90_ns": 1896,
+        "total_produced": 290993953,
+        "total_consumed": 290993953,
+        "correctness_ok": true,
+        "hot_path_heap_allocations": 0,
+        "note": "A separate short-burst benchmark (~100-200ms window) reported a bimodal 13.5M-21.4M pushes/sec range for this same configuration; investigation found no correlation with background system load, and traced it to the short window sometimes catching a transient turbo-boost state. This sustained figure is the one to cite; the burst range should not be. Single test session (one run, four samples) -- recommend a second machine and a longer window before treating this as final."
     }
 }

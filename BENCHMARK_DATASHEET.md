@@ -21,7 +21,7 @@
 
 ## 2. Test Environment & Recommended Production Deployment Profile
 
-**2.1 As-measured test rig (what every number in §3 actually ran on).** A single development machine: **Intel Core i7-14650HX** (hybrid 6P+10E, 16 cores / 24 threads, confirmed via `Get-CimInstance Win32_Processor`), Windows, MSVC (`cl /O2`) and GCC/Clang cross-checks per benchmark. This is a laptop-class part, not a server SKU — stated plainly rather than left ambiguous, per `AnimusCore_v1/BENCHMARKS.md`'s own standing rule to report hardware exactly as used. Thread-to-core affinity (`SetThreadAffinityMask` / `pthread_setaffinity_np`) is applied per benchmark; OS-level exclusive core reservation, HugePages, and NUMA-aware allocation are **not** — `AnimusCore_v1/BENCHMARKS.md` Phase 14/19 measured and documented that affinity pinning alone improves p50/p90 consistently but does not reliably bound p99.99 without that additional isolation layer, and reports that limit rather than omitting it.
+**2.1 As-measured test rig (what every number in §3 actually ran on).** A single development machine: **Intel Core i7-14650HX** (hybrid 8P+8E, 16 cores / 24 threads -- `Get-CimInstance Win32_Processor` confirms the core/thread count; the P/E split was verified directly by isolating each logical core with a pinned busy-loop probe: cores 0-15 measured 4,340-4,577 Miters/sec each, cores 16-23 measured 1,944-2,073 Miters/sec each, a clean 2.2x split with no ambiguity -- see `AnimusCore_v1/BENCHMARKS.md` for the full probe), Windows, MSVC (`cl /O2`) and GCC/Clang cross-checks per benchmark. This is a laptop-class part, not a server SKU — stated plainly rather than left ambiguous, per `AnimusCore_v1/BENCHMARKS.md`'s own standing rule to report hardware exactly as used. Thread-to-core affinity (`SetThreadAffinityMask` / `pthread_setaffinity_np`) is applied per benchmark; OS-level exclusive core reservation, HugePages, and NUMA-aware allocation are **not** — `AnimusCore_v1/BENCHMARKS.md` Phase 14/19 measured and documented that affinity pinning alone improves p50/p90 consistently but does not reliably bound p99.99 without that additional isolation layer, and reports that limit rather than omitting it.
 
 **2.2 Profiling methodology (used for the cross-core SPSC figures in §3).** Cycle-accurate timestamps via `__rdtsc()`, serialized with `_mm_lfence()` immediately before/after each read (an unserialized RDTSC read can retire out of order relative to the instructions it's meant to bracket, which understates true latency), calibrated against `std::chrono::steady_clock` rather than an assumed clock speed. Each reported run follows a warm-up burst (representative sample sizes and phase separation — depth-1 latency vs. unthrottled throughput — are documented per-benchmark in §3, since they differ by harness) before the measured window starts, so first-touch page faults and branch-predictor/cache warm-up don't contaminate the reported percentiles. Every reproduction command is cited inline in §3 — this is not a black-box number.
 
@@ -59,7 +59,21 @@ Single-threaded, sequential ingest → poll → execute loop (`MarketDataFeed` t
 | Per-push p50 latency | 600 ns |
 | Per-push p99 latency | 5,200 ns |
 
-*This measures producer-side contention only — no concurrent consumer drains the ring during the timed window. A simultaneous producer+consumer workload will see different (likely lower) numbers.*
+*This measures producer-side contention only — no concurrent consumer drains the ring during the timed window. A simultaneous producer+consumer workload sees a different number — see below, not "likely lower," confirmed lower.*
+
+### Ring buffer throughput — simultaneous 8-producer/8-consumer, time-sustained
+
+*Source: `AnimusCore_v1/BENCHMARKS.md`, "Ring Buffer Throughput Under Simultaneous 8-Producer/8-Consumer Load, Time-Sustained." Reproduce with `g++ -O3 -pthread animus_sandbox/soak_harness.cpp -o soak && ./soak 40 10 8 8`.*
+
+8 producer threads and 8 consumer threads running simultaneously (not sequential phases), sampled every 10 seconds over a 40-second window — long enough for the CPU package to settle into steady state, unlike the ~100-200ms window above.
+
+| Metric | Result |
+|---|---|
+| **Sustained throughput** | **~7.28M pushes/sec** (7.26M–7.29M across four 10s samples, <1% spread) |
+| p50 / p90 latency | 834 ns / 1,896 ns |
+| Correctness | Exact: produced == consumed (290,993,953 / 290,993,953) |
+
+**This is the number to cite for simultaneous producer+consumer load — the two figures above (7.2M producer-only, and any short-burst combined-load number you may see elsewhere) measure different, narrower conditions and should not be substituted for it.** Single test session (one run, four samples) — narrower evidence base than the 5-run producer-only figure above; treat as a strong first sustained data point, not yet a fully cross-validated final number.
 
 ### Python SDK batched-ingestion throughput
 

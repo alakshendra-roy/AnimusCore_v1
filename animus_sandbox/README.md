@@ -8,6 +8,17 @@ independently checkable claims:
    test, not just a `static_assert`.
 2. **Lock-free MPMC ring buffer throughput** under real 8-producer /
    8-consumer contention, reported against a 16.5M+ pushes/sec target.
+   Note this is a producer-only push rate (`benchmark_harness`'s producer
+   and consumer phases run sequentially, not simultaneously) measured
+   over a short ~100-200ms burst -- it is not the throughput under real
+   simultaneous producer+consumer load. `soak_harness.cpp` in this same
+   directory runs both sides at once over a genuinely sustained window
+   instead: `./soak_harness <duration_s> <interval_s> <producers>
+   <consumers>` (e.g. `./soak_harness 40 10 8 8`). On the reference
+   machine this document was validated on, the sustained simultaneous
+   number came in at ~7.28M pushes/sec, materially lower than the
+   short-burst range above. Cite the sustained number, not the burst
+   target, for anything resembling real deployed load.
 3. **Invariant-TSC hardware cycle counting** with zero system calls in
    the hot path.
 4. **Zero-copy Python consumption** of the same ring buffer via a
@@ -89,7 +100,8 @@ own printed number is what to cite for your hardware.
 | `ring_buffer.hpp` | Bounded, lock-free MPMC ring buffer (Vyukov's sequence-number design). |
 | `sandbox_event.hpp` | The 64-byte, cache-line-aligned event payload shared by the C++ and Python paths. |
 | `tsc_clock.hpp` | Invariant-TSC detection, serialized reads, wall-clock calibration -- zero system calls. |
-| `benchmark_harness.cpp` | The native benchmark: false-sharing A/B test, MPMC throughput + correctness check, TSC hot-loop cost. |
+| `benchmark_harness.cpp` | The native benchmark: false-sharing A/B test, MPMC throughput + correctness check, TSC hot-loop cost. Producer-only push rate, short burst. |
+| `soak_harness.cpp` | Simultaneous producer+consumer, time-sustained throughput and latency percentiles over a configurable window. Not built by `make`/`Makefile` -- build directly: `g++ -std=c++17 -O3 -pthread soak_harness.cpp -o soak_harness` (or add `-fsanitize=address,undefined -g` for a correctness/leak-checking run). |
 | `nanobind_bridge.cpp` | Python extension module exposing the ring buffer as a zero-copy `TelemetryStream`. |
 | `python_bridge_test.py` | Measures real drain() latency against the compiled bridge module. |
 

@@ -61,18 +61,30 @@ These are real, machine-measured figures from repeated runs on a 24-core develop
 
 The ring buffer is a bounded, lock-free, multi-producer/multi-consumer queue: every slot carries its own sequence number, so a producer or consumer coordinates with the specific slot it is about to touch rather than with one shared full/empty flag. That is what allows independent producers (and independent consumers) to make progress concurrently via a single compare-and-swap each, without blocking on unrelated slots.
 
-**Benchmark methodology:** 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase (eliminating backpressure stalls as a confound). Throughput is `total events / wall-clock elapsed time` for that phase. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload — proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.
+**Benchmark methodology:** 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase (eliminating backpressure stalls as a confound). Throughput is `total events / wall-clock elapsed time` for that phase — a ~100-200ms burst, not a time-sustained measurement, despite "sustained" having previously labeled the row below. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload — proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.
 
-**Target and observed results:**
+**Target and observed results (producer-only push rate, short burst):**
 
 | Metric | Value |
 |---|---|
-| Producer / consumer threads | 8 / 8 |
-| Target sustained throughput | 16.5M+ pushes/sec |
+| Producer / consumer threads | 8 / 8 (sequential phases — see below for simultaneous) |
+| Target push rate | 16.5M+ pushes/sec |
 | Observed range (this benchmark, single dev workstation) | 13.5M – 19.7M pushes/sec |
 | Correctness check | PASS — exact push/drain checksum match, every run |
 
-The observed range spans both sides of the 16.5M target on the same machine, run to run — this is real measurement noise from a shared, non-isolated development box (thermal state, background load, scheduler placement), not an inconsistency in the queue itself. On dedicated, isolated-core institutional hardware, expect materially less run-to-run variance and results consistently at or above target. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.
+The observed range spans both sides of the 16.5M target on the same machine, run to run. Investigated directly rather than assumed: system CPU load sampled immediately before each run showed no correlation with the outcome (the two lowest-load samples were still below target), ruling out ordinary background-process contention. The more likely explanation is the short ~100-200ms measurement window itself — short enough to sometimes catch the CPU package still in a transient turbo-boost state and sometimes not, with no way to predict which in advance. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.
+
+**Simultaneous producer+consumer, time-sustained (the number that reflects real deployed load):**
+
+A ring buffer with no consumer draining it is not the deployed shape — `EngineImpl`'s telemetry path always has one. Running 8 producers and 8 consumers *simultaneously* (not sequential phases) for a genuinely sustained 40-second window, sampled every 10 seconds, gives a materially different and much more stable result:
+
+| Metric | Value |
+|---|---|
+| Sustained throughput | **~7.28M pushes/sec** (7.26M–7.29M across four 10s samples — under 1% spread) |
+| p50 / p90 latency | 834 ns / 1,896 ns |
+| Correctness | Exact — produced == consumed (290,993,953 / 290,993,953) |
+
+This sits *below* even the low end of the short-burst producer-only range above, not between its numbers — confirming the burst figures are measuring a transient best-case condition, not a noisy read on the same underlying rate. **For any client-facing citation of throughput under real (producer+consumer) load, use ~7.28M pushes/sec, not the 13.5M-19.7M burst range.** This is a single test session (one run, four samples); treat it as a strong first sustained data point pending a second machine and a longer window, not yet a fully cross-validated final number.
 
 ---
 

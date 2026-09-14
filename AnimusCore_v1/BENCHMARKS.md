@@ -453,7 +453,7 @@ what the numbers mean.
 ### CPU Core Pinning (`animus_pin_current_thread_to_core`)
 
 * **Target System:** `animus_pin_current_thread_to_core(core_id)` / `animus_get_cpu_count()` (`animus_engine.cpp`) -- Windows: `SetThreadAffinityMask`; Linux: `pthread_setaffinity_np` (requires `find_package(Threads)` + `Threads::Threads`, added to `CMakeLists.txt` for this); no portable hard-pinning API exists on other platforms, so the function returns `false` there rather than claiming a pin that didn't happen. Affects only the calling thread, not the whole process.
-* **Test machine:** Intel Core i7-14650HX -- a hybrid CPU, 16 cores / 24 logical threads (6 Performance-cores with Hyper-Threading + 10 Efficiency-cores), confirmed via `Get-CimInstance Win32_Processor`.
+* **Test machine:** Intel Core i7-14650HX -- a hybrid CPU, 16 cores / 24 logical threads (8 Performance-cores with Hyper-Threading + 8 Efficiency-cores; `Get-CimInstance Win32_Processor` confirms the 16/24 core/thread count but not the P/E split itself, which was previously misstated here as 6P+10E -- an error caught because 6x2+10=22, not 24. Corrected by isolating each of the 24 logical cores individually with a pinned busy-loop probe: cores 0-15 measured 4,340-4,577 Miters/sec each, cores 16-23 measured 1,944-2,073 Miters/sec each -- a clean, non-overlapping 2.2x split with no ambiguity about where the boundary falls).
 * **A real, environment-driven finding, not a defect:** the first version of the fintech tail-latency benchmark (below) pinned to the highest-numbered logical core (`cpu_count - 1` = core 23), a common informal "avoid core 0" convention. On this hybrid CPU that silently picked an Efficiency core. Measured effect of pinning to core 23 vs. not pinning at all, same 1,000,000-event sweep:
 
 | Batch size | Unpinned baseline p99.99 | Pinned to core 23 (an E-core) p99.99 | Ratio |
@@ -690,6 +690,22 @@ Batch size = 10,000:
 | Per-push p99 latency | 5,200.0 ns | 3,600.0 - 5,200.0 ns |
 
 * **Status:** Phase 19 Ring Buffer Throughput Verified -- 7-9.6M pushes/sec sustained under real 8-thread contention across all 5 runs, with correctness (no lost/duplicated push) confirmed every time.
+
+### Ring Buffer Throughput Under Simultaneous 8-Producer/8-Consumer Load, Time-Sustained
+
+* **Why this is a separate measurement, not a duplicate:** the section above measures `push()` cost alone -- the ring is pre-sized so nothing ever drains during the timed window, deliberately isolating producer-side contention. It does not answer "what throughput does the ring sustain once a consumer is actually draining it," which is the real deployed shape (`EngineImpl`'s telemetry path always has a consumer). A separate short-burst benchmark (`animus_sandbox/benchmark_harness.cpp`, ~100-200ms measured window) reported a bimodal 13.5M-21.4M pushes/sec range for this configuration across repeated runs on this machine -- investigated below, and it turned out to be a burst-window artifact, not the ring's real sustained rate.
+* **Method:** `animus_sandbox/soak_harness.cpp`, 8 producer threads + 8 consumer threads running simultaneously (not sequential phases), sampled every 10 seconds over a 40-second window, native Windows build (`g++ -O3`, no sanitizers -- this measurement is about throughput, not memory safety). Correctness (`total_produced == total_consumed`, exact) and zero-heap-allocation-on-hot-path are both enforced, not just reported.
+* **Root-cause of the short-burst benchmark's bimodal range:** system CPU load sampled immediately before each burst run showed no correlation with the MET/below-target outcome (the two lowest-load samples, 2.2% and 5.8% busy, were both still below target) -- ruling out ordinary background-process contention as the cause. The short burst window (~100-200ms) is the more likely explanation: it is short enough to sometimes catch the CPU package still in a transient turbo-boost state left over from momentum, and sometimes not, with no way to tell which in advance. A 40-second sustained window gives the package time to settle into steady-state regardless of what preceded it.
+
+| Metric | Result |
+|---|---|
+| **Sustained throughput** | **~7.28M pushes/sec** (7.26M-7.29M across four 10s samples -- under 1% spread) |
+| p50 / p90 latency (final window) | 834 ns / 1,896 ns |
+| Correctness | Exact: `total_produced == total_consumed` (290,993,953 / 290,993,953) |
+| Hot-path heap allocations | 0 |
+
+* **Reconciling with the short-burst benchmark's range:** the sustained number (~7.28M/sec) sits *below* even the low end of the burst benchmark's "below target" cluster (13.5M-16.8M), not between its two clusters -- confirming the burst numbers are not a noisy read on the same underlying rate, they are measuring a materially different (transient, best-case) condition. **Do not cite the short-burst 13.5M-21.4M range as a production throughput figure. The defensible number for simultaneous producer+consumer load is ~7.28M pushes/sec, sustained.**
+* **Status:** New measurement, single test session (one 40-second run, four samples) -- narrower evidence base than the 5-run producer-only benchmark above. Recommend repeating on a second machine and over a longer window (matching this repo's own standing rule of not trusting a single run) before treating 7.28M as a final citable number rather than a strong first sustained data point.
 
 ### CPU Cache Locality: Pointer-Chase Sweep + False-Sharing A/B Test
 
