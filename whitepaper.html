@@ -198,21 +198,26 @@ tailwind.config = {
         The ring buffer is a bounded, lock-free, multi-producer/multi-consumer queue: every slot carries its own sequence number, so a producer or consumer coordinates with the specific slot it is about to touch rather than with one shared full/empty flag &mdash; allowing independent producers and consumers to make progress concurrently via a single compare-and-swap each.
       </p>
       <p class="mt-4 text-sm leading-relaxed">
-        <span class="text-white font-bold">Methodology:</span> 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase. Throughput is total events divided by wall-clock elapsed time. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload &mdash; proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.
+        <span class="text-white font-bold">Methodology:</span> 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase &mdash; a ~100-200ms burst, not a time-sustained measurement. Throughput is total events divided by wall-clock elapsed time. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload &mdash; proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.
       </p>
       <div class="mt-4 overflow-x-auto border border-border rounded-sm">
         <table class="w-full text-xs">
           <tbody class="font-mono text-slate-300">
-            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Producer / consumer threads</td><td class="p-3">8 / 8</td></tr>
-            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Target sustained throughput</td><td class="p-3 text-emerald font-bold">16.5M+ pushes/sec</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Producer / consumer threads</td><td class="p-3">8 / 8 (sequential phases &mdash; see below for simultaneous)</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Target push rate (producer-only, short burst)</td><td class="p-3 text-emerald font-bold">16.5M+ pushes/sec</td></tr>
             <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Observed range (single dev workstation)</td><td class="p-3">13.5M &ndash; 20.4M pushes/sec</td></tr>
             <tr><td class="p-3 text-slate-500">Correctness check</td><td class="p-3 text-emerald font-bold">PASS &mdash; exact push/drain checksum match, every run</td></tr>
           </tbody>
         </table>
       </div>
       <p class="mt-4 text-xs text-slate-500 leading-relaxed">
-        The observed range spans both sides of the 16.5M target on the same machine, run to run &mdash; real measurement noise from a shared, non-isolated development box (thermal state, background load, scheduler placement), not an inconsistency in the queue itself. On dedicated, isolated-core institutional hardware, expect materially less run-to-run variance. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.
+        The observed range spans both sides of the 16.5M target on the same machine, run to run. Investigated directly: system CPU load sampled immediately before each run showed no correlation with the outcome (the two lowest-load samples were still below target), ruling out ordinary background-process contention. The more likely explanation is the short ~100-200ms measurement window itself, sometimes catching the CPU package in a transient turbo-boost state and sometimes not. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.
       </p>
+      <div class="mt-6 corner-card bg-panel border border-border rounded-md p-5" style="--accent: var(--emerald)">
+        <div class="text-[11px] uppercase tracking-wider text-slate-500 font-mono">Simultaneous producer+consumer, time-sustained &mdash; the number for real deployed load</div>
+        <div class="mt-2 text-2xl md:text-3xl font-bold text-white font-mono">~7.28M<span class="text-sm text-slate-500 ml-1">pushes/sec</span></div>
+        <p class="mt-3 text-xs text-slate-500 leading-relaxed">8 producers and 8 consumers running simultaneously (not sequential phases) for a genuinely sustained 40-second window: 7.26M&ndash;7.29M pushes/sec across four 10s samples (under 1% spread), p50/p90 latency 834ns/1,896ns, correctness exact (290,993,953 produced == 290,993,953 consumed). This sits <em>below</em> even the low end of the burst range above, not between its numbers &mdash; the burst figures measure a transient best-case condition, not a noisy read on the same rate. <span class="text-white font-bold">Use this number, not the burst range, for any citation of throughput under real producer+consumer load.</span> Single test session (one run, four samples) &mdash; a strong first sustained data point, not yet fully cross-validated.</p>
+      </div>
     </section>
 
     <!-- Section 4: Invariant TSC -->
