@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Animus Core — Client Deck</title>
+<meta name="description" content="Animus Core: Zero-Allocation Telemetry & High-Throughput MPMC Engine — 4-slide client presentation.">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d1117;
+    --card:#161b22;
+    --border:#30363d;
+    --emerald:#3fb950;
+    --blue:#58a6ff;
+    --text:#e6edf3;
+    --text-dim:#c9d1d9;
+    --text-faint:#8b949e;
+    --text-faintest:#6e7681;
+    --sans:"Inter","Segoe UI",system-ui,sans-serif;
+    --mono:"JetBrains Mono","Consolas","SFMono-Regular",monospace;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; background:#010409; }
+  body{ font-family:var(--sans); color:var(--text-dim); -webkit-font-smoothing:antialiased; }
+  h1,h2,h3{ font-family:var(--sans); color:var(--text); margin:0; }
+  p{ margin:0; }
+  b,strong{ color:var(--text); font-weight:600; }
+  .mono{ font-family:var(--mono); }
+
+  @page{ size:1280px 720px; margin:0; }
+
+  .deck{ display:flex; flex-direction:column; align-items:center; gap:28px; padding:28px 0 48px; }
+
+  .slide{
+    width:1280px; height:720px; min-width:1280px; min-height:720px; max-width:1280px; max-height:720px;
+    position:relative; overflow:hidden; flex-shrink:0;
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(63,185,80,0.08) 0%, transparent 45%),
+      radial-gradient(circle at 100% 100%, rgba(88,166,255,0.08) 0%, transparent 45%);
+    display:flex; flex-direction:column;
+    padding:44px 64px 36px;
+    page-break-after:always; break-after:page;
+  }
+  .slide:last-child{ page-break-after:auto; break-after:auto; }
+
+  /* ---------- shared chrome ---------- */
+  .topbar{ display:flex; align-items:center; justify-content:space-between; margin-bottom:26px; flex-shrink:0; }
+  .topbar .brand{ display:flex; align-items:center; gap:10px; font-family:var(--mono); font-size:12px; letter-spacing:.14em; color:var(--text-faint); }
+  .topbar .brand b{ color:var(--text); font-weight:700; }
+  .topbar .brand .mark{ width:9px; height:9px; border-radius:2px; background:var(--emerald); box-shadow:0 0 10px rgba(63,185,80,0.65); display:inline-block; }
+  .topbar .tag{ font-family:var(--mono); font-size:10.5px; letter-spacing:.14em; color:var(--text-faintest); text-transform:uppercase; }
+
+  .eyebrow{
+    font-family:var(--mono); font-size:12.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--emerald); display:flex; align-items:center; gap:10px; margin-bottom:14px;
+  }
+  .eyebrow::before{ content:""; width:22px; height:2px; background:var(--emerald); display:inline-block; }
+  .eyebrow.blue{ color:var(--blue); }
+  .eyebrow.blue::before{ background:var(--blue); }
+
+  h1.headline{ font-weight:800; font-size:34px; line-height:1.16; letter-spacing:-.01em; max-width:26ch; }
+  h2.headline{ font-weight:800; font-size:30px; line-height:1.18; letter-spacing:-.01em; max-width:26ch; }
+
+  .foot{
+    margin-top:auto; padding-top:14px; border-top:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; flex-shrink:0;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; color:var(--text-faintest);
+  }
+  .foot .brand{ display:flex; align-items:center; gap:7px; white-space:nowrap; flex-shrink:0; }
+  .foot .brand .mark{ width:6px; height:6px; border-radius:1px; background:var(--emerald); display:inline-block; }
+  .foot > span{ white-space:nowrap; }
+  .foot .pagenum{ font-variant-numeric:tabular-nums; }
+
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 4px 20px rgba(0,0,0,0.45);
+  }
+
+  .stat-num{ font-family:var(--mono); font-weight:700; color:var(--emerald); }
+  .stat-num.blue{ color:var(--blue); }
+
+  code, .kbd{
+    font-family:var(--mono); font-size:0.92em; color:var(--blue);
+    background:rgba(88,166,255,0.10); border:1px solid rgba(88,166,255,0.28);
+    padding:1px 6px; border-radius:5px;
+  }
+
+  /* ================= SLIDE 1 — TITLE ================= */
+  .s1-mid{ flex:1; display:flex; flex-direction:column; justify-content:center; }
+  .s1-badge{
+    display:inline-flex; align-items:center; gap:8px; align-self:flex-start;
+    font-family:var(--mono); font-size:12px; letter-spacing:.16em; color:var(--emerald);
+    border:1px solid rgba(63,185,80,0.4); background:rgba(63,185,80,0.08);
+    padding:6px 14px; border-radius:999px; margin-bottom:26px;
+  }
+  .s1-badge .dot{ width:6px; height:6px; border-radius:50%; background:var(--emerald); }
+  .s1-title{ font-weight:800; font-size:76px; line-height:1; letter-spacing:-.02em; color:var(--text); }
+  .s1-title .accent{ color:var(--emerald); }
+  .s1-sub{ font-size:22px; font-weight:600; line-height:1.4; color:var(--text-dim); max-width:52ch; margin-top:22px; }
+  .s1-hw{ font-family:var(--mono); font-size:13px; color:var(--text-faint); margin-top:18px; letter-spacing:.02em; }
+  .s1-hw b{ color:var(--blue); font-weight:700; }
+  .s1-stats{ display:flex; gap:16px; margin-top:44px; }
+  .s1-stat{ flex:1; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px 22px; }
+  .s1-stat .v{ font-size:28px; font-weight:800; color:var(--emerald); font-family:var(--mono); }
+  .s1-stat .v.blue{ color:var(--blue); }
+  .s1-stat .k{ font-size:11.5px; color:var(--text-faint); margin-top:6px; letter-spacing:.03em; }
+
+  /* ================= SLIDE 2 — TWO COLUMN TILES ================= */
+  .s2-body{ flex:1; display:flex; flex-direction:column; min-height:0; }
+  .s2-cols{ display:flex; gap:22px; flex:1; margin-top:6px; }
+  .s2-col{ flex:1; padding:26px 26px 24px; display:flex; flex-direction:column; }
+  .s2-col .col-tag{ font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-faint); }
+  .s2-col .col-tag.live{ color:var(--emerald); }
+  .s2-col .col-tag.burst{ color:var(--text-faintest); }
+  .s2-col .big-num{ font-family:var(--mono); font-weight:800; font-size:52px; color:var(--emerald); margin-top:10px; letter-spacing:-.01em; }
+  .s2-col .big-num.dim{ color:var(--text-faint); font-size:44px; }
+  .s2-col .big-num .unit{ font-size:22px; font-weight:700; color:var(--text-faint); }
+  .s2-col .desc{ font-size:13px; line-height:1.55; color:var(--text-dim); margin-top:10px; max-width:36ch; }
+  .s2-col .rule{ height:1px; background:var(--border); margin:18px 0; }
+  .s2-col .mini-row{ display:flex; gap:14px; margin-top:auto; }
+  .mini-stat{ flex:1; background:#0d1117; border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
+  .mini-stat .mv{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--text); }
+  .mini-stat .mk{ font-size:10px; color:var(--text-faintest); margin-top:3px; letter-spacing:.03em; text-transform:uppercase; }
+  .s2-verdict{
+    display:inline-flex; align-items:center; gap:7px; margin-top:16px; align-self:flex-start;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.05em;
+    padding:4px 10px; border-radius:6px;
+  }
+  .s2-verdict.good{ color:var(--emerald); background:rgba(63,185,80,0.10); border:1px solid rgba(63,185,80,0.3); }
+  .s2-verdict.warn{ color:#d29922; background:rgba(210,153,34,0.10); border:1px solid rgba(210,153,34,0.3); }
+  .s2-footnote{ margin-top:16px; font-family:var(--mono); font-size:11px; line-height:1.6; color:var(--text-faint); flex-shrink:0; }
+  .s2-footnote .kbd{ font-size:11px; }
+
+  /* ================= SLIDE 3 — BLEED IMAGE RIGHT ================= */
+  .s3-wrap{ flex:1; display:flex; min-height:0; margin:6px -64px 0; }
+  .s3-text{ width:520px; flex-shrink:0; padding:0 64px 0 64px; display:flex; flex-direction:column; }
+  .s3-metrics{ display:flex; flex-direction:column; gap:10px; margin-top:16px; }
+  .s3-metric{ display:flex; align-items:baseline; gap:10px; }
+  .s3-metric .mv{ font-family:var(--mono); font-weight:800; font-size:19px; color:var(--emerald); white-space:nowrap; }
+  .s3-metric .ml{ font-size:12px; color:var(--text-faint); }
+  .s3-badge-row{ display:flex; gap:10px; margin-top:auto; flex-wrap:wrap; }
+  .s3-badge{ font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; color:var(--blue); background:rgba(88,166,255,0.08); border:1px solid rgba(88,166,255,0.28); padding:5px 10px; border-radius:6px; }
+  .s3-bleed{ flex:1; position:relative; background:#010409; border-left:1px solid var(--border); overflow:hidden; }
+  .s3-bleed svg{ display:block; width:100%; height:100%; }
+
+  /* ================= SLIDE 4 — TILED TEXT + ICONS ================= */
+  .s4-grid{ flex:1; display:flex; gap:22px; margin-top:8px; min-height:0; }
+  .s4-tile{ flex:1; padding:28px 24px; display:flex; flex-direction:column; }
+  .s4-tile .icon-badge{
+    width:48px; height:48px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    background:rgba(63,185,80,0.10); border:1px solid rgba(63,185,80,0.32); flex-shrink:0; margin-bottom:18px;
+  }
+  .s4-tile .icon-badge.blue{ background:rgba(88,166,255,0.10); border-color:rgba(88,166,255,0.32); }
+  .s4-tile h3{ font-size:18px; font-weight:800; }
+  .s4-tile .body{ font-size:13px; line-height:1.6; color:var(--text-dim); margin-top:12px; flex:1; }
+  .s4-tile .rule{ height:1px; background:var(--border); margin:16px 0 12px; }
+  .s4-tile .tag-list{ display:flex; flex-direction:column; gap:8px; }
+  .s4-tile .tag-item{ display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--text-faint); }
+  .s4-tile .tag-item .dot{ width:5px; height:5px; border-radius:50%; background:var(--emerald); flex-shrink:0; }
+  .s4-tile .tag-item.blue .dot{ background:var(--blue); }
+  .s4-cta{ margin-top:18px; padding-top:34px; }
+</style>
+</head>
+<body>
+<div class="deck">
+
+  <!-- ================= SLIDE 1 — TITLE ================= -->
+  <section class="slide" id="slide-1">
+    <div class="topbar">
+      <div class="brand"><span class="mark"></span>ANIMUS <b>CORE</b></div>
+      <div class="tag">Client Briefing · Confidential</div>
+    </div>
+    <div class="s1-mid">
+      <div class="s1-badge"><span class="dot"></span>DETERMINISTIC EXECUTION SUBSTRATE</div>
+      <h1 class="s1-title">ANIMUS <span class="accent">CORE</span></h1>
+      <p class="s1-sub">Zero-Allocation Telemetry &amp; High-Throughput MPMC Engine — a lock-free multi-producer/multi-consumer core built for sustained, deterministic throughput under real concurrent load.</p>
+      <p class="s1-hw">Hardware-grounded on <b>Intel Core i7-14650HX</b> — 16 cores / 24 threads (8 Performance-cores w/ Hyper-Threading + 8 Efficiency-cores, confirmed by per-core isolation probe), native build, no simulated environment.</p>
+      <div class="s1-stats">
+        <div class="s1-stat"><div class="v">7.28M/s</div><div class="k">SUSTAINED MPMC, SINGLE TEST SESSION</div></div>
+        <div class="s1-stat"><div class="v blue">0</div><div class="k">HEAP ALLOCATIONS ON HOT PATH</div></div>
+        <div class="s1-stat"><div class="v">2h 38m</div><div class="k">SOAK, EXACT PRODUCED = CONSUMED</div></div>
+      </div>
+    </div>
+    <div class="foot">
+      <div class="brand"><span class="mark"></span>ANIMUS CORE SYSTEMS</div>
+      <span>Figures sourced from BENCHMARKS.md &amp; SOAK_TEST_AUDIT_REPORT.html</span>
+      <span class="pagenum">01 / 04</span>
+    </div>
+  </section>
+
+  <!-- ================= SLIDE 2 — TWO COLUMN TILES: THROUGHPUT ================= -->
+  <section class="slide" id="slide-2">
+    <div class="topbar">
+      <div class="brand"><span class="mark"></span>ANIMUS <b>CORE</b></div>
+      <div class="tag">Throughput Characterization</div>
+    </div>
+    <div class="eyebrow">Benchmarked Performance</div>
+    <h2 class="headline">Sustained Throughput vs. Transient Burst</h2>
+    <div class="s2-body">
+      <div class="s2-cols">
+        <div class="card s2-col">
+          <div class="col-tag live">Sustained · Real Load</div>
+          <div class="big-num">7.28M<span class="unit">/s</span></div>
+          <p class="desc">Simultaneous 8-producer / 8-consumer MPMC ring, sampled every 10s across a 40-second window (4 samples), consumer actually draining the queue. Correctness exact: 290,993,953 produced = consumed.</p>
+          <div class="s2-verdict good">&#10003; UNDER 1% SPREAD ACROSS 4 SAMPLES (7.26M–7.29M/s)</div>
+          <div class="rule"></div>
+          <div class="mini-row">
+            <div class="mini-stat"><div class="mv">834ns / 1,896ns</div><div class="mk">p50 / p90, final window</div></div>
+            <div class="mini-stat"><div class="mv">0</div><div class="mk">heap allocs, hot path</div></div>
+          </div>
+        </div>
+        <div class="card s2-col">
+          <div class="col-tag burst">Transient · Burst Window</div>
+          <div class="big-num dim">13.5M–21.4M<span class="unit">/s</span></div>
+          <p class="desc">Short (~100–200ms) burst benchmark on the same configuration — bimodal, traced to the short window sometimes catching a transient CPU turbo-boost state left over from momentum. No correlation found with background system load.</p>
+          <div class="s2-verdict warn">&#9888; NOT REPRESENTATIVE OF SUSTAINED LOAD — DO NOT CITE</div>
+          <div class="rule"></div>
+          <div class="mini-row">
+            <div class="mini-stat"><div class="mv">~20.6M/s</div><div class="mk">representative burst sample</div></div>
+            <div class="mini-stat"><div class="mv">below 7.28M</div><div class="mk">sustained sits below this range</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="s2-footnote">Cache-line padding (<span class="kbd">alignas(64)</span>) measured at <b style="color:var(--text)">4.55x</b> throughput vs. an unpadded, false-sharing layout (4.21x–4.99x across 5 A/B runs) — a direct empirical test, not an assumption. Sustained figure is a single 40-second test session; a second machine and longer window are recommended before treating 7.28M/s as final.</div>
+    </div>
+    <div class="foot">
+      <div class="brand"><span class="mark"></span>ANIMUS CORE SYSTEMS</div>
+      <span>8P/8C · i7-14650HX · animus_sandbox/soak_harness.cpp, no sanitizers</span>
+      <span class="pagenum">02 / 04</span>
+    </div>
+  </section>
+
+  <!-- ================= SLIDE 3 — BLEED IMAGE RIGHT: SOAK AUDIT ================= -->
+  <section class="slide" id="slide-3">
+    <div class="topbar">
+      <div class="brand"><span class="mark"></span>ANIMUS <b>CORE</b></div>
+      <div class="tag">Reliability Verification</div>
+    </div>
+    <div class="s3-wrap">
+      <div class="s3-text">
+        <div class="eyebrow blue">Soak &amp; Reliability Audit</div>
+        <h2 class="headline">2h 38m 49s of Continuous Load, Zero Drift</h2>
+        <div class="s3-metrics">
+          <div class="s3-metric"><span class="mv">51,623,591,903</span><span class="ml">events produced = events consumed, exact</span></div>
+          <div class="s3-metric"><span class="mv">0</span><span class="ml">heap allocations across the entire run</span></div>
+          <div class="s3-metric"><span class="mv">5.16M–5.33M/s</span><span class="ml">steady-state plateau, final ~100 min (10 samples)</span></div>
+          <div class="s3-metric"><span class="mv">~7.28M/s</span><span class="ml">is the clean-build (no-sanitizer) sustained figure — see previous slide</span></div>
+        </div>
+        <div class="s3-badge-row">
+          <span class="s3-badge">ASan + UBSan instrumented</span>
+          <span class="s3-badge">memory-safety run, not a throughput citation</span>
+          <span class="s3-badge">correctness_ok: true</span>
+        </div>
+      </div>
+      <div class="s3-bleed">
+        <svg viewBox="0 0 760 640" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="plateauFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#3fb950" stop-opacity="0.35"/>
+              <stop offset="100%" stop-color="#3fb950" stop-opacity="0"/>
+            </linearGradient>
+            <pattern id="grid" width="38" height="38" patternUnits="userSpaceOnUse">
+              <path d="M 38 0 L 0 0 0 38" fill="none" stroke="#30363d" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="760" height="640" fill="#010409"/>
+          <rect width="760" height="640" fill="url(#grid)"/>
+          <text x="36" y="46" fill="#8b949e" font-family="JetBrains Mono, monospace" font-size="12" letter-spacing="1.5">THROUGHPUT_PUSHES_PER_SEC — 10 INTERVAL SAMPLES / 9,529s RUN</text>
+
+          <!-- axis -->
+          <line x1="60" y1="540" x2="720" y2="540" stroke="#30363d" stroke-width="1"/>
+          <line x1="60" y1="90" x2="60" y2="540" stroke="#30363d" stroke-width="1"/>
+          <text x="52" y="130" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="11" text-anchor="end">6.0M</text>
+          <text x="52" y="320" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="11" text-anchor="end">5.0M</text>
+          <text x="52" y="510" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="11" text-anchor="end">4.0M</text>
+          <line x1="60" y1="125" x2="720" y2="125" stroke="#21262d" stroke-width="1" stroke-dasharray="3 4"/>
+          <line x1="60" y1="315" x2="720" y2="315" stroke="#21262d" stroke-width="1" stroke-dasharray="3 4"/>
+          <line x1="60" y1="505" x2="720" y2="505" stroke="#21262d" stroke-width="1" stroke-dasharray="3 4"/>
+
+          <!-- plateau band: 5.16M-5.33M/s, the audit report's own steady-state figure for the final ~100 minutes (samples 4-10) -->
+          <path d="M 291,252 L 720,252 L 720,285 L 291,285 Z" fill="url(#plateauFill)"/>
+          <line x1="291" y1="252" x2="720" y2="252" stroke="#3fb950" stroke-width="1" stroke-dasharray="2 5"/>
+          <line x1="291" y1="285" x2="720" y2="285" stroke="#3fb950" stroke-width="1" stroke-dasharray="2 5"/>
+          <text x="500" y="240" fill="#3fb950" font-family="JetBrains Mono, monospace" font-size="13" font-weight="700" text-anchor="middle">5.16M–5.33M/s steady-state band</text>
+          <line x1="291" y1="90" x2="291" y2="540" stroke="#6e7681" stroke-width="1" stroke-dasharray="1 4"/>
+          <text x="296" y="102" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="10">~60 min</text>
+
+          <!-- data polyline: exact throughput_pushes_per_sec values from soak_test_report_2026-09-14.log, samples 1-10 -->
+          <polyline points="93,131 159,156 225,201 291,269 357,257 423,263 489,252 555,286 621,269 687,257"
+                     fill="none" stroke="#58a6ff" stroke-width="2.5" stroke-linejoin="round"/>
+          <g fill="#58a6ff">
+            <circle cx="93" cy="131" r="4"/>
+            <circle cx="159" cy="156" r="4"/>
+            <circle cx="225" cy="201" r="4"/>
+            <circle cx="291" cy="269" r="4"/>
+            <circle cx="357" cy="257" r="4"/>
+            <circle cx="423" cy="263" r="4"/>
+            <circle cx="489" cy="252" r="4"/>
+            <circle cx="555" cy="286" r="4"/>
+            <circle cx="621" cy="269" r="4"/>
+            <circle cx="687" cy="257" r="4"/>
+          </g>
+
+          <text x="60" y="565" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="10">t=0</text>
+          <text x="700" y="565" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="10" text-anchor="end">t=9,529s</text>
+
+          <text x="60" y="600" fill="#8b949e" font-family="JetBrains Mono, monospace" font-size="11">51,623,591,903 produced = 51,623,591,903 consumed &#183; 0 heap allocs</text>
+          <text x="60" y="618" fill="#6e7681" font-family="JetBrains Mono, monospace" font-size="10">0&ndash;60min decline: ASan/UBSan tax overlapping CPU turbo settling, not a leak.</text>
+        </svg>
+      </div>
+    </div>
+    <div class="foot">
+      <div class="brand"><span class="mark"></span>ANIMUS CORE SYSTEMS</div>
+      <span>SOAK_TEST_AUDIT_REPORT.html · full interactive chronology</span>
+      <span class="pagenum">03 / 04</span>
+    </div>
+  </section>
+
+  <!-- ================= SLIDE 4 — TILED TEXT WITH ICONS: ENTERPRISE ARCHITECTURE ================= -->
+  <section class="slide" id="slide-4">
+    <div class="topbar">
+      <div class="brand"><span class="mark"></span>ANIMUS <b>CORE</b></div>
+      <div class="tag">Enterprise Architecture</div>
+    </div>
+    <div class="eyebrow">What You're Actually Deploying</div>
+    <h2 class="headline">Built for Production, Not a Demo</h2>
+    <div class="s4-grid">
+      <div class="card s4-tile">
+        <div class="icon-badge">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2L4 6v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6l-8-4z" stroke="#3fb950" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" stroke="#3fb950" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Zero Allocations, Hot Path</h3>
+        <div class="body">No <code>malloc</code>/<code>new</code> on the produce/consume path — every slot is pre-allocated and <code>alignas(64)</code>-padded. Verified at 0 heap allocations across a 51.6-billion-event, 2h39m soak run under ASan/UBSan.</div>
+        <div class="rule"></div>
+        <div class="tag-list">
+          <div class="tag-item"><span class="dot"></span>Lock-free MPMC ring buffer</div>
+          <div class="tag-item"><span class="dot"></span>4.55x measured A/B gain from cache-line padding</div>
+        </div>
+      </div>
+      <div class="card s4-tile">
+        <div class="icon-badge blue">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="13" rx="2" stroke="#58a6ff" stroke-width="1.8"/><path d="M8 21h8M12 17v4" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round"/><path d="M7 9l3 3-3 3M13 14h4" stroke="#58a6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <h3>Standalone Evaluation Sandbox</h3>
+        <div class="body">Single-file, dependency-free harness in <code>sandbox/bench_mpmc.cpp</code> — checks cache-line alignment, zero-heap-allocation (enforced by overriding <code>operator new</code>/<code>delete</code> process-wide, hard-aborts on violation), and MPMC throughput. Run it on your own hardware rather than trusting a number in a slide deck.</div>
+        <div class="rule"></div>
+        <div class="tag-list blue">
+          <div class="tag-item blue"><span class="dot"></span>Independently reproducible</div>
+          <div class="tag-item blue"><span class="dot"></span>Runs on your hardware, your data</div>
+        </div>
+      </div>
+      <div class="card s4-tile">
+        <div class="icon-badge">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2L4 6v6c0 5 3.4 8.7 8 10 4.6-1.3 8-5 8-10V6l-8-4z" stroke="#3fb950" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 8v5M12 16v.5" stroke="#3fb950" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </div>
+        <h3>Mission-Critical Integrity</h3>
+        <div class="body">Correctness is a hard-fail gate, not a hope: every pushed event must be drainable exactly once with an exact checksum match, or the binary exits with an error instead of reporting a result. Verified exact (51,623,591,903 = 51,623,591,903) across the full soak run.</div>
+        <div class="rule"></div>
+        <div class="tag-list">
+          <div class="tag-item"><span class="dot"></span>Hard-fail correctness, not soft assertions</div>
+          <div class="tag-item"><span class="dot"></span>Findings reported as measured, including caveats</div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <div class="brand"><span class="mark"></span>ANIMUS CORE SYSTEMS</div>
+      <span>animuscore.dev</span>
+      <span class="pagenum">04 / 04</span>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>
