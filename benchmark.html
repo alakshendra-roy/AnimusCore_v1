@@ -132,7 +132,7 @@ tailwind.config = {
         <span class="text-white font-bold">Animus Core</span> removes that overhead structurally rather than optimizing around it: <code class="text-cyan">animus::sys::ipc::ShmRing&lt;T&gt;</code> is a zero-allocation, lock-free single-producer/single-consumer (SPSC) ring buffer placed directly in shared memory. A producer writes a trivially-copyable record straight into a pre-sized slot &mdash; no heap allocation, no encode step, no syscall &mdash; and a consumer in a separate process reads that same memory directly. There is no wire format to parse because there is no wire; the struct layout in shared memory <em>is</em> the interchange format.
       </p>
       <p class="mt-4 text-sm leading-relaxed">
-        Measured on the reference configuration in Section 2, this architecture sustains a <span class="text-emerald font-bold">30.3ns median (p50) per-event enqueue latency</span> under a decoupled, non-blocking producer workload &mdash; see Section 3 for the full percentile distribution, methodology, and exact source citation, and Section 4 for the integration surface.
+        Measured on the reference configuration in Section 2, this architecture sustains a <span class="text-emerald font-bold">30.3ns median (p50) per-event enqueue latency</span> under a decoupled, non-blocking producer workload &mdash; see Section 3 for the full percentile distribution, methodology, and exact source citation; Section 4 for the separate MPMC/soak transport axis; and Section 5 for the integration surface.
       </p>
     </section>
 
@@ -217,9 +217,40 @@ tailwind.config = {
       </p>
     </section>
 
-    <!-- Section 4: Hot-Path Integration Blueprint -->
+    <!-- Section 4: MPMC Throughput & Multi-Hour Soak Verification -->
+    <section id="mpmc-soak" class="mt-14 pt-10 border-t border-border">
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. MPMC Throughput &amp; Multi-Hour Soak Verification</h2>
+      <p class="mt-4 text-sm leading-relaxed">
+        A separate transport axis from Sections 2&ndash;3's SPSC ring: <code class="text-cyan">animus::LockFreeRingBuffer&lt;T&gt;</code>, a lock-free multi-producer/multi-consumer (MPMC) ring, under real 8-producer/8-consumer contention and a multi-hour continuous soak run. Source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code> &middot; full soak chronology: <code class="text-slate-400">SOAK_TEST_AUDIT_REPORT.html</code>.
+      </p>
+      <p class="mt-4 text-sm leading-relaxed">
+        Test hardware: Intel Core i7-14650HX &mdash; 16 cores / 24 logical threads (8 Performance-cores w/ Hyper-Threading + 8 Efficiency-cores, confirmed by per-core isolation probe rather than vendor spec alone). 64-byte cache-line isolation (<code class="text-cyan">alignas(64)</code>) on producer/consumer cursors, measured at a 4.55x throughput gain (4.21x&ndash;4.99x across 5 A/B runs) over an unpadded, false-sharing layout.
+      </p>
+      <div class="mt-4 overflow-x-auto border border-border rounded-sm">
+        <table class="w-full text-xs">
+          <tbody class="font-mono text-slate-300">
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Sustained throughput (8P/8C, real load)</td><td class="p-3 text-emerald font-bold">~7.28M pushes/sec (7.26M&ndash;7.29M, &lt;1% spread across four 10s samples)</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">p50 / p90 latency (sustained, final window)</td><td class="p-3">834 ns / 1,896 ns</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">8-producer push rate, no consumer (target)</td><td class="p-3">16.5M+ pushes/sec</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">8-producer push rate, no consumer (observed burst)</td><td class="p-3 text-danger">13.5M&ndash;21.4M pushes/sec &mdash; do not cite as sustained</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Soak duration</td><td class="p-3">2h 38m 49s (9,529.1s) continuous, ASan+UBSan instrumented</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Soak volume</td><td class="p-3 text-emerald font-bold">51,623,591,903 produced = 51,623,591,903 consumed, exact</td></tr>
+            <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Soak hot-path heap allocations</td><td class="p-3 text-emerald font-bold">0, every interval sample</td></tr>
+            <tr><td class="p-3 text-slate-500">Soak steady-state floor (final ~100 min, sanitizer overhead)</td><td class="p-3">5.16M&ndash;5.33M pushes/sec</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        The 8-producer push-rate row measures producer-side enqueue speed alone, ring pre-sized so nothing drains during the ~100&ndash;200ms timed window &mdash; it is <span class="text-slate-300 font-bold">not</span> a single-producer figure (all 8 producer threads are active) and <span class="text-slate-300 font-bold">not</span> representative of sustained production load; the bimodal 13.5M&ndash;21.4M range is traced to the short window sometimes catching a transient CPU turbo-boost (PL2) state. For any citation of throughput under real producer+consumer load, use the ~7.28M/sec sustained figure &mdash; a single test session (one run, four samples), a strong first data point pending a second machine and a longer window before treating it as final.
+      </p>
+      <p class="mt-4 text-xs text-slate-500 leading-relaxed">
+        The soak run is compiled with <code class="text-cyan">-fsanitize=address -fsanitize=undefined</code> rather than the clean <code class="text-cyan">-O3</code> build used for the sustained figure above &mdash; a memory-safety and correctness verification, not a peak-throughput citation. It ran to completion and printed its final tally with no ASan/UBSan abort; a sanitizer build terminates immediately on a detected violation, so a clean run to completion is the sanitizer's own attestation that none occurred. The 5.16M&ndash;5.33M/s floor reflects that constant sanitizer shadow-memory tax, not the clean-build ~7.28M/s figure.
+      </p>
+    </section>
+
+    <!-- Section 5: Hot-Path Integration Blueprint -->
     <section id="integration-blueprint" class="mt-14 pt-10 border-t border-border">
-      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. Hot-Path Integration Blueprint</h2>
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Hot-Path Integration Blueprint</h2>
       <p class="mt-4 text-sm leading-relaxed">
         The producer-side integration is two calls: create the ring once at startup, then call <code class="text-cyan">push_overwrite()</code> on the hot path. It never allocates, never blocks, and never refuses a write &mdash; a full ring reclaims its oldest unread slot and increments a deterministic drop counter instead of applying backpressure to the caller. This is the real API surface from <code class="text-slate-400">include/animus/shm_ipc.hpp</code> and <code class="text-slate-400">include/animus/execution_event.hpp</code>, not a simplified pseudocode stand-in.
       </p>
@@ -255,9 +286,9 @@ tailwind.config = {
       </p>
     </section>
 
-    <!-- Section 5: Institutional Pilot Verification Protocol -->
+    <!-- Section 6: Institutional Pilot Verification Protocol -->
     <section id="pilot-verification" class="mt-14 pt-10 border-t border-border">
-      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Institutional Pilot Verification Protocol</h2>
+      <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">6. Institutional Pilot Verification Protocol</h2>
       <p class="mt-4 text-sm leading-relaxed">
         These are the same three steps we run to reproduce Section 3's numbers on a prospect's own hardware during pilot onboarding &mdash; nothing here depends on machinery you cannot see.
       </p>
