@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Animus Core — Technical Architecture &amp; Benchmark White Paper</title>
+<meta name="description" content="Animus Core technical white paper: cache-line alignment and false-sharing elimination, lock-free MPMC ring buffer throughput, multi-hour soak &amp; reliability verification, invariant-TSC timing, and the zero-copy nanobind Python bridge — with a reproducible benchmark protocol.">
+<meta name="author" content="Alakshendra Roy">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#020408;
+    --panel:#0A0F1D;
+    --panel2:#0d1424;
+    --border:#1E293D;
+    --cyan:#00D9E8;
+    --emerald:#00E676;
+    --danger:#FF6B6B;
+    --text:#E8ECF2;
+    --text-dim:#B7C0CE;
+    --text-faint:#8590A3;
+    --text-faintest:#5B6579;
+    --sans:"Inter","Segoe UI",system-ui,-apple-system,sans-serif;
+    --mono:"IBM Plex Mono","Consolas","SFMono-Regular",monospace;
+  }
+  *{ box-sizing:border-box; }
+  html{ background:var(--void); }
+  body{
+    margin:0; background:var(--void); color:var(--text-dim);
+    font-family:var(--sans); font-size:15.5px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{ font-family:var(--sans); color:var(--text); margin:0; }
+  p{ margin:0; }
+  a{ color:var(--cyan); }
+  b,strong{ color:var(--text); font-weight:700; }
+  code{
+    font-family:var(--mono); font-size:0.88em; color:var(--cyan);
+    background:rgba(0,217,232,0.08); border:1px solid rgba(0,217,232,0.22);
+    padding:1px 6px; border-radius:4px; white-space:nowrap;
+  }
+  em{ color:var(--text); font-style:italic; }
+
+  .wrap{ max-width:760px; margin:0 auto; padding:56px 24px 96px; }
+
+  header.doc-head{ padding-bottom:32px; border-bottom:1px solid var(--border); }
+  .brand{ display:inline-flex; align-items:center; gap:9px; font-family:var(--mono); font-size:12px; letter-spacing:.16em; color:var(--text-faint); margin-bottom:28px; }
+  .brand .dot{ width:8px; height:8px; border-radius:2px; background:var(--emerald); box-shadow:0 0 10px rgba(0,230,118,0.6); }
+  .brand b{ color:var(--text); }
+  .kicker{
+    display:inline-flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px;
+    letter-spacing:.16em; text-transform:uppercase; color:var(--cyan);
+    border:1px solid rgba(0,217,232,0.35); background:rgba(0,217,232,0.08);
+    padding:6px 13px; border-radius:999px; margin-bottom:20px;
+  }
+  .kicker .dot{ width:6px; height:6px; border-radius:50%; background:var(--cyan); }
+  h1.title{ font-weight:800; font-size:2.35rem; line-height:1.15; letter-spacing:-.01em; color:var(--text); }
+  .meta{ margin-top:20px; display:flex; flex-direction:column; gap:6px; font-family:var(--mono); font-size:11.5px; color:var(--text-faint); letter-spacing:.02em; }
+  .meta .k{ color:var(--text-faintest); text-transform:uppercase; letter-spacing:.1em; margin-right:8px; }
+  .scope-note{ margin-top:22px; font-size:13.5px; line-height:1.6; color:var(--text-faint); max-width:62ch; }
+
+  section{ margin-top:52px; padding-top:38px; border-top:1px solid var(--border); }
+  section:first-of-type{ margin-top:44px; }
+  h2.sec-title{
+    font-family:var(--mono); font-size:13px; font-weight:700; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--text); border-bottom:1px solid var(--border);
+    padding-bottom:12px; margin-bottom:20px;
+  }
+  h2.sec-title .num{ color:var(--cyan); margin-right:8px; }
+  section p{ margin-top:14px; font-size:14.5px; line-height:1.7; }
+  section p:first-of-type{ margin-top:0; }
+  section ul, section ol{ margin-top:14px; padding-left:0; list-style:none; }
+  section li{ display:flex; gap:11px; margin-top:10px; font-size:14.5px; line-height:1.65; }
+  section li::before{ content:"\2192"; color:var(--cyan); flex-shrink:0; }
+  section ol{ counter-reset:step; }
+  section ol li::before{ content:counter(step) "."; counter-increment:step; color:var(--cyan); font-family:var(--mono); font-weight:700; flex-shrink:0; }
+
+  .callout{
+    margin-top:16px; font-size:13px; line-height:1.6; color:var(--text-faint);
+    background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:16px 18px;
+  }
+  .callout.warn{ border-color:rgba(255,107,107,0.35); background:rgba(255,107,107,0.05); }
+  .callout b{ color:var(--text); }
+
+  .codeblock{
+    margin-top:18px; background:var(--panel); border:1px solid var(--border); border-radius:8px; overflow:hidden;
+  }
+  .codeblock .cb-head{ padding:9px 16px; border-bottom:1px solid var(--border); background:rgba(0,0,0,0.35); font-family:var(--mono); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--text-faintest); }
+  .codeblock pre{ margin:0; padding:18px 20px; overflow-x:auto; font-family:var(--mono); font-size:12.5px; line-height:1.6; color:var(--text-dim); }
+  .codeblock .kw{ color:#C792EA; }
+  .codeblock .ty{ color:var(--cyan); }
+  .codeblock .st{ color:var(--emerald); }
+
+  table{ width:100%; border-collapse:collapse; margin-top:18px; font-size:13px; }
+  thead th{ text-align:left; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--text-faintest); border-bottom:1px solid var(--border); padding:9px 12px; }
+  tbody td{ padding:11px 12px; border-bottom:1px solid rgba(30,41,61,0.6); font-family:var(--mono); color:var(--text-dim); vertical-align:top; }
+  tbody tr:last-child td{ border-bottom:none; }
+  td.metric{ color:var(--text-faint); font-family:var(--sans); width:40%; }
+  td.hl{ color:var(--emerald); font-weight:700; }
+  td.hl-cyan{ color:var(--cyan); font-weight:700; }
+
+  .stat-card{
+    margin-top:18px; background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:20px 22px;
+  }
+  .stat-card .label{ font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-faintest); }
+  .stat-card .value{ font-family:var(--mono); font-weight:800; font-size:1.9rem; color:var(--text); margin-top:6px; }
+  .stat-card .value .unit{ font-size:1rem; color:var(--text-faint); font-weight:600; margin-left:4px; }
+  .stat-card p{ margin-top:10px; font-size:13px; color:var(--text-faint); line-height:1.6; }
+  .stat-card p em{ color:var(--text-dim); }
+  .stat-card.emerald{ border-color:rgba(0,230,118,0.3); }
+  .stat-card.emerald .value{ color:var(--emerald); }
+
+  footer.doc-foot{
+    margin-top:64px; padding-top:24px; border-top:1px solid var(--border);
+    font-family:var(--mono); font-size:11px; color:var(--text-faintest); letter-spacing:.04em;
+    display:flex; flex-wrap:wrap; gap:8px 16px; justify-content:space-between; align-items:center;
+  }
+
+  @media (max-width:520px){
+    .wrap{ padding:36px 18px 72px; }
+    h1.title{ font-size:1.75rem; }
+    table, thead, tbody, th, td, tr{ display:block; }
+    thead{ display:none; }
+    tbody tr{ border-bottom:1px solid var(--border); padding-bottom:8px; margin-bottom:8px; }
+    td.metric{ width:auto; color:var(--text-faintest); font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding-bottom:2px; }
+  }
+
+  @media print{
+    body{ background:#fff; color:#111; }
+    a{ color:#0a5; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="doc-head">
+    <div class="brand"><span class="dot"></span>ANIMUS <b>CORE</b></div>
+    <div class="kicker"><span class="dot"></span>Institutional Technical Specification</div>
+    <h1 class="title">Technical Architecture &amp; Benchmark White Paper</h1>
+    <div class="meta">
+      <div><span class="k">Audience</span>HFT platform engineering teams, quantitative researchers, independent systems evaluators</div>
+      <div><span class="k">Prepared by</span>Alakshendra Roy, Founder &amp; Systems Architect</div>
+      <div><span class="k">Test hardware</span>Intel Core i7-14650HX — 16 cores / 24 logical threads (8 Performance-cores w/ Hyper-Threading + 8 Efficiency-cores), P/E split confirmed by per-core isolation probe, not vendor spec alone</div>
+    </div>
+    <p class="scope-note">This document contains no corporate, formation, or legal content — architecture and measured performance only. Every figure below is reproducible on your own hardware via the protocol in Section 7, not asserted as a fixed constant.</p>
+  </header>
+
+  <section id="architecture-overview">
+    <h2 class="sec-title"><span class="num">1.</span>Executive Architecture Overview</h2>
+    <p>Animus Core is a low-latency telemetry and execution engine written in modern C++17, exposed to Python through a zero-copy nanobind bridge rather than a conventional serialize-and-copy interop layer. The design goal is narrow and specific: remove every avoidable cost between "an event exists in memory" and "a Python-side consumer can see it" — no heap allocation on the hot path, no serialization step, no lock contention on the transport itself.</p>
+    <p>Three architectural decisions carry most of that weight, and each is independently verifiable rather than asserted:</p>
+    <ul>
+      <li><span><b>Cache-line-aligned payloads</b> (<code>alignas(64)</code>) so that concurrent producers and consumers never invalidate each other's cache lines through unrelated data sharing the same line.</span></li>
+      <li><span><b>A lock-free MPMC ring buffer</b> using per-slot sequence-number coordination (the Vyukov design), so producers and consumers each make progress via a single CAS on their own cursor, not a shared lock.</span></li>
+      <li><span><b>Invariant-TSC hardware cycle timing</b> on the hot path instead of a system clock call, eliminating syscall/vDSO overhead from latency measurements themselves.</span></li>
+    </ul>
+    <p style="margin-top:18px; font-size:12.5px; color:var(--text-faintest);">The sections below document each of these with the actual measurement methodology, not just the headline number — Section 7 gives the exact commands to reproduce every number here on your own hardware.</p>
+  </section>
+
+  <section id="cacheline-alignment">
+    <h2 class="sec-title"><span class="num">2.</span>64-Byte Cache-Line Alignment &amp; False-Sharing Elimination</h2>
+    <p>Every event payload that crosses a producer/consumer boundary is declared <code>alignas(64)</code> and sized to exactly 64 bytes — one x86/ARM cache line, enforced at <b>compile time</b> via <code>static_assert</code>, not just documented:</p>
+    <div class="codeblock">
+      <div class="cb-head">C++17 &middot; sandbox_event.hpp</div>
+      <pre><span class="kw">struct</span> <span class="kw">alignas</span>(<span class="ty">64</span>) Event {
+    std::uint64_t sequence;
+    std::uint64_t dispatch_tsc;
+    std::uint32_t producer_id;
+    std::uint32_t reserved0;
+    std::uint64_t value;
+    std::uint64_t reserved1[<span class="ty">4</span>];
+};
+<span class="kw">static_assert</span>(<span class="kw">sizeof</span>(Event) == <span class="ty">64</span>, <span class="st">"Event must occupy exactly one cache line"</span>);
+<span class="kw">static_assert</span>(<span class="kw">alignof</span>(Event) == <span class="ty">64</span>, <span class="st">"Event must be cache-line aligned"</span>);</pre>
+    </div>
+    <p>Alignment alone is a claim; the benchmark suite backs it with a direct <b>A/B measurement</b>. Two atomic counters are incremented by two threads pinned to distinct cores, once with both counters sharing a single cache line (<code>UnpaddedCounters</code>) and once with each counter on its own line via <code>alignas(64)</code> (<code>PaddedCounters</code>):</p>
+    <table>
+      <thead><tr><th>Configuration</th><th>Structure size</th><th>Combined throughput (2 threads)</th></tr></thead>
+      <tbody>
+        <tr><td class="metric">Unpadded (false sharing)</td><td>16 bytes</td><td>~162&ndash;164M ops/sec</td></tr>
+        <tr><td class="metric">Padded (<code>alignas(64)</code>)</td><td>128 bytes</td><td class="hl">~214&ndash;215M ops/sec</td></tr>
+        <tr><td class="metric"><b>Speedup</b></td><td>&mdash;</td><td class="hl-cyan">~1.3x (representative run: 1.32x; range 1.3x&ndash;1.35x)</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:16px; font-size:12.5px; color:var(--text-faintest);">These are real, machine-measured figures from repeated runs on the 24-thread development workstation described above — not a projected or theoretical figure. The speedup is computed and printed at runtime by the benchmark itself, not hardcoded. Run it yourself; the exact numbers will shift with core count and CPU generation, and that variance is expected, not a defect in the test.</p>
+  </section>
+
+  <section id="mpmc-throughput">
+    <h2 class="sec-title"><span class="num">3.</span>Lock-Free MPMC Ring Buffer — Ingestion Throughput</h2>
+    <p>The ring buffer is a bounded, lock-free, multi-producer/multi-consumer queue: every slot carries its own sequence number, so a producer or consumer coordinates with the specific slot it is about to touch rather than with one shared full/empty flag — allowing independent producers and consumers to make progress concurrently via a single compare-and-swap each.</p>
+    <p><b>Methodology:</b> 8 producer threads, each pinned to a distinct logical core, concurrently enqueue into a ring pre-sized so it can never fill during the timed phase — a ~100&ndash;200ms burst, not a time-sustained measurement. Throughput is total events divided by wall-clock elapsed time. A separate, untimed correctness pass then drains the ring with 8 concurrent consumer threads and verifies an exact checksum over every event's payload — proving no event was lost, duplicated, or corrupted under contention, independent of the timing result.</p>
+    <table>
+      <tbody>
+        <tr><td class="metric">Producer / consumer threads</td><td>8 / 8 (sequential phases — see below for simultaneous)</td></tr>
+        <tr><td class="metric">Target push rate (producer-only, short burst)</td><td class="hl">16.5M+ pushes/sec</td></tr>
+        <tr><td class="metric">Observed range (single dev workstation)</td><td>13.5M &ndash; 21.4M pushes/sec (bimodal)</td></tr>
+        <tr><td class="metric">Correctness check</td><td class="hl">PASS &mdash; exact push/drain checksum match, every run</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:16px; font-size:12.5px; color:var(--text-faintest);">The observed range spans both sides of the 16.5M target on the same machine, run to run. Investigated directly: system CPU load sampled immediately before each run showed no correlation with the outcome, ruling out ordinary background-process contention. The more likely explanation is the short ~100&ndash;200ms measurement window itself, sometimes catching the CPU package in a transient turbo-boost state (PL2) and sometimes not. The correctness check is unconditional and has never failed across any run performed during this benchmark's validation.</p>
+
+    <div class="stat-card emerald">
+      <div class="label">Simultaneous producer+consumer, time-sustained — the number for real deployed load</div>
+      <div class="value">~7.28M<span class="unit">pushes/sec</span></div>
+      <p>8 producers and 8 consumers running simultaneously (not sequential phases) for a genuinely sustained 40-second window: 7.26M&ndash;7.29M pushes/sec across four 10s samples (under 1% spread), p50/p90 latency 834ns/1,896ns, correctness exact (290,993,953 produced == 290,993,953 consumed). This sits <em>below</em> even the low end of the burst range above, not between its numbers — the burst figures measure a transient best-case condition, not a noisy read on the same rate. <b>Use this number, not the burst range, for any citation of throughput under real producer+consumer load.</b> Single test session (one run, four samples) — a strong first sustained data point, not yet fully cross-validated.</p>
+    </div>
+  </section>
+
+  <section id="soak-reliability">
+    <h2 class="sec-title"><span class="num">4.</span>Multi-Hour Soak &amp; Reliability Verification</h2>
+    <p>The 40-second sustained figure above establishes throughput; it does not establish that the engine holds correctness and its zero-allocation guarantee over the multi-hour, tens-of-billions-of-events duration a live production desk actually runs for. A separate, longer-duration soak run exists specifically to answer that — full interactive chronology in <code>SOAK_TEST_AUDIT_REPORT.html</code>.</p>
+    <p><b>Methodology:</b> 8 producer + 8 consumer threads running simultaneously, compiled with <code>-fsanitize=address -fsanitize=undefined</code> rather than the clean <code>-O3</code> build used above — this run is a memory-safety and correctness verification, not a peak-throughput citation, and its numbers should not be compared directly against the ~7.28M/sec clean-build figure without accounting for sanitizer overhead.</p>
+    <table>
+      <tbody>
+        <tr><td class="metric">Duration</td><td>2h 38m 49s (9,529.1s) continuous, uninterrupted</td></tr>
+        <tr><td class="metric">Total volume</td><td class="hl">51,623,591,903 produced = 51,623,591,903 consumed</td></tr>
+        <tr><td class="metric">Hot-path heap allocations</td><td class="hl">0, every interval sample</td></tr>
+        <tr><td class="metric">Sanitizer result</td><td>Ran to completion, no ASan/UBSan abort</td></tr>
+        <tr><td class="metric">Steady-state floor (final ~100 min)</td><td>5.16M &ndash; 5.33M pushes/sec, under sanitizer instrumentation</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">
+      <b>The 0&ndash;60 minute decline, explained rather than hidden:</b> throughput opens at ~5.97M/sec and declines to ~5.16M/sec over the first hour before flattening. Two effects overlap: ASan/UBSan shadow-memory instrumentation is a constant throughput tax for the entire run (why the soak sits at 5.16M&ndash;5.9M/sec rather than the ~7.28M/sec clean-build figure), and the CPU package is likely still settling out of its initial turbo (PL2) state into its sustained (PL1) power limit — consistent with the curve's shape, though not independently confirmed with a temperature sensor during this run, and stated as inferred rather than measured. Correctness and heap-allocation counters stay flat across this exact window, which is what distinguishes a thermal/instrumentation effect from a code-level regression. The produced/consumed in-flight deficit also <em>shrinks</em> as a percentage over the steady-state window (0.0059% &rarr; 0.0022%) rather than growing — the signature that rules out a ring-buffer leak or consumer drain starvation, not just the exact zero-deficit figure at final completion in isolation.
+    </div>
+  </section>
+
+  <section id="invariant-tsc">
+    <h2 class="sec-title"><span class="num">5.</span>Invariant-TSC Hardware Cycle Timing</h2>
+    <p>Wall-clock timing calls (<code>clock_gettime</code>, <code>QueryPerformanceCounter</code>) cost real, measurable overhead on a latency budget measured in nanoseconds. Animus Core's timing primitives instead read the CPU's Time Stamp Counter directly via a serialized <code>__rdtscp</code> instruction:</p>
+    <ul>
+      <li><span><b>Zero system calls, zero vDSO hops</b> — a plain hardware register read.</span></li>
+      <li><span><b>Invariant-TSC verified at startup</b>, not assumed: <code>CPUID 0x80000007:EDX[8]</code> is checked directly before any cycle-to-time conversion is trusted.</span></li>
+      <li><span><b>Calibrated, not guessed:</b> cycles-per-nanosecond is measured by racing the TSC against <code>std::chrono::steady_clock</code> over a dedicated 200ms window at startup, rather than trusting an advertised base clock.</span></li>
+    </ul>
+    <p>Measured cost of the read itself: <b style="color:var(--emerald)">~10 ns per read</b>, zero system calls, on a 2.4 GHz-class core — both the clock rate and the per-read cost are measured at runtime and printed, not hardcoded.</p>
+  </section>
+
+  <section id="nanobind-bridge">
+    <h2 class="sec-title"><span class="num">6.</span>Zero-Copy Python Bridge (nanobind)</h2>
+    <p>The Python-side consumption path is built on <a href="https://github.com/wjakob/nanobind">nanobind</a>, exposing the ring buffer to Python as a <code>TelemetryStream</code> object whose <code>drain()</code> method pops events directly into a scratch buffer allocated once at construction — never in the hot loop — and returns an <code>nb::ndarray</code> view aliasing that same memory. Zero per-event Python objects are constructed; the entire batch crosses the language boundary as one array view.</p>
+    <p><b>Methodology:</b> a background native producer thread feeds the ring unthrottled while the Python-side loop drains it continuously, timing only <code>drain()</code> itself with <code>time.perf_counter_ns()</code> — a concurrent, steady-state measurement, not a pre-filled-then-drained snapshot.</p>
+    <div class="stat-card emerald">
+      <div class="label">Reference figure</div>
+      <div class="value">~34.5<span class="unit">ns/event</span></div>
+      <p>Repeated real runs on development hardware measured a range of roughly <span style="color:var(--text-dim)">22&ndash;66 ns/event</span> depending on run and machine load, with representative runs clustering around the mid-20s to low-30s — consistent with this reference figure as a realistic ballpark, not an exact constant. Cite your own measured number from your own hardware; Section 7 gives the exact reproduction steps.</p>
+    </div>
+  </section>
+
+  <section id="reproduction-protocol">
+    <h2 class="sec-title"><span class="num">7.</span>Bare-Metal Reproduction Protocol</h2>
+    <p>Every number above should be treated as a claim until you've reproduced it on your own hardware. <code>animus_sandbox/</code> is a standalone, dependency-free package built specifically for that: no dependency on the rest of the repository, and it ships its own build system.</p>
+    <div class="codeblock">
+      <div class="cb-head">shell &middot; two-step reproduction</div>
+      <pre style="color:var(--emerald)">make
+./benchmark_harness</pre>
+    </div>
+    <p>That's it. <code>make</code> builds with <code>-O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic</code> (GCC/Clang); running the binary executes all three native measurements above and prints the results plainly, including whether your hardware met or missed the 16.5M+ pushes/sec target.</p>
+    <p style="margin-top:14px; font-size:12.5px; color:var(--text-faintest);">A CMake path (<code>cmake -B build &amp;&amp; cmake --build build --config Release</code>) is also provided for cross-compiler builds and additionally builds the optional nanobind Python bridge module when a Python 3.8+ toolchain with <code>nanobind</code> installed is available, enabling reproduction of the Section 6 figure via <code>python python_bridge_test.py</code>. Full details in <code>animus_sandbox/README.md</code>.</p>
+    <div class="callout">The Section 4 multi-hour soak figures are reproduced separately via <code>benchmarks/soak_test_engine.py</code> driving <code>animus_sandbox/soak_harness.cpp</code> built with sanitizers — a multi-hour run, not part of this two-step quick check. See <code>SOAK_TEST_AUDIT_REPORT.html</code> for the full configuration.</div>
+  </section>
+
+  <footer class="doc-foot">
+    <span>&copy; 2026 Animus Core Systems</span>
+    <span>Founder &amp; Lead Architect: Alakshendra Roy</span>
+    <span>Source: docs/AnimusCore_Technical_WhitePaper.md</span>
+  </footer>
+
+</div>
+</body>
+</html>
