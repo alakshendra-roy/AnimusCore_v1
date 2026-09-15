@@ -65,7 +65,18 @@ tailwind.config = {
   .pulse-live{ animation:pulse 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
 
-  .badge-live-dot{ background:#10b981; animation:pulseGlowLive 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
+  .live-ticker-badge{
+    display:inline-flex; align-items:center; gap:7px;
+    font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+    font-size:12px; line-height:1;
+    color:#10b981;
+    border:1px solid rgba(16,185,129,0.3);
+    background:rgba(16,185,129,0.08);
+    padding:8px 14px;
+    border-radius:9999px;
+    white-space:nowrap;
+  }
+  .pulse-dot{ width:6px; height:6px; border-radius:50%; background:#10b981; flex-shrink:0; animation:pulseGlowLive 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
   @keyframes pulseGlowLive{ 0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(16,185,129,.55);} 50%{ opacity:.55; box-shadow:0 0 6px 2px rgba(16,185,129,.35);} }
 
   .flash{ animation:flashKey .5s ease-out; }
@@ -159,18 +170,12 @@ tailwind.config = {
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
     <div class="w-full max-w-full mx-auto box-border py-4 px-6 sm:px-8 flex items-center justify-between gap-6">
-      <div class="flex items-center gap-3 min-w-0 flex-shrink-0 lg:flex-1">
-        <a href="/" aria-label="Animus home" class="flex items-center flex-shrink-0">
-          <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
-               style="image-rendering:-webkit-optimize-contrast;"
-               onerror="this.style.display='none';">
-        </a>
-        <span id="hdr-live-badge" class="hidden sm:inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#10b981] border border-[#10b981]/30 bg-[#10b981]/10 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">
-          <span class="w-1.5 h-1.5 rounded-full badge-live-dot flex-shrink-0"></span>
-          Bare-Metal Live
-        </span>
-      </div>
-      <div class="hidden lg:flex items-center justify-center gap-5 xl:gap-6 flex-shrink-0 whitespace-nowrap text-sm font-mono">
+      <a href="/" aria-label="Animus home" class="flex items-center flex-shrink-0">
+        <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
+             style="image-rendering:-webkit-optimize-contrast;"
+             onerror="this.style.display='none';">
+      </a>
+      <div class="hidden lg:flex items-center justify-center gap-4 xl:gap-5 flex-shrink-0 whitespace-nowrap text-[13px] xl:text-sm font-mono mx-auto">
         <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Specs</a>
         <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Telemetry</a>
         <a href="#memory" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Memory Topology</a>
@@ -180,11 +185,8 @@ tailwind.config = {
         <a href="#mpmc" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">MPMC &amp; Soak</a>
         <a href="/whitepaper" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Whitepaper</a>
       </div>
-      <div class="hidden lg:flex items-center justify-end gap-3 xl:gap-6 lg:flex-1 min-w-0 whitespace-nowrap text-sm font-mono">
-        <span id="hdr-status" class="hidden 2xl:flex items-center gap-1.5 font-mono text-xs text-emerald whitespace-nowrap flex-shrink-0">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live flex-shrink-0"></span>
-          BARE-METAL &middot; p99 <span id="hdr-p99">51.5</span>ns
-        </span>
+      <div class="hidden lg:flex items-center justify-end gap-3 flex-shrink-0 whitespace-nowrap text-sm font-mono">
+        <div class="live-ticker-badge flex-shrink-0"><span class="pulse-dot"></span> BARE-METAL: <span id="nav-ops-counter">7.28M ops/s</span></div>
         <button type="button" data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Access</button>
       </div>
       <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
@@ -977,11 +979,13 @@ TelemetryEvent evt;
 (function(){
   "use strict";
 
-  /* ---------- Header p99 micro-jitter ---------- */
-  var hdrP99 = document.getElementById('hdr-p99');
-  setInterval(function(){
-    hdrP99.textContent = (47.5 + Math.random() * 8).toFixed(1);
-  }, 2400);
+  /* ---------- Nav live throughput micro-jitter ---------- */
+  var navOpsCounter = document.getElementById('nav-ops-counter');
+  if (navOpsCounter) {
+    setInterval(function(){
+      navOpsCounter.textContent = (7.26 + Math.random() * 0.05).toFixed(2) + 'M ops/s';
+    }, 2400);
+  }
 
   /* ---------- Live Client System IPC & Hardware Diagnostics (real local benchmark) ---------- */
   var termBody = document.getElementById('term-body');
