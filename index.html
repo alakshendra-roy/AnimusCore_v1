@@ -65,6 +65,9 @@ tailwind.config = {
   .pulse-live{ animation:pulse 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
   @keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.25;} }
 
+  .badge-live-dot{ background:#10b981; animation:pulseGlowLive 1.6s cubic-bezier(0.4,0,0.6,1) infinite; }
+  @keyframes pulseGlowLive{ 0%,100%{ opacity:1; box-shadow:0 0 0 0 rgba(16,185,129,.55);} 50%{ opacity:.55; box-shadow:0 0 6px 2px rgba(16,185,129,.35);} }
+
   .flash{ animation:flashKey .5s ease-out; }
   @keyframes flashKey{ 0%{ text-shadow:0 0 10px currentColor; } 100%{ text-shadow:none; } }
 
@@ -155,13 +158,19 @@ tailwind.config = {
 
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
-    <div class="w-full max-w-full mx-auto box-border py-4 pl-6 pr-8 flex items-center justify-between gap-6">
-      <a href="/" aria-label="Animus home" class="flex items-center min-w-0 flex-shrink-0 lg:flex-1">
-        <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
-             style="image-rendering:-webkit-optimize-contrast;"
-             onerror="this.style.display='none';">
-      </a>
-      <div class="hidden lg:flex items-center justify-center gap-4 xl:gap-6 flex-shrink-0 whitespace-nowrap text-sm font-mono">
+    <div class="w-full max-w-full mx-auto box-border py-4 px-6 sm:px-8 flex items-center justify-between gap-6">
+      <div class="flex items-center gap-3 min-w-0 flex-shrink-0 lg:flex-1">
+        <a href="/" aria-label="Animus home" class="flex items-center flex-shrink-0">
+          <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
+               style="image-rendering:-webkit-optimize-contrast;"
+               onerror="this.style.display='none';">
+        </a>
+        <span id="hdr-live-badge" class="hidden sm:inline-flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#10b981] border border-[#10b981]/30 bg-[#10b981]/10 px-2.5 py-1 rounded-full whitespace-nowrap flex-shrink-0">
+          <span class="w-1.5 h-1.5 rounded-full badge-live-dot flex-shrink-0"></span>
+          Bare-Metal Live
+        </span>
+      </div>
+      <div class="hidden lg:flex items-center justify-center gap-5 xl:gap-6 flex-shrink-0 whitespace-nowrap text-sm font-mono">
         <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Specs</a>
         <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Telemetry</a>
         <a href="#memory" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Memory Topology</a>
