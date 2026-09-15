@@ -156,29 +156,27 @@ tailwind.config = {
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
     <div class="w-full max-w-full mx-auto box-border py-4 pl-6 pr-8 flex items-center justify-between gap-6">
-      <a href="/" aria-label="Animus home" class="flex items-center min-w-0 flex-shrink-0">
+      <a href="/" aria-label="Animus home" class="flex items-center min-w-0 flex-shrink-0 lg:flex-1">
         <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
              style="image-rendering:-webkit-optimize-contrast;"
              onerror="this.style.display='none';">
       </a>
-      <div class="hidden lg:flex items-center justify-between gap-3 xl:gap-8 min-w-0 flex-1 text-sm font-mono">
-        <div class="flex items-center gap-3 xl:gap-6 flex-shrink-0">
-          <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Specs</a>
-          <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Telemetry</a>
-          <a href="#memory" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Memory Topology</a>
-          <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">SDK Explorer</a>
-          <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Benchmarks</a>
-          <a href="#comparison" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Compare</a>
-          <a href="#mpmc" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">MPMC &amp; Soak</a>
-          <a href="/whitepaper" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Whitepaper</a>
-        </div>
-        <div class="flex items-center gap-3 xl:gap-6 flex-shrink-0 whitespace-nowrap ml-auto">
-          <span id="hdr-status" class="hidden 2xl:flex items-center gap-1.5 font-mono text-xs text-emerald whitespace-nowrap flex-shrink-0">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live flex-shrink-0"></span>
-            BARE-METAL &middot; p99 <span id="hdr-p99">51.5</span>ns
-          </span>
-          <button type="button" data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Access</button>
-        </div>
+      <div class="hidden lg:flex items-center justify-center gap-4 xl:gap-6 flex-shrink-0 whitespace-nowrap text-sm font-mono">
+        <a href="#architecture-specs" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Specs</a>
+        <a href="#telemetry" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Telemetry</a>
+        <a href="#memory" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Memory Topology</a>
+        <a href="#sdk" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">SDK Explorer</a>
+        <a href="#benchmarks" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Benchmarks</a>
+        <a href="#comparison" class="hidden xl:inline-block hover:text-cyan transition whitespace-nowrap flex-shrink-0">Compare</a>
+        <a href="#mpmc" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">MPMC &amp; Soak</a>
+        <a href="/whitepaper" class="hover:text-cyan transition whitespace-nowrap flex-shrink-0">Whitepaper</a>
+      </div>
+      <div class="hidden lg:flex items-center justify-end gap-3 xl:gap-6 lg:flex-1 min-w-0 whitespace-nowrap text-sm font-mono">
+        <span id="hdr-status" class="hidden 2xl:flex items-center gap-1.5 font-mono text-xs text-emerald whitespace-nowrap flex-shrink-0">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald pulse-live flex-shrink-0"></span>
+          BARE-METAL &middot; p99 <span id="hdr-p99">51.5</span>ns
+        </span>
+        <button type="button" data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Access</button>
       </div>
       <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
         <button type="button" data-open-modal class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase">Access</button>
