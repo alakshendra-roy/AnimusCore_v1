@@ -1,3 +1,14 @@
+# Deny-all, then explicitly allowlist what should actually deploy. A file
+# being committed to git is NOT enough for it to go live -- it also has to
+# be listed here, or Vercel silently drops it from the build and every
+# route to it 404s even though vercel.json's rewrites/cleanUrls are fine.
+# This bit twice: animus-audit-report.html and SOAK_TEST_AUDIT_REPORT.html
+# were both committed and linked from live pages (index.html, benchmark.html
+# link to the soak report; the audit report was requested directly) but
+# 404'd on animusinfra.com until added here. 2026-09-16 audit: crawled every
+# live page's internal href/src/action/fetch()/url() reference and curled
+# each target -- all resolve 200 (or 405 for the POST-only /api endpoint)
+# as of that check.
 *
 !index.html
 !terms.html
@@ -14,3 +25,11 @@
 !animus-icon-navbar.png
 !api
 !api/**
+
+# Deliberately NOT allowlisted (2026-09-16 audit) -- none of these are
+# linked from any live page, so leaving them out breaks nothing:
+# - business-card.html: embeds a personal phone number + email in plain
+#   HTML; kept off any public URL by choice, shared as a local file instead.
+# - animus_client_deck.html, ANIMUS_CORE_AUDIT_WHITEPAPER.html,
+#   social_snippet.html: unlinked collateral, no current need for a public
+#   URL. Add an allowlist line here (and verify the route) if that changes.
