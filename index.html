@@ -170,7 +170,7 @@ tailwind.config = {
   <!-- Navigation -->
   <nav class="border-b border-border bg-void/90 backdrop-blur-xl fixed w-full z-50 top-0">
     <div class="w-full max-w-full mx-auto box-border py-4 px-6 sm:px-8 flex items-center justify-between gap-6">
-      <a href="/" aria-label="Animus home" class="flex items-center flex-shrink-0">
+      <a href="/" aria-label="Animus home" class="flex items-center flex-shrink-0" style="flex-shrink:0;">
         <img src="/animus-icon-navbar.png" alt="Animus" id="brand-logo" class="h-10 w-auto object-contain flex-shrink-0"
              style="image-rendering:-webkit-optimize-contrast;"
              onerror="this.style.display='none';">
@@ -189,7 +189,8 @@ tailwind.config = {
         <div class="live-ticker-badge flex-shrink-0"><span class="pulse-dot"></span> BARE-METAL: <span id="nav-ops-counter">7.28M ops/s</span></div>
         <button type="button" data-open-modal class="bg-cyan text-black px-4 py-2 rounded-sm font-bold font-mono text-xs uppercase tracking-wider hover:opacity-90 transition whitespace-nowrap flex-shrink-0">Request Access</button>
       </div>
-      <div class="lg:hidden flex items-center gap-2 flex-shrink-0">
+      <div class="lg:hidden flex items-center gap-2 flex-shrink-0" style="flex-shrink:0;">
+        <div class="font-mono" style="font-size:10px; padding:2px 6px; border:1px solid rgba(16, 185, 129, 0.3); background:rgba(16, 185, 129, 0.08); border-radius:9999px; display:flex; align-items:center; gap:4px;"><span class="pulse-dot"></span> <span id="nav-ops-counter-mobile">7.28M ops/s</span></div>
         <button type="button" data-open-modal class="bg-cyan text-black px-3 py-1.5 rounded-sm font-bold font-mono text-xs uppercase">Access</button>
         <button id="mobile-menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Toggle navigation menu" class="flex items-center justify-center w-9 h-9 border border-border rounded-sm text-slate-300 hover:text-cyan hover:border-cyan/50 transition">
           <svg id="mobile-menu-icon-open" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
@@ -981,9 +982,12 @@ TelemetryEvent evt;
 
   /* ---------- Nav live throughput micro-jitter ---------- */
   var navOpsCounter = document.getElementById('nav-ops-counter');
-  if (navOpsCounter) {
+  var navOpsCounterMobile = document.getElementById('nav-ops-counter-mobile');
+  if (navOpsCounter || navOpsCounterMobile) {
     setInterval(function(){
-      navOpsCounter.textContent = (7.26 + Math.random() * 0.05).toFixed(2) + 'M ops/s';
+      var val = (7.26 + Math.random() * 0.05).toFixed(2) + 'M ops/s';
+      if (navOpsCounter) navOpsCounter.textContent = val;
+      if (navOpsCounterMobile) navOpsCounterMobile.textContent = val;
     }, 2400);
   }
 
