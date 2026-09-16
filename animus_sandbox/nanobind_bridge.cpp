@@ -100,6 +100,15 @@ NB_MODULE(animus_sandbox_bridge, m) {
         .def(nb::init<std::size_t, std::size_t>(), nb::arg("capacity"), nb::arg("drain_batch_capacity"))
         .def("start_producer", &TelemetryStream::start_producer, nb::arg("event_count"))
         .def("stop_producer", &TelemetryStream::stop_producer)
-        .def("drain", &TelemetryStream::drain, nb::arg("batch"))
+        // reference_internal: without an explicit return-value policy,
+        // nanobind's ndarray export copies the buffer whenever it sees no
+        // owner and no bound `self` (nb_ndarray.cpp: `copy = th->owner ==
+        // nullptr && th->self == nullptr`) -- exactly what was happening
+        // here, silently, on every call. reference_internal makes nanobind
+        // attach this TelemetryStream instance itself as the ndarray's
+        // owner, which (a) satisfies that check so the view is returned
+        // as-is instead of copied, and (b) keeps the instance -- and so
+        // scratch_ -- alive for as long as the returned array is.
+        .def("drain", &TelemetryStream::drain, nb::arg("batch"), nb::rv_policy::reference_internal)
         .def_prop_ro("producer_running", &TelemetryStream::producer_running);
 }
