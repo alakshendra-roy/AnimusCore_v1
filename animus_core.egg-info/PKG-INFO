@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: animus-core
 Version: 1.0.0
 Summary: High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine
-Author-email: Alakshendra Roy <royrichie006@gmail.com>
+Author-email: Alakshendra Roy <inquiries@animusinfra.com>
 License: Proprietary
 Project-URL: Homepage, https://github.com/alakshendra-roy/AnimusCore_v1
 Project-URL: Documentation, https://github.com/alakshendra-roy/AnimusCore_v1/blob/master/AnimusCore_v1/QUICKSTART.md

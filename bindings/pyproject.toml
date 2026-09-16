@@ -9,7 +9,7 @@ description = "Zero-copy Python interop over Animus Engine's in-process SPSC tel
 readme = "../README.md"
 requires-python = ">=3.8"
 license = { text = "Proprietary" }
-authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+authors = [{ name = "Alakshendra Roy", email = "inquiries@animusinfra.com" }]
 
 # Its own installable unit -- `pip install ./bindings` builds and installs
 # just the compiled _animus_native extension, into the same animus/

@@ -141,4 +141,4 @@ must outlive that call.
 
 Questions about methodology, reproducing a result, or extending the
 harness for your own replay data: reach out to the author at
-royrichie006@gmail.com.
+inquiries@animusinfra.com.

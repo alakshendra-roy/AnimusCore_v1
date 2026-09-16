@@ -9,7 +9,7 @@ description = "Zero-copy Python SDK for Animus Core's C++20 SPSC ring buffer -- 
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "Proprietary" }
-authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+authors = [{ name = "Alakshendra Roy", email = "inquiries@animusinfra.com" }]
 # numpy is opt-in at runtime (AnimusConsumer.to_numpy()), same convention
 # as animus/consumer.py's own to_numpy() -- see animus_sdk/consumer.py.
 # Not listed as a hard dependency here so a caller that only needs the raw

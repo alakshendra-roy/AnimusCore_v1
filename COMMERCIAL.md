@@ -139,8 +139,8 @@ The output of this engagement is a decision point, not a production commitment: 
 
 | | |
 |---|---|
-| **Procurement / commercial inquiries** | royrichie006@gmail.com |
-| **Security / audit inquiries (Section 3.2)** | royrichie006@gmail.com |
+| **Procurement / commercial inquiries** | inquiries@animusinfra.com |
+| **Security / audit inquiries (Section 3.2)** | inquiries@animusinfra.com |
 | **Technical inquiries / issues** | [GitHub Issues](https://github.com/alakshendra-roy/AnimusCore_v1/issues) — the repository's issue tracker |
 | **Licensing entity** | Animus Technologies Private Limited (Alakshendra Roy, Founder & Director) — India, CIN pending issuance of the Certificate of Incorporation (see `LEGAL_INCORPORATION_BRIEF.md`); see `LEGAL_EULA.md` for the governing definition |
 | **OEM / Redistribution inquiries** | Route through Procurement above; scoped separately per Section 2 |

@@ -9,7 +9,7 @@ description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & D
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "Proprietary" }
-authors = [{ name = "Alakshendra Roy", email = "royrichie006@gmail.com" }]
+authors = [{ name = "Alakshendra Roy", email = "inquiries@animusinfra.com" }]
 keywords = [
     "telemetry",
     "event-processing",

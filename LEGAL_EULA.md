@@ -180,7 +180,7 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Director | [TITLE] |
 | **Date** | [DATE] | [DATE] |
-| **Notice Address** | royrichie006@gmail.com (email notice; see also GitHub Issues at https://github.com/alakshendra-roy/AnimusCore_v1/issues for technical notices — registered office address to be added upon issuance of the Certificate of Incorporation, per `LEGAL_INCORPORATION_BRIEF.md`) | [CUSTOMER ADDRESS] |
+| **Notice Address** | inquiries@animusinfra.com (email notice; see also GitHub Issues at https://github.com/alakshendra-roy/AnimusCore_v1/issues for technical notices — registered office address to be added upon issuance of the Certificate of Incorporation, per `LEGAL_INCORPORATION_BRIEF.md`) | [CUSTOMER ADDRESS] |
 
 ---
 

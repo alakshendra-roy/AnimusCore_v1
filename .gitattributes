@@ -61,3 +61,13 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+###############################################################################
+# Exclude non-core web assets from GitHub's language detection stats so the
+# repo's language breakdown reflects the C++/Python engine, not the site.
+###############################################################################
+*.html linguist-detectable=false
+*.css linguist-detectable=false
+*.js linguist-detectable=false
+docs/* linguist-documentation
+scripts/* linguist-vendored
