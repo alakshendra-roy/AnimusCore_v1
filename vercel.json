@@ -11,18 +11,6 @@
       "has": [{ "type": "host", "value": "www.animusinfra.com" }],
       "destination": "https://animusinfra.com/:path*",
       "permanent": true
-    },
-    {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "animuscore.com" }],
-      "destination": "https://animusinfra.com/:path*",
-      "permanent": true
-    },
-    {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "www.animuscore.com" }],
-      "destination": "https://animusinfra.com/:path*",
-      "permanent": true
     }
   ],
   "headers": [
