@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AnimusCore™ — Technical One-Pager</title>
+<meta name="description" content="AnimusCore sub-microsecond C++17 telemetry & IPC engine — institutional technical spec sheet.">
+<style>
+  :root{
+    --void:#090d16;
+    --void-2:#030712;
+    --cyan:#00A7B5;
+    --cyan-bright:#00F0FF;
+    --emerald:#00A86B;
+    --emerald-bright:#00FF66;
+    --ink:#0b1220;
+    --hair:#1E293D;
+    --hair-light:#d7dce4;
+    --muted:#5b6472;
+  }
+
+  *{ box-sizing:border-box; }
+
+  html,body{ margin:0; padding:0; }
+
+  body{
+    background:var(--void-2);
+    font-family:-apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .toolbar{
+    max-width:210mm;
+    margin:8mm auto 0 auto;
+    padding:8px 14px;
+    background:var(--void);
+    border:1px solid var(--hair);
+    border-radius:6px;
+    color:#9fb0c3;
+    font-family:ui-monospace, SFMono-Regular, "Consolas", "Liberation Mono", monospace;
+    font-size:11px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+  }
+  .toolbar b{ color:var(--cyan-bright); }
+  .toolbar kbd{
+    background:#0f1626; border:1px solid var(--hair); border-radius:3px;
+    padding:1px 6px; color:#e2e8f0; font-family:inherit;
+  }
+
+  /* ---------- Page ---------- */
+  .page{
+    width:210mm;
+    min-height:280mm;
+    margin:6mm auto 16mm auto;
+    background:#ffffff;
+    box-shadow:0 10px 40px rgba(0,0,0,0.45);
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---------- Header ---------- */
+  .hdr{
+    background:linear-gradient(180deg, var(--void) 0%, var(--void-2) 100%);
+    color:#e6edf6;
+    padding:9mm 12mm 7mm 12mm;
+    border-bottom:2px solid var(--cyan-bright);
+    position:relative;
+  }
+  .hdr::after{
+    content:"";
+    position:absolute; left:0; right:0; bottom:-2px; height:2px;
+    background:linear-gradient(90deg, var(--cyan-bright), var(--emerald-bright) 60%, transparent);
+  }
+  .hdr-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .hdr-title{
+    font-family:ui-monospace, SFMono-Regular, "Consolas", "Liberation Mono", monospace;
+    font-size:20px; font-weight:700; letter-spacing:0.01em; color:#fff; margin:0;
+    line-height:1.25;
+  }
+  .hdr-title .tm{ font-size:12px; vertical-align:super; color:var(--cyan-bright); }
+  .hdr-sub{
+    margin:4px 0 0 0; font-size:11.5px; color:#9fb0c3; font-weight:500; max-width:150mm;
+    line-height:1.4;
+  }
+  .hdr-badge{
+    flex-shrink:0; text-align:right; font-family:ui-monospace, SFMono-Regular, monospace;
+    font-size:9px; color:var(--emerald-bright); border:1px solid rgba(0,255,102,0.35);
+    background:rgba(0,255,102,0.07); border-radius:4px; padding:5px 9px; line-height:1.6;
+    white-space:nowrap;
+  }
+  .hdr-badge .dot{ display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--emerald-bright); margin-right:5px; }
+
+  .hdr-meta{
+    display:flex; gap:18px; margin-top:9px; font-family:ui-monospace, SFMono-Regular, monospace;
+    font-size:9.5px; color:#7d8ba0; flex-wrap:wrap;
+  }
+  .hdr-meta b{ color:#c9d4e3; font-weight:600; }
+
+  .pill-row{ display:flex; gap:6px; margin-top:9px; flex-wrap:wrap; }
+  .pill{
+    font-family:ui-monospace, SFMono-Regular, monospace; font-size:8.5px; letter-spacing:0.03em;
+    text-transform:uppercase; color:var(--cyan-bright); border:1px solid rgba(0,240,255,0.35);
+    background:rgba(0,240,255,0.06); border-radius:999px; padding:3px 9px;
+  }
+
+  /* ---------- Body / grid ---------- */
+  .body-wrap{ padding:7mm 12mm 0 12mm; flex:1; }
+
+  h2.sec-title{
+    font-family:ui-monospace, SFMono-Regular, monospace;
+    font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em;
+    color:var(--void); margin:0 0 4mm 0; padding-bottom:2mm; border-bottom:1.5px solid var(--void);
+    display:flex; align-items:center; gap:6px;
+  }
+  h2.sec-title .num{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:15px; height:15px; border-radius:3px; background:var(--void); color:var(--cyan-bright);
+    font-size:9px;
+  }
+
+  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:9mm; }
+
+  /* Principle cards */
+  .principles{ display:grid; grid-template-columns:1fr 1fr; gap:3mm; }
+  .p-card{
+    border:1px solid var(--hair-light); border-left:2.5px solid var(--cyan);
+    border-radius:3px; padding:3mm 3.2mm; background:#fbfcfe;
+  }
+  .p-card.emerald{ border-left-color:var(--emerald); }
+  .p-card h3{
+    margin:0 0 1.2mm 0; font-size:9.5px; font-weight:700; color:var(--void);
+    font-family:ui-monospace, SFMono-Regular, monospace; letter-spacing:0.01em; line-height:1.3;
+  }
+  .p-card p{ margin:0; font-size:9px; color:#3b4454; line-height:1.42; }
+  .p-card code{
+    font-family:ui-monospace, SFMono-Regular, monospace; background:#eef1f6; border-radius:2px;
+    padding:0 3px; font-size:8.7px; color:#0b3d4a;
+  }
+
+  /* Stat / benchmark table */
+  table.spec-table{ width:100%; border-collapse:collapse; font-size:9px; }
+  table.spec-table th{
+    text-align:left; font-family:ui-monospace, SFMono-Regular, monospace; font-size:8px;
+    text-transform:uppercase; letter-spacing:0.05em; color:var(--muted); font-weight:600;
+    padding:0 0 1.6mm 0; border-bottom:1.3px solid var(--void);
+  }
+  table.spec-table th.r{ text-align:right; }
+  table.spec-table td{
+    padding:2mm 0; border-bottom:1px solid #e6e9ee; vertical-align:top; color:#222b38;
+  }
+  table.spec-table td.r{
+    text-align:right; font-family:ui-monospace, SFMono-Regular, monospace; font-weight:700;
+    color:var(--void); white-space:nowrap;
+  }
+  table.spec-table tr:last-child td{ border-bottom:none; }
+  table.spec-table .metric-name{ font-weight:600; }
+  .accent-em{ color:#00734a; }
+  .accent-cy{ color:#006e78; }
+
+  .footnote{ font-size:7.6px; color:var(--muted); line-height:1.45; margin:2.2mm 0 0 0; }
+
+  /* Topology diagram */
+  .topo{
+    margin-top:4mm; border:1px solid var(--hair-light); border-radius:3px; background:#0b1220;
+    color:#c9d4e3; padding:3mm 3mm; overflow:hidden;
+  }
+  .topo .topo-label{
+    font-family:ui-monospace, SFMono-Regular, monospace; font-size:7.6px; text-transform:uppercase;
+    letter-spacing:0.06em; color:#7d8ba0; margin-bottom:1.6mm;
+  }
+  .topo pre{
+    margin:0; font-family:ui-monospace, SFMono-Regular, "Consolas", monospace; font-size:7.6px;
+    line-height:1.5; color:#dfe8f2; white-space:pre; overflow-x:auto;
+  }
+  .topo pre .c1{ color:var(--cyan-bright); }
+  .topo pre .c2{ color:var(--emerald-bright); }
+
+  .code-inline{
+    font-family:ui-monospace, SFMono-Regular, monospace; font-size:9.5px; background:#0b1220;
+    color:#7ef2c1; border-radius:3px; padding:2.4mm 3mm; display:block; margin-top:2mm;
+  }
+
+  .footprint-list{ list-style:none; margin:0; padding:0; font-size:9px; color:#222b38; line-height:1.55; }
+  .footprint-list li{ padding-left:12px; position:relative; margin-bottom:1.6mm; }
+  .footprint-list li::before{ content:"▸"; position:absolute; left:0; color:var(--cyan); font-size:9px; }
+  .footprint-list b{ color:var(--void); }
+
+  /* Commercial band */
+  .commercial{
+    margin:6mm 12mm 0 12mm; border:1.4px solid var(--void); border-radius:4px;
+    background:linear-gradient(135deg, rgba(0,240,255,0.05), rgba(0,255,102,0.05));
+    padding:4mm 5mm; display:flex; gap:8mm; align-items:center;
+  }
+  .commercial .c-left{ flex:1; }
+  .commercial h2.sec-title{ border-bottom:none; padding-bottom:0; margin-bottom:2mm; }
+  .commercial ul{ margin:0; padding:0; list-style:none; font-size:9px; color:#222b38; line-height:1.6; }
+  .commercial ul li{ padding-left:12px; position:relative; }
+  .commercial ul li::before{ content:"—"; position:absolute; left:0; color:var(--emerald); }
+  .commercial .c-right{
+    flex-shrink:0; text-align:right; font-family:ui-monospace, SFMono-Regular, monospace;
+    font-size:10px; color:var(--void); border-left:1px solid var(--hair-light); padding-left:8mm;
+    white-space:nowrap;
+  }
+  .commercial .c-right a{ color:#006e78; text-decoration:none; font-weight:700; }
+  .commercial .c-right .cta-label{ font-size:7.8px; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); display:block; margin-bottom:1.4mm; }
+
+  /* Footer */
+  .ftr{
+    margin-top:6mm; background:var(--void); color:#8494a8; padding:4.5mm 12mm;
+    font-family:ui-monospace, SFMono-Regular, monospace; font-size:7.3px; line-height:1.6;
+    display:flex; justify-content:space-between; gap:10mm;
+  }
+  .ftr .ftr-legal{ flex:1; }
+  .ftr .ftr-contact{ flex-shrink:0; text-align:right; color:#c9d4e3; }
+  .ftr .ftr-contact b{ color:var(--cyan-bright); }
+  .ftr a{ color:#c9d4e3; text-decoration:none; }
+
+  @media (max-width: 220mm){
+    .toolbar, .page{ width:100%; max-width:210mm; }
+  }
+
+  @media print{
+    body{ background:#fff; }
+    .toolbar{ display:none; }
+    .page{
+      width:auto; min-height:0; margin:0; box-shadow:none;
+    }
+    .hdr, .ftr{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .topo{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    @page{ size:auto; margin:9mm; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="toolbar no-print">
+    <span><b>AnimusCore™</b> Technical One-Pager — ready for export</span>
+    <span>Press <kbd>Ctrl</kbd>+<kbd>P</kbd> (<kbd>Cmd</kbd>+<kbd>P</kbd> on Mac) → enable "Background graphics" → Save as PDF</span>
+  </div>
+
+  <div class="page">
+
+    <!-- Header -->
+    <div class="hdr">
+      <div class="hdr-top">
+        <div>
+          <h1 class="hdr-title">ANIMUSCORE<span class="tm">™</span> | Sub-Microsecond C++17 Telemetry &amp; IPC Engine</h1>
+          <p class="hdr-sub">Zero-Heap Execution Instrumentation for Algorithmic Trading &amp; Ultra-Low-Latency Systems</p>
+        </div>
+        <div class="hdr-badge"><span class="dot"></span>LIVE&nbsp;TELEMETRY<br>INSTITUTIONAL&nbsp;EVAL</div>
+      </div>
+      <div class="hdr-meta">
+        <span><b>Live URL:</b> animusinfra.com</span>
+        <span><b>Architecture:</b> Single-Header C++17 Header-Only Library</span>
+        <span><b>Interop:</b> Zero-Copy Python (nanobind)</span>
+      </div>
+      <div class="pill-row">
+        <span class="pill">C++17 · Header-Only</span>
+        <span class="pill">Zero-Alloc Hot Path</span>
+        <span class="pill">ASan / UBSan Clean</span>
+        <span class="pill">51.6B+ Events Soaked</span>
+      </div>
+    </div>
+
+    <div class="body-wrap">
+      <div class="grid-2">
+
+        <!-- Left column -->
+        <div>
+          <h2 class="sec-title"><span class="num">1</span>Core Architectural Principles</h2>
+          <div class="principles">
+            <div class="p-card">
+              <h3>Zero Dynamic Heap Allocation</h3>
+              <p>0 <code>malloc</code>/<code>free</code> or <code>new</code>/<code>delete</code> calls post-init on the critical hot path.</p>
+            </div>
+            <div class="p-card emerald">
+              <h3>Cacheline Isolation</h3>
+              <p>Strict <code>alignas(64)</code> padding on slot, <code>write_head</code>, and <code>read_tail</code> indices — eliminates cross-core false sharing.</p>
+            </div>
+            <div class="p-card emerald">
+              <h3>Invariant TSC Cycle Timing</h3>
+              <p>Direct <code>__rdtsc</code> hardware serialization — bypasses standard clock / <code>gettimeofday</code> kernel context-switch overhead.</p>
+            </div>
+            <div class="p-card">
+              <h3>Zero-Copy Python Interop</h3>
+              <p>~34.5ns nanobind <code>ndarray</code> bridge for real-time risk engines and quant research loops.</p>
+            </div>
+          </div>
+
+          <h2 class="sec-title" style="margin-top:6mm;"><span class="num">4</span>Integration Footprint &amp; Memory Topology</h2>
+          <ul class="footprint-list">
+            <li><b>Header-only inclusion</b> — single translation-unit friendly, no build-system integration required.</li>
+            <li><b>Dependency footprint</b> — C++17 standard library only; no Boost / Abseil runtime dependency.</li>
+            <li><b>Ring Buffer Topology</b> — cache-aligned slot layout with atomic sequence numbering.</li>
+          </ul>
+          <code class="code-inline">#include "animus.hpp"</code>
+
+          <div class="topo">
+            <div class="topo-label">Ring Buffer Topology — Cache-Aligned Slot Layout</div>
+            <pre>  PRODUCER(S)                                  CONSUMER(S)
+      │                                             ▲
+      ▼                                             │
+  <span class="c1">write_head</span>┐                                   ┌<span class="c2">read_tail</span>
+  alignas(64)   [seq│slot][seq│slot][seq│slot]...   alignas(64)
+                 └──────────────┬──────────────┘
+              atomic&lt;uint64_t&gt; per-slot sequence
+                 lock-free MPMC handoff, 0 copies</pre>
+          </div>
+        </div>
+
+        <!-- Right column -->
+        <div>
+          <h2 class="sec-title"><span class="num">2</span>Verified Stress Soak &amp; Benchmark Audit</h2>
+          <table class="spec-table">
+            <thead>
+              <tr><th>Metric</th><th class="r">Result</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="metric-name">Total Events Processed</td>
+                <td class="r accent-cy">51,600,000,000+<br><span style="font-weight:400; color:#5b6472; font-size:7.8px;">(51.6B) continuous · 2h 38m</span></td>
+              </tr>
+              <tr>
+                <td class="metric-name">Sanitizer Hardening</td>
+                <td class="r accent-em">ASan + UBSan Clean</td>
+              </tr>
+              <tr>
+                <td class="metric-name">Sustained Throughput</td>
+                <td class="r accent-cy">~7.28M ops/sec<sup>†</sup><br><span style="font-weight:400; color:#5b6472; font-size:7.8px;">8 producers / 8 consumers, MPMC</span></td>
+              </tr>
+              <tr>
+                <td class="metric-name">Dropped Packets</td>
+                <td class="r accent-em">0</td>
+              </tr>
+              <tr>
+                <td class="metric-name">Memory Leak Delta</td>
+                <td class="r accent-em">0 bytes</td>
+              </tr>
+              <tr>
+                <td class="metric-name">Median Latency (tick-to-telemetry)</td>
+                <td class="r accent-cy">&lt;100ns</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="footnote">† 7.28M ops/sec is the sustained MPMC figure on a clean (non-instrumented) build. The ASan/UBSan-instrumented soak run above measured 5.2–5.9M ops/sec due to sanitizer shadow-memory overhead — correctness and zero-leak results hold under both configurations. Reference hardware and reproduction steps available on request.</p>
+
+          <h2 class="sec-title" style="margin-top:6mm;"><span class="num">3</span>Verified On</h2>
+          <table class="spec-table">
+            <thead><tr><th>Dimension</th><th class="r">Coverage</th></tr></thead>
+            <tbody>
+              <tr><td class="metric-name">Concurrency model</td><td class="r">SPSC &amp; MPMC</td></tr>
+              <tr><td class="metric-name">Toolchain</td><td class="r">MSVC / GCC · C++17</td></tr>
+              <tr><td class="metric-name">Timing source</td><td class="r">Invariant TSC (<code style="font-size:8.5px;">__rdtsc</code>)</td></tr>
+              <tr><td class="metric-name">Transport modes</td><td class="r">Overwrite &amp; Backpressure</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Commercial band -->
+    <div class="commercial">
+      <div class="c-left">
+        <h2 class="sec-title"><span class="num">5</span>Commercial &amp; Pilot Terms</h2>
+        <ul>
+          <li>Dedicated institutional sandbox environments — Proof-of-Concept (PoC) integration turnaround within 48 hours.</li>
+          <li>Source-available enterprise licensing with custom hardware-pinning support.</li>
+          <li>Node-locked, air-gapped licensing — no license server, no phone-home, ever.</li>
+        </ul>
+      </div>
+      <div class="c-right">
+        <span class="cta-label">Evaluation Sandbox</span>
+        <a href="mailto:contact@animusinfra.com">contact@animusinfra.com</a><br>
+        <a href="https://animusinfra.com">animusinfra.com</a>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="ftr">
+      <div class="ftr-legal">
+        <b style="color:#c9d4e3;">CONFIDENTIAL — INSTITUTIONAL EVALUATION USE.</b> Benchmark figures reflect internal testing as described in the Technical Benchmark Specification and soak-test audit at animusinfra.com; results on production or co-located infrastructure may vary. AnimusCore™ is developed and distributed independently under source-available commercial licensing terms. No warranty of fitness for a particular purpose is expressed or implied absent a signed commercial agreement.
+      </div>
+      <div class="ftr-contact">
+        <b>ANIMUSCORE™</b><br>
+        animusinfra.com<br>
+        contact@animusinfra.com
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

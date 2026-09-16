@@ -237,3 +237,12 @@ build_linux/
 # cadence detail -- same never-public-repo category as
 # OUTBOUND_TRACKER.md/AnimusCore_Pipeline.csv above.
 /outreach/
+
+# Sensitive/private documents and local cache artifacts -- never belongs
+# in a public repo.
+incorporation_dossier/
+PERSONAL_FINANCIAL_BLUEPRINT.md
+AnimusCore_v1/unisdkntdetectcache
+*.log
+LINKEDIN_POST.txt
+X_POST.txt

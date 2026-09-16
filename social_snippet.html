@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AnimusCore Snippet</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #05070a;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  .stage {
+    padding: 64px 32px;
+  }
+  .card {
+    width: 780px;
+    max-width: 92vw;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 14px;
+    box-shadow:
+      0 24px 60px rgba(0, 0, 0, 0.55),
+      0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    overflow: hidden;
+  }
+  .titlebar {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    background: linear-gradient(180deg, #161b22 0%, #11151b 100%);
+    border-bottom: 1px solid #21262d;
+  }
+  .dots {
+    display: flex;
+    gap: 8px;
+  }
+  .dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+  }
+  .dot.red { background: #ff5f56; }
+  .dot.yellow { background: #ffbd2e; }
+  .dot.green { background: #27c93f; }
+  .filename {
+    color: #8b949e;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 13px;
+    letter-spacing: 0.2px;
+  }
+  pre.code {
+    margin: 0;
+    padding: 28px 30px 24px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 15px;
+    line-height: 1.65;
+    overflow-x: auto;
+    background: #0d1117;
+  }
+  code { white-space: pre; }
+
+  /* syntax colors */
+  .kw     { color: #ff7b72; }  /* struct, alignas, inline, noexcept, return */
+  .type   { color: #79c0ff; }  /* std::atomic, uint64_t, Slot, TelemetryPayload */
+  .attr   { color: #d2a8ff; }  /* [[nodiscard]], alignas(64) */
+  .fn     { color: #d2a8ff; }  /* function names */
+  .num    { color: #79c0ff; }  /* 0, 64 */
+  .var    { color: #c9d1d9; }  /* plain identifiers */
+  .mem    { color: #a5d6ff; }  /* member names */
+  .comment{ color: #8b949e; font-style: italic; }
+  .punct  { color: #c9d1d9; }
+
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 22px;
+    border-top: 1px solid #21262d;
+    background: #0a0d12;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12.5px;
+    color: #7ee787;
+    letter-spacing: 0.3px;
+  }
+  .badge::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #3fb950;
+    box-shadow: 0 0 8px #3fb950;
+  }
+  .brand {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 12.5px;
+    color: #484f58;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="card">
+      <div class="titlebar">
+        <div class="dots">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+        </div>
+        <span class="filename">animus_ring_buffer.hpp</span>
+      </div>
+      <pre class="code"><code><span class="kw">struct</span> <span class="attr">alignas(64)</span> <span class="type">Slot</span> {
+    <span class="type">std::atomic&lt;uint64_t&gt;</span> <span class="mem">sequence</span>{<span class="num">0</span>};
+    <span class="type">TelemetryPayload</span>      <span class="mem">payload</span>;
+};
+
+<span class="attr">alignas(64)</span> <span class="type">std::atomic&lt;uint64_t&gt;</span> <span class="var">write_head_</span>{<span class="num">0</span>};
+<span class="attr">alignas(64)</span> <span class="type">std::atomic&lt;uint64_t&gt;</span> <span class="var">read_tail_</span>{<span class="num">0</span>};
+
+<span class="attr">[[nodiscard]]</span> <span class="kw">inline</span> <span class="type">uint64_t</span> <span class="fn">rdtsc_stamp</span>() <span class="kw">noexcept</span> { <span class="kw">return</span> <span class="fn">__rdtsc</span>(); }</code></pre>
+      <div class="footer">
+        <span class="badge">AnimusCore // 64B Isolation &amp; Invariant TSC</span>
+        <span class="brand">animusinfra.com</span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
