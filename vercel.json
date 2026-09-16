@@ -2,6 +2,9 @@
   "framework": null,
   "cleanUrls": true,
   "trailingSlash": false,
+  "rewrites": [
+    { "source": "/animus-audit-report", "destination": "/animus-audit-report.html" }
+  ],
   "redirects": [
     {
       "source": "/:path*",
