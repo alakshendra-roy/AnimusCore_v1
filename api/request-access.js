@@ -8,7 +8,7 @@ const MAX_FIELD_LENGTH = 2000;
 const WEBHOOK_TIMEOUT_MS = 5000;
 const RESEND_TIMEOUT_MS = 8000;
 const RESEND_API_URL = 'https://api.resend.com/emails';
-const NOTIFY_TO = process.env.REQUEST_ACCESS_NOTIFY_EMAIL || 'access@animusinfra.com';
+const NOTIFY_TO = process.env.REQUEST_ACCESS_NOTIFY_EMAIL || 'inquiries@animusinfra.com';
 const NOTIFY_FROM = process.env.REQUEST_ACCESS_FROM_EMAIL || 'Animus Engine <noreply@animusinfra.com>';
 
 function sanitize(value) {
