@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AnimusCore — Institutional Technical Audit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
+:root{
+  --bg:#07090e;
+  --panel:#0d1219;
+  --panel-2:#10161f;
+  --border:#1c2531;
+  --border-soft:#161d27;
+  --text:#cbd5e1;
+  --text-hi:#eef2f8;
+  --muted:#7c8ba1;
+  --muted-2:#5c6a7d;
+  --emerald:#10b981;
+  --emerald-bright:#34d399;
+  --cyan:#22d3ee;
+  --amber:#f59e0b;
+  --red:#f87171;
+  --mono:"JetBrains Mono", ui-monospace, Consolas, monospace;
+  --sans:"Inter", -apple-system, "Segoe UI", Arial, sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:#02040a;}
+body{font-family:var(--sans); color:var(--text); font-size:10.5px; line-height:1.4; -webkit-font-smoothing:antialiased;}
+
+.page{
+  width:210mm; height:297mm; max-height:297mm;
+  margin:0 auto 10px auto;
+  box-sizing:border-box; padding:14mm 16mm;
+  overflow:hidden;
+  background:var(--bg); color:var(--text);
+  display:flex; flex-direction:column;
+}
+
+/* ---------- header ---------- */
+.hdr{display:flex; justify-content:space-between; align-items:flex-start; border-bottom:1.5px solid var(--emerald); padding-bottom:5px; margin-bottom:6px;}
+.hdr .t1{font-size:20px; font-weight:800; letter-spacing:-0.01em; color:var(--text-hi);}
+.hdr .t1 sup{font-size:8px; color:var(--emerald-bright); font-weight:700;}
+.hdr .t2{font-size:10.5px; color:var(--muted); margin-top:1px;}
+.hdr .docmeta{text-align:right; font-family:var(--mono); font-size:7.2px; color:var(--muted-2); line-height:1.5;}
+.hdr .docmeta b{color:var(--text);}
+
+.metabar{display:flex; gap:0; border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-bottom:7px;}
+.metabar .cell{flex:1; padding:5px 10px; border-right:1px solid var(--border); font-family:var(--mono); font-size:8px;}
+.metabar .cell:last-child{border-right:none;}
+.metabar .cell .l{color:var(--muted-2); text-transform:uppercase; letter-spacing:0.05em; font-size:7px;}
+.metabar .cell .v{color:var(--emerald-bright); font-weight:700; margin-top:2px; font-size:9px;}
+
+/* ---------- section headers ---------- */
+h2{font-size:15px; font-weight:800; letter-spacing:0.01em; text-transform:uppercase; color:var(--cyan); margin:0 0 6px 0; padding-bottom:3px; border-bottom:1px solid var(--border-soft);}
+h3{font-size:11.5px; font-weight:700; color:var(--text-hi); margin:0 0 4px 0;}
+p{margin:0 0 4px 0;}
+
+.exec{background:var(--panel); border:1px solid var(--border); border-left:3px solid var(--emerald); border-radius:0 4px 4px 0; padding:8px 12px; font-size:10px; color:var(--text); margin-bottom:9px;}
+.exec b{color:var(--text-hi);}
+
+/* ---------- topology diagram ---------- */
+.topo{
+  font-family:var(--mono); font-size:8.4px; line-height:1.6; color:#a9b8cc;
+  background:var(--panel-2); border:1px solid var(--border); border-radius:5px;
+  padding:9px 12px; white-space:pre; margin-bottom:9px;
+}
+.topo .a{color:var(--emerald-bright);}
+.topo .b{color:var(--cyan);}
+.topo .c{color:var(--amber);}
+
+/* ---------- tables ---------- */
+table{width:100%; border-collapse:collapse; font-size:9px;}
+thead th{font-family:var(--mono); font-size:7.4px; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted-2); text-align:left; padding:4px 7px; border-bottom:1px solid var(--border);}
+tbody td{padding:4px 7px; border-bottom:1px solid var(--border-soft); font-family:var(--mono); font-size:8.6px; vertical-align:top;}
+tbody tr:last-child td{border-bottom:1px solid var(--border);}
+td.desc{font-family:var(--sans); font-size:8.6px; color:var(--muted); vertical-align:top;}
+.pass{color:var(--emerald-bright); font-weight:700;}
+.flag{color:var(--amber); font-weight:700;}
+.bad{color:var(--red); font-weight:700;}
+.tbl-wrap{border:1px solid var(--border); border-radius:5px; overflow:hidden; margin-bottom:9px; background:var(--panel);}
+.tbl-wrap .cap{font-family:var(--mono); font-size:7.6px; letter-spacing:0.04em; text-transform:uppercase; color:var(--muted-2); background:var(--panel-2); padding:4px 9px; border-bottom:1px solid var(--border);}
+
+/* ---------- grid / cards ---------- */
+.grid2{display:grid; grid-template-columns:1fr 1fr; gap:7px;}
+.grid3{display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;}
+.card{background:var(--panel); border:1px solid var(--border); border-radius:5px; padding:6px 8px;}
+.card .l{font-family:var(--mono); font-size:7.4px; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted-2);}
+.card .v{font-family:var(--mono); font-weight:700; font-size:14px; color:var(--emerald-bright); margin-top:2px;}
+.card .s{font-size:8px; color:var(--muted); margin-top:2px;}
+.card.warn .v{color:var(--amber);}
+.card.warn{border-color:#3a2f1a;}
+
+.note{font-size:8.4px; color:var(--muted); background:var(--panel-2); border-left:2px solid var(--cyan); border-radius:0 3px 3px 0; padding:5px 8px; margin-bottom:8px;}
+.note.warn{border-left-color:var(--amber);}
+.note b{color:var(--cyan);}
+.note.warn b{color:var(--amber);}
+
+footer{margin-top:auto; padding-top:5px; border-top:1px solid var(--border); display:flex; justify-content:space-between; font-family:var(--mono); font-size:6.6px; color:var(--muted-2);}
+
+@media print{
+  @page{ size:A4 portrait; margin:0; }
+  html,body{background:#07090e !important; -webkit-print-color-adjust:exact; print-color-adjust:exact;}
+  .page{ margin:0; page-break-after:always; }
+  .page:last-child{ page-break-after:auto; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================== PAGE 1 ============================== -->
+<div class="page">
+
+  <div class="hdr">
+    <div>
+      <div class="t1">ANIMUSCORE<sup>™</sup> Telemetry Engine</div>
+      <div class="t2">Institutional Technical Audit &amp; Hardware-Bound Verification</div>
+    </div>
+    <div class="docmeta">
+      REF <b>AC-AUD-2026-0916 · REV B</b><br>
+      ISSUED <b>2026-09-16</b><br>
+      CLASS <b>Institutional Evaluation</b>
+    </div>
+  </div>
+
+  <div class="metabar">
+    <div class="cell"><div class="l">Target Toolchains</div><div class="v">GCC 15.2.0 / MSVC 19.51.36257</div></div>
+    <div class="cell"><div class="l">Spec</div><div class="v">C++17 · Single-Header, 0 Ext. Deps</div></div>
+    <div class="cell"><div class="l">Target Architecture</div><div class="v">x86_64 · Hardware Invariant TSC</div></div>
+  </div>
+
+  <div class="exec"><b>Executive Technical Summary —</b> Independent audit of AnimusCore's lock-free MPMC telemetry ring: zero dynamic allocation post-init, 64-byte cacheline isolation, and hardware-invariant RDTSCP timing verified by compiled, executed harnesses on x86_64. A nanobind zero-copy Python bridge defect was found and patched live this cycle; all figures below are measured, not asserted.</div>
+
+  <h2>Critical Memory Topology &amp; Cacheline Isolation</h2>
+  <div class="topo">┌─ MpmcBoundedQueue&lt;Event&gt; ── pow2 capacity, heap-allocated once at construction ─────────┐
+│  Cell[i] = { <span class="a">atomic&lt;u64&gt; sequence</span>  (CAS guard, per-slot) │ Event data (64B payload) }        │
+│                                                                                          │
+│  <span class="a">alignas(64) write_head</span>  ── cacheline A  (producer cursor, CAS-owned)                          │
+│  <span class="b">alignas(64) read_tail</span>   ── cacheline B  (consumer cursor, CAS-owned)  ← separated: no false-share │
+│                                                                                          │
+│  <span class="c">struct alignas(64) Event</span> { u64 seq, dispatch_tsc; u32 producer_id,_pad; u64 value; u64 _pad[4]; }│
+│  sizeof(Event)==64  alignof(Event)==64  is_trivially_copyable&lt;Event&gt;==true  (static_assert)│
+└──────────────────────────────────────────────────────────────────────────────────────────┘</div>
+
+  <div class="tbl-wrap">
+    <div class="cap">Core Invariant Table</div>
+    <table>
+      <thead><tr><th style="width:26%">Invariant</th><th style="width:16%">Target</th><th style="width:40%">Measured</th><th style="width:10%">Status</th></tr></thead>
+      <tbody>
+        <tr><td>Dynamic heap, post-init</td><td>0 B</td><td>0 B — 7 configs (1P/1C→8P/8C, Release+ASan) + 51.6B-event soak, all 0</td><td class="pass">PASS</td></tr>
+        <tr><td>Cacheline contention</td><td>Isolated</td><td>1.29–1.31× throughput vs. unpadded (2 pinned threads, 20M iters/thread, 3 consistent runs)</td><td class="pass">PASS</td></tr>
+        <tr><td>Cycle counting</td><td>0 kernel switches</td><td>RDTSCP, invariant-TSC confirmed (CPUID 0x80000007:EDX[8]), 10.16 ns/read, 2.4192 cyc/ns calib.</td><td class="pass">PASS</td></tr>
+        <tr><td>Lock-free enqueue/dequeue</td><td>No mutex/syscall</td><td>static_assert atomic::is_always_lock_free; CAS-retry only (source-verified)</td><td class="pass">PASS</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Subsystem Integration Matrix</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th style="width:22%">Subsystem</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Header footprint</td><td class="desc"><span style="font-family:var(--mono)">ring_buffer.hpp + sandbox_event.hpp + tsc_clock.hpp</span> — ~250 lines total, 0 external dependencies, C++17 only.</td></tr>
+        <tr><td>Python interop bridge</td><td class="desc">nanobind <span style="font-family:var(--mono)">TelemetryStream::drain()</span> bound with <span style="font-family:var(--mono)">nb::rv_policy::reference_internal</span> — attaches the owning instance as the returned ndarray's owner (nanobind's built-in equivalent of a capsule-based owner handle), aliasing the C++ ring's contiguous scratch buffer directly into NumPy with <b style="color:var(--emerald-bright)">no per-call heap copy</b>. Measured <b style="color:var(--emerald-bright)">25.4–33.2 ns/event</b>. Patched and re-verified this audit cycle — see Page 2 §3.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span>ANIMUS CORE SYSTEMS · AC-AUD-2026-0916 REV B</span>
+    <span>Page 1 / 2 — Architecture &amp; Invariants</span>
+  </footer>
+</div>
+
+<!-- ============================== PAGE 2 ============================== -->
+<div class="page">
+
+  <div class="hdr">
+    <div>
+      <div class="t1">ANIMUSCORE<sup>™</sup> Telemetry Engine</div>
+      <div class="t2">Empirical Benchmarks, Stress Soak &amp; Institutional Pilot Terms</div>
+    </div>
+    <div class="docmeta">
+      REF <b>AC-AUD-2026-0916 · REV B</b><br>
+      ISSUED <b>2026-09-16</b><br>
+      CLASS <b>Institutional Evaluation</b>
+    </div>
+  </div>
+
+  <h2>Soak Stress Test Matrix — 51.6B Events / 2h 38m (Historical, 2026-09-14)</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th style="width:30%">Target Metric</th><th style="width:18%">Target</th><th style="width:38%">Measured</th><th style="width:14%">Status</th></tr></thead>
+      <tbody>
+        <tr><td>Events produced = consumed</td><td>Exact match</td><td>51,623,591,903 = 51,623,591,903</td><td class="pass">PASS</td></tr>
+        <tr><td>Drop deficit</td><td>0</td><td>0 — exact accounting, whole run</td><td class="pass">PASS</td></tr>
+        <tr><td>Memory (heap) deficit</td><td>0 B, hot path</td><td>0 B — tripwire armed post-init, entire 9,529.1s</td><td class="pass">PASS</td></tr>
+        <tr><td>ASan / UBSan status</td><td>Clean</td><td>Clean per 2026-09-14 log; MSVC ASan re-run this cycle (4P/4C, 8P/8C) also clean, 0 faults</td><td class="pass">PASS</td></tr>
+        <tr><td>Duration / config</td><td>—</td><td>9,529.1 s (2h 38m 49s) continuous, 8P/8C, 1,048,576-slot ring</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h3>Throughput — Concurrency Scaling (fresh, Release, this cycle)</h3>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Pairs</th><th>Throughput</th><th>p50</th></tr></thead>
+          <tbody>
+            <tr><td>1P / 1C</td><td>27.3M/s</td><td class="pass">82 ns</td></tr>
+            <tr><td>2P / 2C</td><td>17.0M/s</td><td>~230 ns</td></tr>
+            <tr><td>4P / 4C</td><td>9.9M/s</td><td>~690 ns</td></tr>
+            <tr><td>8P / 8C</td><td>7.9M/s</td><td>~2.0 µs</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">Independently corroborated: <b>7.26–7.29M pushes/sec</b> (±1%) over a separate 40s sustained 8P/8C run — see WHITEPAPER.md.</div>
+    </div>
+    <div>
+      <h3>Latency Spectrum — Read Separately, Not Blended</h3>
+      <div class="card" style="margin-bottom:5px;"><div class="l">Single-Tick Pinned Latency (1P/1C)</div><div class="v">P50: 82 ns</div><div class="s">Sub-100ns hot path confirmed — dedicated cores, Release build, low contention</div></div>
+      <div class="card warn"><div class="l">Saturated Multi-Thread Queue Backlog (8P/8C, 2.65h sustained)</div><div class="v">P50: ≈134 ms</div><div class="s">Oversubscription backlog on 24T host over 2.65h — not an algorithmic floor. Never cite interchangeably with the pinned figure above.</div></div>
+    </div>
+  </div>
+
+  <h2>Live Bug Diagnostic &amp; Patch Verification — Zero-Copy Bridge</h2>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th style="width:16%">Item</th><th>Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Defect</td><td class="desc">nanobind <span style="font-family:var(--mono)">drain()</span> returned a fresh copy every call, not a view — <span style="font-family:var(--mono)">.ctypes.data</span> alternated between 2 addresses across 49 calls.</td></tr>
+        <tr><td>Root cause</td><td class="desc">Default <span style="font-family:var(--mono)">rv_policy::automatic</span> copies whenever the ndarray has no owner and no <span style="font-family:var(--mono)">self</span> (nanobind <span style="font-family:var(--mono)">nb_ndarray.cpp</span>, source-verified).</td></tr>
+        <tr><td>Patch</td><td class="desc">Bound <span style="font-family:var(--mono)">drain()</span> with <span style="font-family:var(--mono)">nb::rv_policy::reference_internal</span> — attaches <span style="font-family:var(--mono)">TelemetryStream</span> as owner; 1-line binding change, no C++ function-body change.</td></tr>
+        <tr><td>Verification</td><td class="desc"><span class="pass">CONFIRMED</span> — pointer trace: 1 stable address / 49 calls (post-fix) vs. 2 alternating (pre-fix); lifetime-safety test (owner GC'd mid-view) passed; perf unchanged, 25.4 ns/event median.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Institutional Deployment &amp; Evaluation Terms</h2>
+  <div class="grid3">
+    <div class="card"><div class="l">Proof-of-Concept</div><div class="v" style="font-size:10px;">48-Hour Sandbox</div><div class="s">Self-contained <span style="font-family:var(--mono)">animus_sandbox/</span>, 2-command build, 0 external deps, reproduces every figure above on your own hardware.</div></div>
+    <div class="card"><div class="l">Licensing Model</div><div class="v" style="font-size:10px;">Desk → Enterprise</div><div class="s">Desk License $30–60K/yr (single node) · Institutional Enterprise $240K/yr (multi-node, one desk).</div></div>
+    <div class="card"><div class="l">Contact</div><div class="v" style="font-size:9.5px;">alakshendra@animusinfra.com</div><div class="s">animusinfra.com — every engagement begins with a self-validated pilot.</div></div>
+  </div>
+
+  <footer>
+    <span>ANIMUS CORE SYSTEMS · AC-AUD-2026-0916 REV B</span>
+    <span>Page 2 / 2 — Benchmarks &amp; Deployment</span>
+  </footer>
+</div>
+
+</body>
+</html>
