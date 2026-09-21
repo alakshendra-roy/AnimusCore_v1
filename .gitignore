@@ -246,3 +246,8 @@ AnimusCore_v1/unisdkntdetectcache
 *.log
 LINKEDIN_POST.txt
 X_POST.txt
+
+# Ad-hoc chat-session export, not a deliberately packaged deliverable --
+# contains an unfilled "[YOUR COMPANY NAME]" license placeholder, not
+# ready to be a tracked artifact yet.
+/AnimusCore_v1/Claude Files.zip
