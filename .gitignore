@@ -128,6 +128,11 @@ eval_keys/
 # not a source artifact, so never worth tracking.
 /animus-eval-kit-v*.tar.gz
 
+# All release/distribution tarballs are build outputs (e.g.
+# animus-sandbox-eval-v*.tar.gz) -- regenerable from source, never a
+# tracked deliverable.
+*.tar.gz
+
 # 2026-09-07 pre-flight audit: an unrelated third party's personal
 # document, a payment screenshot, a business card, and a screen recording
 # were all found sitting untracked in AnimusCore_v1/ -- none belong in a
