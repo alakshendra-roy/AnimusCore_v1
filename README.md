@@ -288,6 +288,12 @@ which you choose, as long as `T` stays trivially copyable and fixed-size.
 
 ## Further Reading
 
+* [Sandbox Evaluation Harness (`animus-sandbox-eval-v1.0.tar.gz`)](https://github.com/alakshendra-roy/AnimusCore_v1/releases/download/sandbox-eval-v1.0/animus-sandbox-eval-v1.0.tar.gz) —
+  standalone, zero-dependency tarball: extract and run `./run_benchmark.sh`
+  for the same false-sharing/MPMC throughput and soak-test percentile
+  numbers referenced below, with no checkout of this repo required. See the
+  [release notes](https://github.com/alakshendra-roy/AnimusCore_v1/releases/tag/sandbox-eval-v1.0)
+  for the checksum and full contents.
 * [`ARCHITECTURE.md`](ARCHITECTURE.md) — full engine architecture, not
   limited to the SPSC ring covered above.
 * [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) — every latency/
