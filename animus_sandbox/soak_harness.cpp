@@ -15,7 +15,13 @@
 // histogram arrays) is done. Any allocation during the timed run shows up
 // directly in SOAK_FINAL's heap_allocs_during_hot_path field.
 //
-// Usage: soak_harness <duration_seconds> <interval_seconds> [num_producers] [num_consumers]
+// Usage: soak_harness <duration_seconds> <interval_seconds> [num_producers] [num_consumers] [max_events]
+//   max_events, if > 0, ends the run as soon as that many events have been
+//   produced, even if duration_seconds has not elapsed -- duration_seconds
+//   still acts as an upper-bound safety net either way. This is what lets
+//   the same binary satisfy both "run for N hours and watch for drift" and
+//   "run a fixed 10,000,000-event soak and report percentiles," without two
+//   separate programs measuring two different underlying queues.
 #include "ring_buffer.hpp"
 #include "sandbox_event.hpp"
 #include "tsc_clock.hpp"
@@ -159,15 +165,15 @@ struct LatencyHistogram {
 };
 
 struct Percentiles {
-    double p50, p90, p99, p9999;      // ns; a value >= kFineBuckets is a log-bucket floor, not exact -- see *_exact flags
-    bool p50_exact, p90_exact, p99_exact, p9999_exact;
+    double p50, p90, p99, p999, p9999; // ns; a value >= kFineBuckets is a log-bucket floor, not exact -- see *_exact flags
+    bool p50_exact, p90_exact, p99_exact, p999_exact, p9999_exact;
     bool p9999_is_overflow; // true only for the ~137s top overflow bucket (effectively stalled)
 };
 
 Percentiles compute_percentiles(const std::uint64_t* counts, std::size_t count_size) {
     std::uint64_t total = 0;
     for (std::size_t i = 0; i < count_size; ++i) total += counts[i];
-    Percentiles out{0, 0, 0, 0, true, true, true, true, false};
+    Percentiles out{0, 0, 0, 0, 0, true, true, true, true, true, false};
     if (total == 0) return out;
 
     auto find_percentile = [&](double fraction) -> std::size_t {
@@ -183,11 +189,13 @@ Percentiles compute_percentiles(const std::uint64_t* counts, std::size_t count_s
     const std::size_t i50 = find_percentile(0.50);
     const std::size_t i90 = find_percentile(0.90);
     const std::size_t i99 = find_percentile(0.99);
-    const std::size_t i9999 = find_percentile(0.9999);
+    const std::size_t i999 = find_percentile(0.999);   // p99.9, the tail percentile the eval brief asks for
+    const std::size_t i9999 = find_percentile(0.9999); // p99.99, kept for long-soak drift tracking
 
     out.p50 = bucket_floor_ns(i50);   out.p50_exact = bucket_is_exact(i50);
     out.p90 = bucket_floor_ns(i90);   out.p90_exact = bucket_is_exact(i90);
     out.p99 = bucket_floor_ns(i99);   out.p99_exact = bucket_is_exact(i99);
+    out.p999 = bucket_floor_ns(i999); out.p999_exact = bucket_is_exact(i999);
     out.p9999 = bucket_floor_ns(i9999); out.p9999_exact = bucket_is_exact(i9999);
     out.p9999_is_overflow = (i9999 == kTopOverflowIdx);
     return out;
@@ -225,6 +233,7 @@ int main(int argc, char** argv) {
     // sanitizer cost) -- that's noise this soak isn't trying to measure.
     const unsigned num_producers = argc > 3 ? static_cast<unsigned>(std::atoi(argv[3])) : std::max(1u, cpu_count / 3);
     const unsigned num_consumers = argc > 4 ? static_cast<unsigned>(std::atoi(argv[4])) : std::max(1u, cpu_count / 3);
+    const long max_events = argc > 5 ? std::atol(argv[5]) : 0; // 0 = unbounded (duration-only stop)
     constexpr std::size_t kCapacity = std::size_t(1) << 20; // 1,048,576 slots
 
     sandbox::MpmcBoundedQueue<sandbox::Event> queue(kCapacity);
@@ -253,8 +262,8 @@ int main(int argc, char** argv) {
     };
 
     std::printf("SOAK_START {\"duration_s\":%ld,\"interval_s\":%ld,\"producers\":%u,\"consumers\":%u,"
-                "\"queue_capacity\":%zu,\"cpu_count\":%u,\"cycles_per_ns\":%.4f}\n",
-        duration_s, interval_s, num_producers, num_consumers, kCapacity, cpu_count, cycles_per_ns);
+                "\"queue_capacity\":%zu,\"cpu_count\":%u,\"cycles_per_ns\":%.4f,\"max_events\":%ld}\n",
+        duration_s, interval_s, num_producers, num_consumers, kCapacity, cpu_count, cycles_per_ns, max_events);
     std::fflush(stdout);
 
     std::vector<std::thread> producers;
@@ -320,9 +329,26 @@ int main(int argc, char** argv) {
         });
     }
 
+    // Untracked warm-up: producer and consumer threads are already running
+    // (started above) but nothing below this point counts them yet. A short
+    // burst measured from cold start conflates real transport latency with
+    // OS thread-scheduling ramp-up (consumer threads not all scheduled onto
+    // real cores yet) and the ring filling toward its working-set depth --
+    // both one-time costs, not steady-state cost. 1.5s is enough for both to
+    // settle on every machine this was validated on; the tracked window
+    // below starts completely fresh after it (histogram, min/max, and the
+    // produced/consumed baseline used for max_events are all reset here).
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    hist.snapshot_and_reset(hist_scratch.data()); // discard warm-up samples
+    g_min_latency_ns.store(1e18, std::memory_order_relaxed);
+    g_max_latency_ns.store(0.0, std::memory_order_relaxed);
+    const std::uint64_t produced_baseline = produced.load(std::memory_order_relaxed);
+
     // All startup allocation (queue backing store, histogram vectors,
     // thread objects, the producer/consumer vectors themselves) is done --
-    // arm the hot-path allocation tripwire now, before the timed window.
+    // arm the hot-path allocation tripwire now, at the start of the tracked
+    // window (after warm-up, so warm-up's own steady-state settling can't
+    // trip it either).
     g_tracking_hot_path.store(true, std::memory_order_relaxed);
 
     const auto t_start = std::chrono::steady_clock::now();
@@ -330,12 +356,23 @@ int main(int argc, char** argv) {
     auto t_next_sample = t_start + std::chrono::seconds(interval_s);
     unsigned sample_index = 0;
 
+    bool stopped_on_event_count = false;
     while (true) {
         const auto now = std::chrono::steady_clock::now();
         if (now >= t_end) break;
-        const auto wake_at = std::min(t_next_sample, t_end);
+        if (max_events > 0 &&
+            produced.load(std::memory_order_relaxed) - produced_baseline >= static_cast<std::uint64_t>(max_events)) {
+            stopped_on_event_count = true;
+            break;
+        }
+        // With a max_events target, poll in short slices instead of sleeping
+        // for the full interval, so the run stops within ~200ms of hitting
+        // the target rather than over-running by up to interval_s.
+        const auto wake_at = max_events > 0
+            ? std::min({t_next_sample, t_end, now + std::chrono::milliseconds(200)})
+            : std::min(t_next_sample, t_end);
         std::this_thread::sleep_until(wake_at);
-        if (std::chrono::steady_clock::now() < t_next_sample) continue; // woke early for t_end check; loop will exit above
+        if (std::chrono::steady_clock::now() < t_next_sample) continue; // woke early for t_end/max_events check; loop will re-check above
         ++sample_index;
         hist.snapshot_and_reset(hist_scratch.data());
         const auto pct = compute_percentiles(hist_scratch.data(), hist_scratch.size());
@@ -346,7 +383,8 @@ int main(int argc, char** argv) {
         std::printf("SOAK_INTERVAL {\"sample\":%u,\"elapsed_s\":%.1f,\"interval_pushes\":%llu,"
                     "\"throughput_pushes_per_sec\":%.0f,"
                     "\"p50_ns\":%.0f,\"p50_exact\":%s,\"p90_ns\":%.0f,\"p90_exact\":%s,"
-                    "\"p99_ns\":%.0f,\"p99_exact\":%s,\"p9999_ns\":%.0f,\"p9999_exact\":%s,"
+                    "\"p99_ns\":%.0f,\"p99_exact\":%s,\"p999_ns\":%.0f,\"p999_exact\":%s,"
+                    "\"p9999_ns\":%.0f,\"p9999_exact\":%s,"
                     "\"p9999_overflow\":%s,\"heap_allocs_so_far\":%lld,"
                     "\"total_produced\":%llu,\"total_consumed\":%llu}\n",
             sample_index, elapsed_since_start_s,
@@ -355,6 +393,7 @@ int main(int argc, char** argv) {
             pct.p50, pct.p50_exact ? "true" : "false",
             pct.p90, pct.p90_exact ? "true" : "false",
             pct.p99, pct.p99_exact ? "true" : "false",
+            pct.p999, pct.p999_exact ? "true" : "false",
             pct.p9999, pct.p9999_exact ? "true" : "false",
             pct.p9999_is_overflow ? "true" : "false",
             static_cast<long long>(g_heap_alloc_count.load(std::memory_order_relaxed)),
@@ -383,17 +422,29 @@ int main(int argc, char** argv) {
     const bool correctness_ok = produced.load() == consumed.load();
 
     std::printf("SOAK_FINAL {\"total_elapsed_s\":%.1f,\"total_produced\":%llu,\"total_consumed\":%llu,"
+                "\"warmup_produced\":%llu,\"measured_produced\":%llu,"
                 "\"correctness_ok\":%s,\"heap_allocs_during_hot_path\":%lld,"
-                "\"final_window_p50_ns\":%.0f,\"final_window_p90_ns\":%.0f,\"final_window_p99_ns\":%.0f,"
-                "\"final_window_p9999_ns\":%.0f,\"final_window_p9999_exact\":%s,"
-                "\"run_min_latency_ns\":%.0f,\"run_max_latency_ns\":%.0f}\n",
+                "\"stopped_on_event_count\":%s,\"max_events\":%ld,"
+                "\"final_window_p50_ns\":%.0f,\"final_window_p50_cyc\":%.0f,"
+                "\"final_window_p90_ns\":%.0f,\"final_window_p90_cyc\":%.0f,"
+                "\"final_window_p99_ns\":%.0f,\"final_window_p99_cyc\":%.0f,"
+                "\"final_window_p999_ns\":%.0f,\"final_window_p999_cyc\":%.0f,\"final_window_p999_exact\":%s,"
+                "\"final_window_p9999_ns\":%.0f,\"final_window_p9999_cyc\":%.0f,\"final_window_p9999_exact\":%s,"
+                "\"run_min_latency_ns\":%.0f,\"run_max_latency_ns\":%.0f,\"cycles_per_ns\":%.4f}\n",
         total_elapsed_s,
         static_cast<unsigned long long>(produced.load()),
         static_cast<unsigned long long>(consumed.load()),
+        static_cast<unsigned long long>(produced_baseline),
+        static_cast<unsigned long long>(produced.load() - produced_baseline),
         correctness_ok ? "true" : "false",
         static_cast<long long>(g_heap_alloc_count.load(std::memory_order_relaxed)),
-        pct.p50, pct.p90, pct.p99, pct.p9999, pct.p9999_exact ? "true" : "false",
-        g_min_latency_ns.load(), g_max_latency_ns.load());
+        stopped_on_event_count ? "true" : "false", max_events,
+        pct.p50, pct.p50 * cycles_per_ns,
+        pct.p90, pct.p90 * cycles_per_ns,
+        pct.p99, pct.p99 * cycles_per_ns,
+        pct.p999, pct.p999 * cycles_per_ns, pct.p999_exact ? "true" : "false",
+        pct.p9999, pct.p9999 * cycles_per_ns, pct.p9999_exact ? "true" : "false",
+        g_min_latency_ns.load(), g_max_latency_ns.load(), cycles_per_ns);
     std::fflush(stdout);
 
     return correctness_ok ? 0 : 1;

@@ -181,6 +181,31 @@ A different question from every table above: not the native ring's own throughpu
 
 *This is the same distinction `docs/PILOT_PROGRAM.md` §4 and `docs/OUTREACH_TEMPLATES.md` cite in outbound material — see those documents for how these two figures are used in a pitch. An earlier version of both cited "~4.5 ns/event" for `drain()` only, asserted with no benchmark script or reproduction command behind it anywhere in this repo; measured here for the first time, the real number is ~6x higher. The "full decode" figure they cited (~560 ns/event) was close to what this benchmark actually measures.*
 
+### Public, no-NDA evaluation package — `animus_sandbox/run_benchmark.sh`
+
+*Source: `animus_sandbox/benchmark_harness.cpp`, `animus_sandbox/soak_harness.cpp`, `animus_sandbox/python_bridge_test.py`. Reproduce with `cd animus_sandbox && ./run_benchmark.sh` (C++ only) or `./run_benchmark.sh --with-python` (also builds/runs the nanobind bridge). See `animus_sandbox/README.md` for what each harness measures and why.*
+
+A different audience from every table above: not a claim for this document, but a small, public, source-visible package a prospect can run **before signing an NDA** (`docs/ANIMUS_ENTERPRISE_TERMSHEET.md` §4 "Stage 0") to sanity-check the three architectural claims underneath everything else here — `alignas(64)` false-sharing elimination, invariant-TSC hot-path timestamping, and nanobind zero-copy. This uses a general-purpose MPMC ring buffer under real 8-producer/8-consumer contention (a different, harder queueing regime than the isolated 1-producer/1-consumer SPSC harness in "Cross-core SPSC dispatch latency" above — do not compare the two tables directly), sampled 1-in-64 after a fixed 1.5s warm-up so scheduler ramp-up and ring fill-to-steady-state don't get counted as transport latency.
+
+**Environment this was run on (this document's own authoring session, not a production or even a Linux rig):** Windows 11, MSYS2 `g++ 15.2.0`, the same Intel i7-14650HX laptop as §2.1, **unpinned** (`taskset` is Linux-only; `run_benchmark.sh` runs unpinned and says so when it can't pin), and — unlike every other measurement in this document — taken during an ordinary interactive session with an IDE, browser, and this Claude Code session itself all running concurrently, not an isolated benchmark rig. That load shows up directly in the spread between the two runs below; it is reported, not smoothed over.
+
+10,000,000-event target (actual: ~10.4M–23.2M events, since the stop check polls every 200ms and 8 unthrottled producer threads keep publishing between polls):
+
+| Percentile | Run 1 | Run 2 |
+|---|---|---|
+| min | 114 ns | 232 ns |
+| **p50** | **1,170 ns / 2,830 cyc** | **4,381 ns / 10,599 cyc** |
+| p90 | 2,426 ns / 5,869 cyc | 8,192 ns / 19,818 cyc |
+| p99 | 7,906 ns / 19,126 cyc | 32,768 ns / 79,272 cyc |
+| p99.9 | 65,536 ns / 158,545 cyc *(bucket floor, not exact)* | 32,768 ns / 79,272 cyc *(bucket floor, not exact)* |
+| max | 238,141 ns | 110,682 ns |
+
+Both runs: **0 heap allocations** during the tracked window (global `operator new`/`delete` override, armed only after warm-up), **produced == consumed exactly** (correctness PASS). The ~4x spread between runs is real, on-machine variance from an unpinned, interactively-loaded session — not a bug and not cherry-picked; it is exactly the caveat `run_benchmark.sh` itself prints after every run ("re-run before citing them anywhere"). On isolated, pinned Linux hardware (`isolcpus=`, `taskset`, `performance` governor — the same profile §2.3 describes), expect this to tighten toward the sustained 8P/8C figures already validated above (~7.28M pushes/sec, 834 ns / 1,896 ns p50/p90) rather than either column here.
+
+`benchmark_harness`'s short-burst 8-producer push rate across three runs this session: 10.99M / 12.94M / 16.85M pushes/sec (target 16.5M+, "MET" on one of three runs, "below target" on the other two — printed as such by the harness itself, not summarized after the fact). False-sharing A/B speedup (a smaller, 2-thread version of this test than the 4.55x figure earlier in this document, which used a different, more contention-heavy harness — the two are not the same measurement): 1.30x / 1.33x / 1.30x. TSC read cost: ~10.2 ns/read, zero system calls, across all three runs.
+
+**Zero-copy nanobind bridge** (`python_bridge_test.py`, 2,000,000 events/run × 5 runs, this same session): median **33.2 ns/event** (30.1M events/sec), range 31.1–323.1 ns/event across all 5 runs — run 1 is a 323 ns cold-start outlier (first-call import/dtype setup), runs 2–5 hold steady at 31.1–38.7 ns/event. `view.flags["OWNDATA"] is False` asserted and verified on the first non-empty batch, confirming this is a real zero-copy view and not a silent numpy copy. Consistent with the 25–55 ns/event range this directory's README already cited, and the same order of magnitude as the 26.4 ns/event figure measured against the *other* nanobind bridge (`bindings/animus_py.cpp`) in "Python zero-copy interop" above — two independent bridges, two independent measurements, same neighborhood.
+
 ---
 
 ## 4. System Diagram

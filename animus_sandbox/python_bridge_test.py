@@ -24,8 +24,20 @@ next to this script:
 
     python python_bridge_test.py
 """
+import os
 import statistics
+import sys
 import time
+
+if sys.platform == "win32":
+    # Python 3.8+ stopped searching PATH for a native extension's own DLL
+    # dependencies (PEP 578 / bpo-36085): a MinGW-built .pyd still needs its
+    # runtime (libstdc++-*.dll, libgcc_s_*.dll) found explicitly. MSYS2's
+    # default install path covers the common case; harmless if it doesn't
+    # exist or isn't needed (a statically-linked or MSVC-built .pyd).
+    for _dll_dir in (r"C:\msys64\ucrt64\bin", r"C:\msys64\mingw64\bin"):
+        if os.path.isdir(_dll_dir):
+            os.add_dll_directory(_dll_dir)
 
 import animus_sandbox_bridge as bridge
 
@@ -52,7 +64,7 @@ NUM_RUNS = 5
 STALL_TIMEOUT_SECONDS = 2.0
 
 
-def drain_only_ns_per_event(events: int) -> float:
+def drain_only_ns_per_event(events: int, verify_zero_copy: bool = False) -> float:
     """One full run: background producer feeds `events` events unthrottled;
     this thread drains in a tight loop, timing only drain() itself."""
     stream = bridge.TelemetryStream(RING_CAPACITY, DRAIN_BATCH)
@@ -60,11 +72,22 @@ def drain_only_ns_per_event(events: int) -> float:
     try:
         drained = 0
         total_ns = 0
+        checked_ownership = not verify_zero_copy
         last_progress = time.perf_counter()
         while drained < events:
             t0 = time.perf_counter_ns()
             view = stream.drain(DRAIN_BATCH)
             t1 = time.perf_counter_ns()
+            if not checked_ownership and view.shape[0] > 0:
+                # Proves this is a real zero-copy view over the C++ scratch
+                # buffer, not numpy silently copying on the way out: an
+                # owned array would report OWNDATA True here.
+                assert view.flags["OWNDATA"] is False, (
+                    "drain() returned an array that owns its data -- this is "
+                    "no longer a zero-copy view, investigate before citing "
+                    "any latency number from this run"
+                )
+                checked_ownership = True
             n = view.shape[0] // bridge.EVENT_SIZE_BYTES
             total_ns += (t1 - t0)
             drained += n
@@ -94,9 +117,10 @@ def main() -> None:
 
     results = []
     for run in range(1, NUM_RUNS + 1):
-        ns_per_event = drain_only_ns_per_event(EVENTS_PER_RUN)
+        ns_per_event = drain_only_ns_per_event(EVENTS_PER_RUN, verify_zero_copy=(run == 1))
         results.append(ns_per_event)
-        print(f"  run {run}/{NUM_RUNS}: {ns_per_event:.2f} ns/event")
+        suffix = "  [OWNDATA=False verified]" if run == 1 else ""
+        print(f"  run {run}/{NUM_RUNS}: {ns_per_event:.2f} ns/event{suffix}")
 
     print()
     print(f"  median: {statistics.median(results):.2f} ns/event "

@@ -44,11 +44,14 @@
 | **Zero-copy Python Bridge** | Nanobind-based bridge mapping SPSC ring-buffer entries directly into NumPy `ndarray` views, no intermediate copy |
 | **Benchmark Verification Harness** | `replay_bench` — synthetic packet driver for measuring bare-metal p50 / p90 / p99 / p99.9 latencies on Licensee's own hardware |
 
-All artifacts are delivered under the license grant and restrictions of the definitive MSLA (§5). No source code is delivered under a Production license absent a separate, individually negotiated source-access and escrow arrangement.
+All artifacts above are delivered under the license grant and restrictions of the definitive MSLA (§5) — none of them are available pre-signature. No source code is delivered under a Production license absent a separate, individually negotiated source-access and escrow arrangement. (For a pre-signature, no-NDA check of the underlying mechanism, see §4 Stage 0 below — a separate, public, non-proprietary artifact, not a preview of the table above.)
 
 ---
 
 ## 4. Evaluation-to-Production Conversion Protocol
+
+**Stage 0 — Public, No-NDA Architectural Sanity Check (optional, self-serve).**
+Before any NDA is signed, `animus_sandbox/` (`./run_benchmark.sh`) is a public, source-visible micro-benchmark package covering the same three architectural claims this term sheet is built on — `alignas(64)` false-sharing elimination, invariant-TSC hot-path timestamping, and the nanobind zero-copy Python bridge — with no proprietary engine internals included. It has no dependency beyond a C++17 compiler, checks CPU topology before running, and prints every number as measured on whatever machine runs it, not a fixed claim. Licensee's own engineers can run this unilaterally, on their own hardware, to sanity-check the *mechanism* in §3 before committing to Stage 1 below, which is where the full, proprietary engine is evaluated under NDA.
 
 **Stage 1 — 30-Day Sandbox Proof-of-Performance (PoP).**
 Licensee evaluates the engine using `animus_eval_v1.zip` under a Mutual Non-Disclosure Agreement, consistent with [`PILOT_AGREEMENT.md`](PILOT_AGREEMENT.md) / [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md). No production use or fee obligation arises from Stage 1 alone.
