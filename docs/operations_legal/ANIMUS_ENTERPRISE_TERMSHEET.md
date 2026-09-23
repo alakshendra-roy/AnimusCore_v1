@@ -1,7 +1,7 @@
 # Animus Core C++ Ingestion Engine — Institutional Master Software License Term Sheet
 
 > ## ⚠️ DRAFT TERM SHEET — NOT REVIEWED BY COUNSEL — NON-BINDING
-> This is an indicative commercial term sheet, not a definitive agreement. It is intended to summarize proposed terms for discussion and does not itself grant any license, create any payment obligation, or bind either party. A definitive Production Master Software License Agreement ("**MSLA**"), consistent with [`../LEGAL_EULA.md`](../LEGAL_EULA.md) and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md), governs the actual license and must be executed before any production deployment, invoicing, or IP transfer. This document has not been reviewed by a licensed attorney and must not be treated as final or enforceable until it has been.
+> This is an indicative commercial term sheet, not a definitive agreement. It is intended to summarize proposed terms for discussion and does not itself grant any license, create any payment obligation, or bind either party. A definitive Production Master Software License Agreement ("**MSLA**"), consistent with [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md), governs the actual license and must be executed before any production deployment, invoicing, or IP transfer. This document has not been reviewed by a licensed attorney and must not be treated as final or enforceable until it has been.
 
 ---
 
@@ -12,7 +12,7 @@
 | **Document ID** | ANM-TS-2026-v1 |
 | **Effective Date** | [EFFECTIVE DATE] |
 | **Expiration of Offer** | This term sheet expires **thirty (30) calendar days** from the Effective Date if not countersigned by Licensee, after which it may be withdrawn or revised by Licensor at its sole discretion. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
+| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**," "**Client**") |
 | **Scope Classification** | Institutional Desk-Level Enterprise License — single designated trading unit/desk, as defined in §2.4 |
 
@@ -33,7 +33,7 @@
 
 **2.4 Scope of Use.** The license covers **unlimited CPU cores, threads, packet volumes, and production nodes** within Licensee's designated trading unit/desk, as identified in the definitive MSLA — this is the scope boundary that distinguishes this tier from the single-node Desk License ([`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) §2.4): Institutional Enterprise is **single-desk, multi-node**, not single-node. There are no per-core, per-thread, per-tick, or per-node metering penalties within that scope. Use outside the designated trading unit/desk (a second desk, a different business unit) requires a separate license or scope amendment.
 
-**2.5 Committed Term — No Termination for Convenience.** The initial twelve (12)-month term is **firm, non-cancellable, and non-refundable**. Licensee will have no right to terminate for convenience. If Licensee attempts early termination, gives notice of non-use or project discontinuation, or defaults on an installment, all remaining unpaid quarterly installments for the full twelve-month commitment accelerate and become due within ten (10) business days. The sole exception is Licensee's termination for Licensor's uncured material breach. The binding terms are [`../LEGAL_EULA.md`](../LEGAL_EULA.md) §3.3 and the order form, [`CONTRACT_ENTERPRISE_DESK_240K.md`](CONTRACT_ENTERPRISE_DESK_240K.md) §5.
+**2.5 Committed Term — No Termination for Convenience.** The initial twelve (12)-month term is **firm, non-cancellable, and non-refundable**. Licensee will have no right to terminate for convenience. If Licensee attempts early termination, gives notice of non-use or project discontinuation, or defaults on an installment, all remaining unpaid quarterly installments for the full twelve-month commitment accelerate and become due within ten (10) business days. The sole exception is Licensee's termination for Licensor's uncured material breach. The binding terms are [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §3.3 and the order form, [`CONTRACT_ENTERPRISE_DESK_240K.md`](../contracts/CONTRACT_ENTERPRISE_DESK_240K.md) §5.
 
 ---
 
@@ -56,7 +56,7 @@ All artifacts above are delivered under the license grant and restrictions of th
 Before any NDA is signed, `animus_sandbox/` (`./run_benchmark.sh`) is a public, source-visible micro-benchmark package covering the same three architectural claims this term sheet is built on — `alignas(64)` false-sharing elimination, invariant-TSC hot-path timestamping, and the nanobind zero-copy Python bridge — with no proprietary engine internals included. It has no dependency beyond a C++17 compiler, checks CPU topology before running, and prints every number as measured on whatever machine runs it, not a fixed claim. Licensee's own engineers can run this unilaterally, on their own hardware, to sanity-check the *mechanism* in §3 before committing to Stage 1 below, which is where the full, proprietary engine is evaluated under NDA.
 
 **Stage 1 — 30-Day Sandbox Proof-of-Performance (PoP).**
-Licensee evaluates the engine using `animus_eval_v1.zip` under a Mutual Non-Disclosure Agreement, consistent with [`PILOT_AGREEMENT.md`](PILOT_AGREEMENT.md) / [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md). No production use or fee obligation arises from Stage 1 alone.
+Licensee evaluates the engine using `animus_eval_v1.zip` under a Mutual Non-Disclosure Agreement, consistent with [`PILOT_AGREEMENT.md`](../_archive/PILOT_AGREEMENT.md) / [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md). No production use or fee obligation arises from Stage 1 alone.
 
 **Stage 2 — Hardware-Verified Benchmark Acceptance.**
 Using the `replay_bench` harness (§3), Licensee independently measures tail latency on its own representative hardware. Acceptance criterion: **p99 tail latency < 65 nanoseconds** under the agreed synthetic workload. Failure to meet this threshold on Licensee's hardware does not obligate conversion to Stage 3.
@@ -72,7 +72,7 @@ Upon Licensee's written acceptance following Stage 2, the Parties execute a defi
 
 **5.2 Clean Room Certification.** Licensor certifies that the Animus Core engine is 100% original work product, developed without reference to, copying from, or incorporation of any GPL, copyleft, or otherwise incompatible third-party licensed source.
 
-**5.3 Use Restrictions.** Licensee shall not reverse-engineer, decompile, disassemble, or attempt to derive source code from the delivered binary artifacts, except to the extent such restriction is unenforceable under applicable law. Redistribution, sublicensing, or provision of the Software or its outputs to any third party outside Licensee's designated trading unit/desk is prohibited absent Licensor's prior written consent. The definitive terms add a prohibition on instrumenting or memory-probing the Software to reconstruct its lock-free data structures, invariant-TSC routines, or cache-line layouts, and an eighteen (18)-month clean-room covenant after the term ends ([`../LEGAL_EULA.md`](../LEGAL_EULA.md) §3.2).
+**5.3 Use Restrictions.** Licensee shall not reverse-engineer, decompile, disassemble, or attempt to derive source code from the delivered binary artifacts, except to the extent such restriction is unenforceable under applicable law. Redistribution, sublicensing, or provision of the Software or its outputs to any third party outside Licensee's designated trading unit/desk is prohibited absent Licensor's prior written consent. The definitive terms add a prohibition on instrumenting or memory-probing the Software to reconstruct its lock-free data structures, invariant-TSC routines, or cache-line layouts, and an eighteen (18)-month clean-room covenant after the term ends ([`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §3.2).
 
 **5.4 Source Code Escrow.** At Licensee's request and as a term of the definitive MSLA, Licensor will negotiate a source code escrow arrangement with an independent, mutually agreed escrow agent. Escrowed source would be releasable to Licensee solely upon (a) Licensor's bankruptcy, insolvency, or cessation of business, or (b) Licensor's uncured, material failure to provide contracted maintenance obligations under §6, following written notice and a cure period as defined in the MSLA. No escrow account exists as of the Effective Date of this term sheet; establishing one is subject to a separate escrow agreement and may carry additional fees to be agreed in the MSLA.
 
@@ -90,7 +90,7 @@ Upon Licensee's written acceptance following Stage 2, the Parties execute a defi
 
 ## 7. Execution, Governing Law & Signatures
 
-**7.1 Governing Law; Arbitration.** This term sheet and any definitive MSLA entered pursuant to it are governed by the laws of **India**, without regard to conflict-of-laws principles, consistent with [`../LEGAL_EULA.md`](../LEGAL_EULA.md) §9.2 and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) §8.1. Any dispute arising out of or relating to this term sheet or the MSLA shall be referred to and finally resolved by arbitration administered by the **Singapore International Arbitration Centre ("SIAC")** under the SIAC Rules then in force, seated in **Singapore**, before **one (1) arbitrator**, in the **English** language. Either Party may seek interim or injunctive relief from a court of competent jurisdiction pending constitution of the arbitral tribunal.
+**7.1 Governing Law; Arbitration.** This term sheet and any definitive MSLA entered pursuant to it are governed by the laws of **India**, without regard to conflict-of-laws principles, consistent with [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §9.2 and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) §8.1. Any dispute arising out of or relating to this term sheet or the MSLA shall be referred to and finally resolved by arbitration administered by the **Singapore International Arbitration Centre ("SIAC")** under the SIAC Rules then in force, seated in **Singapore**, before **one (1) arbitrator**, in the **English** language. Either Party may seek interim or injunctive relief from a court of competent jurisdiction pending constitution of the arbitral tribunal.
 
 **7.2 Non-Binding Effect.** Except for this §7 and any confidentiality obligations under a separate NDA referenced in §4 Stage 1, this term sheet is an indicative summary of proposed terms and does not itself create a binding license, payment obligation, or exclusivity commitment. Binding obligations arise only upon execution of the definitive MSLA.
 
@@ -107,7 +107,7 @@ Upon Licensee's written acceptance following Stage 2, the Parties execute a defi
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Chief Architect | [TITLE] |
 | **Date** | ________ | ________ |
-| **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation, per `../LEGAL_INCORPORATION_BRIEF.md`] | [CLIENT ADDRESS] |
+| **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation, per `../../LEGAL_INCORPORATION_BRIEF.md`] | [CLIENT ADDRESS] |
 
 ---
 

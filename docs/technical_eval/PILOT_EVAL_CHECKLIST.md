@@ -2,7 +2,7 @@
 
 **Classification:** Institutional Pilot Onboarding & Verification Document
 **Audience:** Quantitative Trading Infrastructure Engineers, Co-Location Architects, and Systems Audit Teams conducting a technical qualification of the Animus Core SPSC Ring Buffer (`include/animus/shm_ipc.hpp`) and the Python Zero-Copy SDK (`sdk/python/`).
-**Companion documents:** [`EVALUATION_KIT.md`](EVALUATION_KIT.md) (benchmark tear-sheet + full prerequisites) · [`EVALUATION_GUIDE.md`](EVALUATION_GUIDE.md) (public-ABI reproduction guide) · [`../eval_kit/README.md`](../eval_kit/README.md) (turnkey tarball quickstart) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid engagement this checklist gates entry into).
+**Companion documents:** [`EVALUATION_KIT.md`](EVALUATION_KIT.md) (benchmark tear-sheet + full prerequisites) · [`EVALUATION_GUIDE.md`](EVALUATION_GUIDE.md) (public-ABI reproduction guide) · [`../../eval_kit/README.md`](../../eval_kit/README.md) (turnkey tarball quickstart) · [`PILOT_PROGRAM.md`](../operations_legal/PILOT_PROGRAM.md) (the paid engagement this checklist gates entry into).
 
 ---
 

@@ -2,13 +2,13 @@
 
 **Classification:** Client-Facing Evaluation & Onboarding Document
 **Audience:** Heads of Trading Technology, Systems Architects, and Latency Engineering teams beginning a technical evaluation of Animus Core.
-**Companion documents:** [`../BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) (the full, multi-layer performance reference this tear-sheet summarizes one slice of) · [`EVALUATION_GUIDE.md`](EVALUATION_GUIDE.md) (self-serve reproduction of the public-ABI benchmark layers) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid, four-week Institutional Pilot Program this kit is the on-ramp to) · [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) (the commercial contract governing that program) · [`../COMPLIANCE_AND_RISK_MITIGATION.md`](../COMPLIANCE_AND_RISK_MITIGATION.md) (the Reference Topology Appendix that scopes which of the figures below are contractually guaranteed vs. informative).
+**Companion documents:** [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (the full, multi-layer performance reference this tear-sheet summarizes one slice of) · [`EVALUATION_GUIDE.md`](EVALUATION_GUIDE.md) (self-serve reproduction of the public-ABI benchmark layers) · [`PILOT_PROGRAM.md`](../operations_legal/PILOT_PROGRAM.md) (the paid, four-week Institutional Pilot Program this kit is the on-ramp to) · [`PILOT_CONTRACT.md`](../operations_legal/PILOT_CONTRACT.md) (the commercial contract governing that program) · [`../../COMPLIANCE_AND_RISK_MITIGATION.md`](../../COMPLIANCE_AND_RISK_MITIGATION.md) (the Reference Topology Appendix that scopes which of the figures below are contractually guaranteed vs. informative).
 
 ---
 
 ## 1. Executive Benchmark Tear-Sheet
 
-> **Environment disclosure, read before comparing these numbers to anything else.** The two runs below were captured on a general-purpose Windows development host, **not** a CPU-isolated Linux bare-metal reference machine — no `isolcpus`/`nohz_full`/`rcu_nocbs` core isolation, no dedicated hugepages, no NUMA pinning. Per `../COMPLIANCE_AND_RISK_MITIGATION.md` §1.2, that makes these **informative, best-effort figures**, not the contractually guaranteed Reference Topology numbers `../COMMERCIAL.md` ties an order form's performance commitment to. Reproduce them on your own target hardware (§2 below) before relying on them for a sizing decision.
+> **Environment disclosure, read before comparing these numbers to anything else.** The two runs below were captured on a general-purpose Windows development host, **not** a CPU-isolated Linux bare-metal reference machine — no `isolcpus`/`nohz_full`/`rcu_nocbs` core isolation, no dedicated hugepages, no NUMA pinning. Per `../../COMPLIANCE_AND_RISK_MITIGATION.md` §1.2, that makes these **informative, best-effort figures**, not the contractually guaranteed Reference Topology numbers `../../COMMERCIAL.md` ties an order form's performance commitment to. Reproduce them on your own target hardware (§2 below) before relying on them for a sizing decision.
 
 ### 1.1 High-Throughput / Overwrite Telemetry
 
@@ -42,7 +42,7 @@ Bounded-retry backpressure mode (`--mode backpressure`) with `benchmarks/consume
 | Producer p50 / p99 enqueue latency | 3,144.4 ns / 5,187.2 ns |
 | Producer throughput (this configuration) | 0.356 M events/sec |
 
-*Read the last two rows carefully: this run's throughput and latency are bounded by the pure-Python reference consumer's decode loop (`benchmarks/consumer.py`, ~0.31 M ticks/sec on its own), not by the native engine. That is the correct reading of a backpressure run — the producer is, by construction, only as fast as whatever is required to guarantee zero loss against whatever is consuming. Do not average this table against §1.1's: they measure different things (raw saturation speed vs. a delivery guarantee against a specific consumer), exactly the kind of methodology conflation `../BENCHMARK_DATASHEET.md` §2 explicitly warns against. A native C++ consumer in place of the Python reference implementation would close most of this throughput gap while keeping the zero-loss guarantee — that reproduction is a natural next step for your own evaluation, not something this kit asserts a number for.*
+*Read the last two rows carefully: this run's throughput and latency are bounded by the pure-Python reference consumer's decode loop (`benchmarks/consumer.py`, ~0.31 M ticks/sec on its own), not by the native engine. That is the correct reading of a backpressure run — the producer is, by construction, only as fast as whatever is required to guarantee zero loss against whatever is consuming. Do not average this table against §1.1's: they measure different things (raw saturation speed vs. a delivery guarantee against a specific consumer), exactly the kind of methodology conflation `../../BENCHMARK_DATASHEET.md` §2 explicitly warns against. A native C++ consumer in place of the Python reference implementation would close most of this throughput gap while keeping the zero-loss guarantee — that reproduction is a natural next step for your own evaluation, not something this kit asserts a number for.*
 
 *Source: `harness_benchmark --mode backpressure` run concurrently with `python3 benchmarks/consumer.py`, both attached to the same named shared-memory segment — see §2.3 for the exact reproduction steps (this specific pairing is not wired into `run_benchmarks.sh` itself).*
 
@@ -70,7 +70,7 @@ Welcome — this section gets a systems engineer from a clean checkout to both b
 
 | Requirement | Detail |
 |---|---|
-| **Platform** | Linux x86_64 bare-metal **recommended** for any figure you intend to rely on for a sizing decision — a shared, virtualized, or Windows development host (as used for §1's figures) will reproduce correct behavior but not the tightest tail latencies. See `../COMPLIANCE_AND_RISK_MITIGATION.md` §1.1's Reference Topology Appendix for the exact reference profile. |
+| **Platform** | Linux x86_64 bare-metal **recommended** for any figure you intend to rely on for a sizing decision — a shared, virtualized, or Windows development host (as used for §1's figures) will reproduce correct behavior but not the tightest tail latencies. See `../../COMPLIANCE_AND_RISK_MITIGATION.md` §1.1's Reference Topology Appendix for the exact reference profile. |
 | **Compiler / language standard** | The core engine targets **C++17** (`CLAUDE.md`); several benchmark harnesses (`benchmarks/telemetry_benchmark.cpp`) use C++23 language features. A **C++20-or-newer toolchain** — MSVC (VS 2022+), GCC 13+, or Clang 17+ with `libstdc++` — covers everything in this kit with headroom. |
 | **Build tooling** | CMake 3.20+ and, optionally, Ninja (`run_benchmarks.sh`/`.ps1` auto-detect Ninja and fall back to the platform default generator otherwise). |
 | **Python** | 3.8+ for the SDK/consumer layer (stdlib only — no third-party packages; see `CLAUDE.md`). The Linux `eval_kit/` turnkey tarball specifically wants 3.10+ (`EVALUATION_GUIDE.md` §1). |
@@ -107,7 +107,7 @@ This is exactly the pairing that produced §1.2's figures. Expect `events consum
 
 ### 2.4 30-Day Offline RSA Evaluation License Key — Activation Flow
 
-Core event ingestion **never requires a license** in either mode above. A license is only needed for opt-in, hardware-gated tuning features (CPU core-affinity pinning) — and the license mechanism itself is a two-party, fully offline handoff, per `Pilot_Kit/PILOT_README.md`:
+Core event ingestion **never requires a license** in either mode above. A license is only needed for opt-in, hardware-gated tuning features (CPU core-affinity pinning) — and the license mechanism itself is a two-party, fully offline handoff, per `../../Pilot_Kit/PILOT_README.md`:
 
 1. **You** run the read-only fingerprint utility on the machine you want licensed — no network call, no private key involved:
    ```powershell
@@ -123,11 +123,11 @@ Core event ingestion **never requires a license** in either mode above. A licens
 
 ## 3. Contractual Pilot Bridge
 
-The path from this kit to a production decision is: **free self-serve evaluation (this kit / `Pilot_Kit/`) → paid Institutional Pilot Program (`PILOT_PROGRAM.md`) → production license order form (`../COMMERCIAL.md`)**. The middle step has a direct, standing contract template:
+The path from this kit to a production decision is: **free self-serve evaluation (this kit / `Pilot_Kit/`) → paid Institutional Pilot Program (`PILOT_PROGRAM.md`) → production license order form (`../../COMMERCIAL.md`)**. The middle step has a direct, standing contract template:
 
-> ### → [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) — Master Proof-of-Performance Pilot Agreement & Mutual NDA
+> ### → [`PILOT_CONTRACT.md`](../operations_legal/PILOT_CONTRACT.md) — Master Proof-of-Performance Pilot Agreement & Mutual NDA
 >
-> This is the commercial contract for the paid, four-week Institutional Pilot Program (`PILOT_PROGRAM.md`) — the 50%-upfront / 50%-on-delivery, PoP-fee-bearing engagement that produces a formal Production Commercial Sign-off recommendation on your own hardware and data. It is entered into by **Animus Technologies Private Limited** (India, CIN pending issuance of the Certificate of Incorporation — see `../LEGAL_INCORPORATION_BRIEF.md`), and is the single link a qualified prospect needs to move from "we've validated the numbers ourselves" (§1–2 above) straight to a scoped, signable commercial engagement.
+> This is the commercial contract for the paid, four-week Institutional Pilot Program (`PILOT_PROGRAM.md`) — the 50%-upfront / 50%-on-delivery, PoP-fee-bearing engagement that produces a formal Production Commercial Sign-off recommendation on your own hardware and data. It is entered into by **Animus Technologies Private Limited** (India, CIN pending issuance of the Certificate of Incorporation — see `../../LEGAL_INCORPORATION_BRIEF.md`), and is the single link a qualified prospect needs to move from "we've validated the numbers ourselves" (§1–2 above) straight to a scoped, signable commercial engagement.
 
 **Before treating that link as execution-ready, note what `PILOT_CONTRACT.md` itself already discloses:** it is an AI-drafted structural template, explicitly marked **not yet reviewed by counsel**, with open blanks (PoP fee amount, the venue/arbitration forum, the liability-cap-vs-`PILOT_AGREEMENT.md` mutuality question tracked in `LEGAL_VERIFICATION_AUDIT.md`) that must be filled in and reviewed before a real counterparty signs it. The "1-click" property this bridge provides is *navigational* — one link takes a qualified prospect straight from this evaluation kit to the exact contract governing the next commercial step, with no separate document hunt — not a claim that the contract is pre-cleared for e-signature as-is. Route any prospect ready to convert to your Animus contact for that counsel-reviewed pass before countersignature.
 

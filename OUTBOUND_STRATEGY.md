@@ -4,7 +4,7 @@
 **Product:** Animus Core — C++17/Python deterministic IPC & telemetry engine (p50 53.3ns / p99 64.9ns cross-core SPSC dispatch, RDTSC-measured; 47.3M msgs/sec sustained throughput — see [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) §2)
 **Licensing:** Dual-License Gateway — Community Evaluation (free, non-production) / Desk License $30,000–$60,000/yr / Institutional Enterprise $240,000/yr / OEM / Redistribution $150,000+/yr / Global Strategic Master Agreement $350,000–$750,000+/yr
 
-> **Relationship to the real outreach pipeline:** this document is a reusable ICP/GTM strategy framework — qualification scorecard, objection playbook, and Global-Strategic-Master-Agreement-anchoring strategy — not the live, tracked pipeline. The **actual, evidence-cited target list and send status** live in [`docs/ICP_TARGET_LIST.md`](docs/ICP_TARGET_LIST.md) and [`docs/OUTBOUND_TRACKER.md`](docs/OUTBOUND_TRACKER.md); the 30-account matrix in §2 below predates and does not match that list (different firms, different count, no per-contact log) — do not treat it as the current send target. `docs/OUTREACH_TEMPLATES.md` is the current, in-use set of cold-email/InMail copy; the templates in §3 below are an earlier, superseded draft (see the numbers/verification-command fixes below) — check both against `docs/OUTREACH_TEMPLATES.md` before reusing.
+> **Relationship to the real outreach pipeline:** this document is a reusable ICP/GTM strategy framework — qualification scorecard, objection playbook, and Global-Strategic-Master-Agreement-anchoring strategy — not the live, tracked pipeline. The **actual, evidence-cited target list and send status** live in [`docs/operations_legal/ICP_TARGET_LIST.md`](docs/operations_legal/ICP_TARGET_LIST.md) and [`docs/operations_legal/OUTBOUND_TRACKER.md`](docs/operations_legal/OUTBOUND_TRACKER.md); the 30-account matrix in §2 below predates and does not match that list (different firms, different count, no per-contact log) — do not treat it as the current send target. `docs/operations_legal/OUTREACH_TEMPLATES.md` is the current, in-use set of cold-email/InMail copy; the templates in §3 below are an earlier, superseded draft (see the numbers/verification-command fixes below) — check both against `docs/operations_legal/OUTREACH_TEMPLATES.md` before reusing.
 >
 > Note on §2: company names are realistic, publicly known firms in each vertical, used as **illustrative targets**. Stack/bottleneck notes are **inferred from public engineering blogs, job postings, and conference talks**, not confirmed insider information — verify before referencing specifics in outreach.
 
@@ -112,7 +112,7 @@ All variants target senior ICs and engineering directors. No marketing fluff, no
 > Subject: 64.9ns p99 IPC, RDTSC-measured — verify it yourself
 >
 > [Name] — we built a deterministic IPC engine that holds p50 53.3ns / p99 64.9ns cross-core dispatch latency at 47.3M msgs/sec sustained, RDTSC-resolution not clock-quantized guesswork, and I'd rather you verify that than take my word for it. Full methodology and reproduction commands are public — see the datasheet — and we run a paid 30-day Proof-of-Performance to validate the numbers against your own hardware and event shapes, not ours:
-> [`Animus_Core_Benchmark_Datasheet.pdf`](docs/Animus_Core_Benchmark_Datasheet.pdf)
+> [`Animus_Core_Benchmark_Datasheet.pdf`](docs/marketing_whitepapers/Animus_Core_Benchmark_Datasheet.pdf)
 > If our numbers don't beat your current stack on your own hardware, I won't follow up again — if they do, worth 15 minutes to talk about where it'd slot into your execution path?
 
 **LinkedIn connection note (<300 chars):**
@@ -180,4 +180,4 @@ If fewer than 3 are met, keep them on Community Evaluation (non-production) unti
 
 ---
 
-*Prepared for the founder's own use — Animus is a solo operation, no Business Development team exists. Treat this as a reusable strategy framework (ICPs, qualification criteria, objection playbook), not a status tracker: the real, evidence-cited target list and send status live in [`docs/ICP_TARGET_LIST.md`](docs/ICP_TARGET_LIST.md) and [`docs/OUTBOUND_TRACKER.md`](docs/OUTBOUND_TRACKER.md), not in the illustrative 30-account matrix above.*
+*Prepared for the founder's own use — Animus is a solo operation, no Business Development team exists. Treat this as a reusable strategy framework (ICPs, qualification criteria, objection playbook), not a status tracker: the real, evidence-cited target list and send status live in [`docs/operations_legal/ICP_TARGET_LIST.md`](docs/operations_legal/ICP_TARGET_LIST.md) and [`docs/operations_legal/OUTBOUND_TRACKER.md`](docs/operations_legal/OUTBOUND_TRACKER.md), not in the illustrative 30-account matrix above.*

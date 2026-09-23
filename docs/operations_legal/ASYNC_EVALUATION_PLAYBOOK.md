@@ -7,7 +7,7 @@
 
 **Audience:** you (Alakshendra), running this process — and, where noted, prospective technical sponsors reading the emails/FAQ this playbook produces.
 
-**Companion documents:** [`../Pilot_Kit/PILOT_README.md`](../Pilot_Kit/PILOT_README.md) (Windows self-serve kit — the trial vehicle for §1) · [`../eval_kit/README.md`](../eval_kit/README.md) (Linux turnkey tarball — alternate/parallel trial vehicle) · [`PILOT_EVAL_CHECKLIST.md`](PILOT_EVAL_CHECKLIST.md) (the technical gate the roadmap below walks through) · [`../BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) (reference figures cited throughout) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid, deeper 4-week engagement this playbook can *optionally* upsell into — not required) · [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) (the existing $240k/yr Institutional tier — see §3 for how the new Desk License tier relates to it).
+**Companion documents:** [`../../Pilot_Kit/PILOT_README.md`](../../Pilot_Kit/PILOT_README.md) (Windows self-serve kit — the trial vehicle for §1) · [`../../eval_kit/README.md`](../../eval_kit/README.md) (Linux turnkey tarball — alternate/parallel trial vehicle) · [`PILOT_EVAL_CHECKLIST.md`](../technical_eval/PILOT_EVAL_CHECKLIST.md) (the technical gate the roadmap below walks through) · [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (reference figures cited throughout) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid, deeper 4-week engagement this playbook can *optionally* upsell into — not required) · [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) (the existing $240k/yr Institutional tier — see §3 for how the new Desk License tier relates to it).
 
 ---
 

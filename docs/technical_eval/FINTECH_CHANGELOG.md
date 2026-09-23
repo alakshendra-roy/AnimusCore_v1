@@ -180,7 +180,7 @@ python benchmarks/fintech_tail_latency.py
 ```
 
 Full phase-by-phase methodology, every raw run, and every defect found
-while measuring is in [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md) -- nothing in the
+while measuring is in [`AnimusCore_v1/BENCHMARKS.md`](../../AnimusCore_v1/BENCHMARKS.md) -- nothing in the
 table above is asserted without a reproduction command behind it.
 
 ## Overview
@@ -191,7 +191,7 @@ core engine (C++17, native Python SDK bindings over a direct C-ABI, no
 IPC serialization overhead) that also backs AnimusCore's general-purpose
 telemetry ingestion, rule evaluation, and clustering features documented
 in the Phase sections below. This README leads with the feed-handler path;
-see [`adapters/itch50/README.md`](adapters/itch50/README.md) for the full
+see [`adapters/itch50/README.md`](../../adapters/itch50/README.md) for the full
 ITCH 5.0 technical reference.
 
 ## Core Architecture
@@ -255,12 +255,12 @@ distributed Raft-lite cluster, enterprise licensing, market data feed
 adapters, and a generic shared-memory IPC ring) covering every way to
 consume Animus Core.
 
-Running a pilot evaluation? See [`Pilot_Kit/`](Pilot_Kit/PILOT_README.md)
+Running a pilot evaluation? See [`Pilot_Kit/`](../../Pilot_Kit/PILOT_README.md)
 for a minimal customer-facing quickstart -- setup, a runnable
 sub-microsecond ingestion example, and how 30-day evaluation licenses work.
 
 Evaluating on Linux, or specifically the shared-memory IPC ring above?
-See [`eval_kit/`](eval_kit/README.md) instead -- a turnkey tarball with a
+See [`eval_kit/`](../../eval_kit/README.md) instead -- a turnkey tarball with a
 prebuilt binary and both Python wheels bundled in, running end to end via
 `./run_demo.sh` with no compiler on the evaluation machine.
 
@@ -269,7 +269,7 @@ prebuilt binary and both Python wheels bundled in, running end to end via
 Real `bench_itch_ingest --messages 10000000` runs, one per platform, on
 the same physical development machine (not a dedicated, CPU-isolated
 benchmark rig). Full methodology, message-type distribution, and
-reproduction steps: [`adapters/itch50/README.md` §3](adapters/itch50/README.md#3-verified-benchmark-telemetry-dual-platform-10000000-message-runs).
+reproduction steps: [`adapters/itch50/README.md` §3](../../adapters/itch50/README.md#3-verified-benchmark-telemetry-dual-platform-10000000-message-runs).
 
 | Metric | Measured Value | Methodology |
 |---|---|---|
@@ -306,7 +306,7 @@ the deliberately-suppressed `/wd4324` cache-line-padding note).
 
 Every push and pull request to `master` rebuilds `animus_benchmark_suite`
 in Release mode (GCC, `-O3`) and re-runs the tick-to-trade latency
-benchmark. [`scripts/verify_benchmarks.py`](scripts/verify_benchmarks.py)
+benchmark. [`scripts/verify_benchmarks.py`](../../scripts/verify_benchmarks.py)
 fails the build if median (p50) tick-to-trade latency exceeds
 **1000ns**, guaranteeing zero silent latency regressions reach `master`.
 

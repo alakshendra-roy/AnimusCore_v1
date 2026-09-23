@@ -145,7 +145,7 @@ verbatim with no swap -- see the field's own decode note in
 Both rows below are one real `bench_itch_ingest --messages 10000000` run
 each, captured on the same physical development machine (not a dedicated,
 CPU-isolated benchmark rig -- no `isolcpus`/`nohz_full`/real-time scheduling;
-see `docs/PILOT_EVAL_CHECKLIST.md` §2 for what that tuning buys). As with
+see `docs/technical_eval/PILOT_EVAL_CHECKLIST.md` §2 for what that tuning buys). As with
 every other benchmark in this repository, these are real, reproducible
 numbers from an actual run, not projected or hand-typed figures --
 reproduce them yourself with the command in §5. Tail latency (p99.9, max)
@@ -242,7 +242,7 @@ profile -- see §3 above for a real, verified sample of this output.
 ### 5.3 Run the Python zero-copy verification
 
 Build the extension first if you haven't already (see
-`docs/EVALUATION_KIT.md`):
+`docs/technical_eval/EVALUATION_KIT.md`):
 
 ```bash
 pip install ./bindings

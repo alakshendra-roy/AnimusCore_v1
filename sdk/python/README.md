@@ -40,6 +40,6 @@ Prints the real, measured sustained ingestion rate on the machine it runs
 on -- see that script's own header comment for why no number is
 hardcoded.
 
-See `../../docs/INSTITUTIONAL_INTEGRATION_GUIDE.md` for the full
+See `../../docs/technical_eval/INSTITUTIONAL_INTEGRATION_GUIDE.md` for the full
 architectural background (memory ordering, cache-line isolation, kernel
 tuning for production deployments).

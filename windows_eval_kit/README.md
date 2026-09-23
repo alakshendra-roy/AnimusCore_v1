@@ -16,15 +16,15 @@ info, no embedded PDB path, no internal source paths.
    `MachineGuid` and primary NIC MAC address.
 2. Drop `animus.lic` into this directory's root.
 3. Run `.\bin\animus_bench_saturation.ps1` to reproduce the ~16.1M events/sec
-   decoupled-overwrite saturation numbers (`docs/EVALUATION_KIT.md` §1.1).
+   decoupled-overwrite saturation numbers (`docs/technical_eval/EVALUATION_KIT.md` §1.1).
 4. Run `.\bin\animus_bench_backpressure.ps1` to verify zero packet drops
    under bounded-retry backpressure mode against the bundled Python
-   consumer (`docs/EVALUATION_KIT.md` §1.2).
+   consumer (`docs/technical_eval/EVALUATION_KIT.md` §1.2).
 
 > **Note on the license step:** core event ingestion and both benchmarks
 > above run with **no license at all** -- steps 1-2 are only required if
 > your evaluation also needs the opt-in, hardware-gated CPU core-pinning
-> tuning path (see `docs/EVALUATION_KIT.md` §2.4). Feel free to run steps
+> tuning path (see `docs/technical_eval/EVALUATION_KIT.md` §2.4). Feel free to run steps
 > 3-4 first and come back to licensing only if you need that path.
 
 ## Directory layout

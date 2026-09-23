@@ -302,7 +302,7 @@ which you choose, as long as `T` stays trivially copyable and fixed-size.
 * [`LICENSE`](LICENSE) / [`LEGAL_EULA.md`](LEGAL_EULA.md) /
   [`COMMERCIAL.md`](COMMERCIAL.md) — evaluation grant, governing license
   terms, and commercial/production licensing tiers.
-* [`docs/FINTECH_CHANGELOG.md`](docs/FINTECH_CHANGELOG.md) — this
+* [`docs/technical_eval/FINTECH_CHANGELOG.md`](docs/technical_eval/FINTECH_CHANGELOG.md) — this
   project's original, trading-desk-oriented README and full development
   history (market-data feed adapters, CEP rule engine, mTLS multi-tenancy,
   distributed clustering) — the same `animus.hpp` core covered above, in

@@ -1,16 +1,16 @@
 # Animus Core — External Evaluation Guide
 
-**Audience:** an external quant/infra team independently verifying the throughput and tail-latency figures in [`BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md), on their own hardware, before or during an outbound conversation.
+**Audience:** an external quant/infra team independently verifying the throughput and tail-latency figures in [`BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md), on their own hardware, before or during an outbound conversation.
 
-**What this guide covers, and what it deliberately doesn't:** everything here runs against the public C-ABI (the compiled `AnimusNative.dll` / `libanimus_native.so`) or a self-contained benchmark file with its own throwaway ring buffer — nothing here requires access to the proprietary engine's source, its internal headers, or a license. That's a deliberate scope boundary, not an oversight: the licensed, CPU-pinned SPSC path (see `benchmarks/fintech_tail_latency.py`) is real, measured, and documented, but validating it against your own hardware with vendor-side tuning support is exactly what Week 3 of the [Institutional Pilot Program](PILOT_PROGRAM.md#3-four-week-timeline) is for. This guide is the free, self-serve check you can run before that conversation even starts.
+**What this guide covers, and what it deliberately doesn't:** everything here runs against the public C-ABI (the compiled `AnimusNative.dll` / `libanimus_native.so`) or a self-contained benchmark file with its own throwaway ring buffer — nothing here requires access to the proprietary engine's source, its internal headers, or a license. That's a deliberate scope boundary, not an oversight: the licensed, CPU-pinned SPSC path (see `benchmarks/fintech_tail_latency.py`) is real, measured, and documented, but validating it against your own hardware with vendor-side tuning support is exactly what Week 3 of the [Institutional Pilot Program](../operations_legal/PILOT_PROGRAM.md#3-four-week-timeline) is for. This guide is the free, self-serve check you can run before that conversation even starts.
 
 Three independent measurement layers, matching the split `BENCHMARK_DATASHEET.md` itself insists on (§2's methodology note) — don't conflate them:
 
 | Layer | What it measures | Tool | Needs the compiled DLL? | Needs a license? |
 |---|---|---|---|---|
-| **Python SDK batched-ingestion** | What a Python caller actually sees per `animus_record_events_batch` call, ctypes overhead included | [`scripts/benchmark_eval.py`](../scripts/benchmark_eval.py) (new) | Yes | No |
-| **Native cross-core SPSC transport** | Raw producer→consumer handoff latency, RDTSC-resolution, no Python/ctypes in the loop | [`benchmarks/telemetry_benchmark.cpp`](../benchmarks/telemetry_benchmark.cpp) (existing, self-contained) | No — compiles standalone | No |
-| **Cross-process shared-memory transport (Linux)** | Two independent OS processes, not threads: a native producer and a zero-copy nanobind Python consumer exchanging records over real `/dev/shm`, GIL released during the consumer's spin-wait | [`eval_kit/`](../eval_kit/README.md) (turnkey tarball, `./run_demo.sh`) | No — prebuilt binary + wheels bundled in | No |
+| **Python SDK batched-ingestion** | What a Python caller actually sees per `animus_record_events_batch` call, ctypes overhead included | [`scripts/benchmark_eval.py`](../../scripts/benchmark_eval.py) (new) | Yes | No |
+| **Native cross-core SPSC transport** | Raw producer→consumer handoff latency, RDTSC-resolution, no Python/ctypes in the loop | [`benchmarks/telemetry_benchmark.cpp`](../../benchmarks/telemetry_benchmark.cpp) (existing, self-contained) | No — compiles standalone | No |
+| **Cross-process shared-memory transport (Linux)** | Two independent OS processes, not threads: a native producer and a zero-copy nanobind Python consumer exchanging records over real `/dev/shm`, GIL released during the consumer's spin-wait | [`eval_kit/`](../../eval_kit/README.md) (turnkey tarball, `./run_demo.sh`) | No — prebuilt binary + wheels bundled in | No |
 
 ---
 
@@ -87,7 +87,7 @@ cd animus-eval-kit-linux-x86_64
 ./run_demo.sh
 ```
 
-`run_demo.sh` creates an isolated venv, installs the bundled wheels, runs the producer (10,000,000 synthetic events, decoupled/non-blocking overwrite mode, so it completes on its own with no consumer required), then runs a zero-copy nanobind Python consumer against whatever survived in the ring, and prints a pass/fail verdict with throughput and latency percentiles from both sides. See [`eval_kit/README.md`](../eval_kit/README.md) for the full architecture (cache-line-isolated `alignas(64)` head/tail cursors, the decoupled-overwrite contract, and the GIL-released consumer spin-wait) and troubleshooting (SHM permission errors, cleaning orphaned rings, CPU pinning via `taskset`).
+`run_demo.sh` creates an isolated venv, installs the bundled wheels, runs the producer (10,000,000 synthetic events, decoupled/non-blocking overwrite mode, so it completes on its own with no consumer required), then runs a zero-copy nanobind Python consumer against whatever survived in the ring, and prints a pass/fail verdict with throughput and latency percentiles from both sides. See [`eval_kit/README.md`](../../eval_kit/README.md) for the full architecture (cache-line-isolated `alignas(64)` head/tail cursors, the decoupled-overwrite contract, and the GIL-released consumer spin-wait) and troubleshooting (SHM permission errors, cleaning orphaned rings, CPU pinning via `taskset`).
 
 This is the one layer of the three actually verified against real `/dev/shm` in CI (`.github/workflows/eval_kit_packaging.yml`, `ubuntu-22.04`), not just compiled and assumed — worth knowing if you're deciding which layer's numbers to trust most on a Linux target.
 
@@ -102,7 +102,7 @@ This is the one layer of the three actually verified against real `/dev/shm` in 
 | A warning that no compiled native engine was found | The script refuses to report numbers from the pure-Python fallback engine as if they were a native-transport reproduction — build the engine first (§1) and re-run. |
 | Layer 2 numbers far outside the published range | Confirm you built with optimizations enabled (`/O2` / `-O3` and `-DNDEBUG`) — an unoptimized debug build will not reproduce sub-100ns figures. Confirm your machine actually has ≥2 physical cores available to pin to. |
 | Layer 3's `pip install wheels/animus_native_stream-*.whl` fails | That wheel ships a compiled extension — its filename encodes the exact Python version/platform it was built for (see the tarball's `MANIFEST.txt`). Use a matching `python3`, or request a kit rebuilt against yours; `eval_kit/README.md`'s Troubleshooting section covers this and SHM-permission issues. |
-| You want the CPU-pinned, license-gated SPSC path's numbers reproduced too | That's out of scope for this free evaluation by design — it requires a vendor-issued evaluation license and is exactly what the [Institutional Pilot Program](PILOT_PROGRAM.md)'s Week 3 (Tail-Latency Analysis) validates on your own hardware, with direct founder-level engineering support, using your actual workload shape rather than synthetic payloads. |
+| You want the CPU-pinned, license-gated SPSC path's numbers reproduced too | That's out of scope for this free evaluation by design — it requires a vendor-issued evaluation license and is exactly what the [Institutional Pilot Program](../operations_legal/PILOT_PROGRAM.md)'s Week 3 (Tail-Latency Analysis) validates on your own hardware, with direct founder-level engineering support, using your actual workload shape rather than synthetic payloads. |
 
 ---
 

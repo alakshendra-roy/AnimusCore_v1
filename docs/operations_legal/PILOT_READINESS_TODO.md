@@ -47,7 +47,7 @@ from scratch each time.
       as `dist/animus-eval-kit-linux-x86_64.tar.gz`, with a
       copy-pasteable client runbook (`dist/QUICKSTART_PILOT.txt`) and a
       signed-off checksum manifest (`dist/SHA256SUMS`, covering the
-      tarball, `docs/PILOT_EVAL_CHECKLIST.md`, and
+      tarball, `../technical_eval/PILOT_EVAL_CHECKLIST.md`, and
       `benchmarks/reports/ANIMUS_BENCHMARK_REPORT.html`) --
       `sha256sum -c SHA256SUMS` verified clean from within `dist/`. `dist/`
       is gitignored, so the packaged artifacts themselves aren't committed

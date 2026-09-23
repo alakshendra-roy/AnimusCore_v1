@@ -2,7 +2,7 @@
 
 **Audience:** Heads of Trading, Quant Infrastructure Leads, Latency Engineering at prop firms and market makers.
 
-> Figures cited below are pulled directly from [`../BENCHMARK_DATASHEET.md`](../BENCHMARK_DATASHEET.md) (RDTSC-resolution, depth-1 phase, cross-core SPSC) — don't round them up or drop the methodology qualifier if you extend these; a technical recipient will check. The Proof-of-Performance structure referenced here is [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md). A PDF of the datasheet for attachments lives at [`Animus_Core_Benchmark_Datasheet.pdf`](Animus_Core_Benchmark_Datasheet.pdf).
+> Figures cited below are pulled directly from [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (RDTSC-resolution, depth-1 phase, cross-core SPSC) — don't round them up or drop the methodology qualifier if you extend these; a technical recipient will check. The Proof-of-Performance structure referenced here is [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md). A PDF of the datasheet for attachments lives at [`Animus_Core_Benchmark_Datasheet.pdf`](../marketing_whitepapers/Animus_Core_Benchmark_Datasheet.pdf).
 
 Each channel below has three lead-hook variants — same claims, different opening signal — for A/B testing which lands hardest with a given recipient.
 

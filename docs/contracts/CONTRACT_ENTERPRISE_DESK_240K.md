@@ -1,7 +1,7 @@
 # Animus Core — Institutional Enterprise Desk Order Form (Desk ELA)
 
 > ## ⚠️ DRAFT ORDER FORM — NOT REVIEWED BY COUNSEL — DO NOT SIGN AS-IS
-> This order form is structurally complete and priced for issuance, but it has not been reviewed by a licensed attorney. It must not be executed, and no invoice may be raised against it, until counsel has reviewed it together with the governing master agreement ([`../LEGAL_EULA.md`](../LEGAL_EULA.md)) and the Licensor's Certificate of Incorporation has been issued (see the CIN placeholder below and [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)).
+> This order form is structurally complete and priced for issuance, but it has not been reviewed by a licensed attorney. It must not be executed, and no invoice may be raised against it, until counsel has reviewed it together with the governing master agreement ([`../LEGAL_EULA.md`](../../LEGAL_EULA.md)) and the Licensor's Certificate of Incorporation has been issued (see the CIN placeholder below and [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)).
 
 ---
 
@@ -13,10 +13,10 @@
 | **Commercial Tier** | Institutional Enterprise — Desk Enterprise License Agreement ("**Desk ELA**") |
 | **Order Effective Date** | [ORDER EFFECTIVE DATE] |
 | **Offer Expiry** | This order form lapses if not countersigned by Licensee within thirty (30) calendar days of the date Licensor issues it. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
+| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**") |
-| **Master Agreement** | Animus Core Pilot Evaluation & Commercial License Agreement between Licensor and Licensee dated [MASTER AGREEMENT DATE] ([`../LEGAL_EULA.md`](../LEGAL_EULA.md)) (the "**Master Agreement**") |
-| **Indicative Term Sheet** | [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) (non-binding; superseded by this order form on execution) |
+| **Master Agreement** | Animus Core Pilot Evaluation & Commercial License Agreement between Licensor and Licensee dated [MASTER AGREEMENT DATE] ([`../LEGAL_EULA.md`](../../LEGAL_EULA.md)) (the "**Master Agreement**") |
+| **Indicative Term Sheet** | [`ANIMUS_ENTERPRISE_TERMSHEET.md`](../operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md) (non-binding; superseded by this order form on execution) |
 
 ---
 
@@ -70,7 +70,7 @@ The 5% discount under Option A is conditional on payment in full by its due date
 
 **4.3 Delivery on payment.** Licensor will issue production License Files within two (2) business days after receipt of the first payment (Option A payment, or the first monthly installment). The Term, and Licensee's obligation to pay the Committed Fees, begin on the Order Effective Date regardless of when Licensee requests or installs License Files.
 
-**4.4 Currency, settlement & taxes.** All amounts are in **USD**, payable by wire transfer via **SWIFT or Fedwire** to the account stated on Licensor's invoice. Fees exclude all taxes. Licensee bears all wire, correspondent-bank, and currency-conversion charges. If Licensee is required by law to withhold tax, it shall withhold only at the applicable treaty rate on receipt of Licensor's treaty documentation ([`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)), furnish official receipts, and increase the payment so that Licensor receives the full invoiced amount.
+**4.4 Currency, settlement & taxes.** All amounts are in **USD**, payable by wire transfer via **SWIFT or Fedwire** to the account stated on Licensor's invoice. Fees exclude all taxes. Licensee bears all wire, correspondent-bank, and currency-conversion charges. If Licensee is required by law to withhold tax, it shall withhold only at the applicable treaty rate on receipt of Licensor's treaty documentation ([`W8BEN_GUIDE.md`](../operations_legal/W8BEN_GUIDE.md)), furnish official receipts, and increase the payment so that Licensor receives the full invoiced amount.
 
 **4.5 No contingency.** Licensee confirms that it has completed its evaluation of the Software. The Fees are not contingent on any acceptance test, benchmark result, latency threshold, future functionality, or Licensee's deployment timetable.
 
@@ -94,7 +94,7 @@ This §5 restates, and is in addition to, Master Agreement §3.3.
 
 ## 6. Deliverables, Support & Maintenance
 
-**6.1 Deliverables.** Production builds of the Animus Core engine (`libanimus.so`, Linux x86_64), the public C-ABI header interface (Pimpl-isolated from internal ring-buffer layouts), the nanobind-based zero-copy Python bridge, and the `replay_bench` benchmark verification harness, each as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §3. No source code is delivered.
+**6.1 Deliverables.** Production builds of the Animus Core engine (`libanimus.so`, Linux x86_64), the public C-ABI header interface (Pimpl-isolated from internal ring-buffer layouts), the nanobind-based zero-copy Python bridge, and the `replay_bench` benchmark verification harness, each as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](../operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md) §3. No source code is delivered.
 
 **6.2 Engineering scope.** Custom C++/Python wire-schema engineering (`ANIMUS_DEFINE_SCHEMA`-registered schemas) for the Designated Desk, and kernel-bypass/NIC architecture consulting, as scoped in writing between the Parties during the Term.
 

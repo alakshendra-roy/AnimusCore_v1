@@ -19,4 +19,4 @@ Intel Core i7-14650HX — 16 cores / 24 logical threads (8 Performance-cores wit
 * **Tick-to-Trade Latency (P50):** ~100 ns
 * **Zero-Copy Python Bridge (nanobind):** ~34.5 ns/event reference figure; measured range ~22–66 ns/event
 
-Reproduce these figures yourself via the standalone `animus_sandbox/` package (`README.md` — two-command build/run) or see `docs/AnimusCore_Technical_WhitePaper.md` for full benchmark methodology.
+Reproduce these figures yourself via the standalone `animus_sandbox/` package (`README.md` — two-command build/run) or see `docs/marketing_whitepapers/AnimusCore_Technical_WhitePaper.md` for full benchmark methodology.

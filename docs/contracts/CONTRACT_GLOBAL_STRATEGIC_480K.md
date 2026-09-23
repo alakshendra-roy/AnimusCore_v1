@@ -1,7 +1,7 @@
 # Animus Core — Global Strategic Master Order Form (Global ELA)
 
 > ## ⚠️ DRAFT ORDER FORM — NOT REVIEWED BY COUNSEL — DO NOT SIGN AS-IS
-> This order form is structurally complete and priced for issuance, but it has not been reviewed by a licensed attorney. It must not be executed, and no invoice may be raised against it, until counsel has reviewed it together with the governing master agreement ([`../LEGAL_EULA.md`](../LEGAL_EULA.md)) and the Licensor's Certificate of Incorporation has been issued (see the CIN placeholder below and [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)).
+> This order form is structurally complete and priced for issuance, but it has not been reviewed by a licensed attorney. It must not be executed, and no invoice may be raised against it, until counsel has reviewed it together with the governing master agreement ([`../LEGAL_EULA.md`](../../LEGAL_EULA.md)) and the Licensor's Certificate of Incorporation has been issued (see the CIN placeholder below and [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)).
 
 ---
 
@@ -13,9 +13,9 @@
 | **Commercial Tier** | Global Strategic Master Agreement — Global Enterprise License Agreement ("**Global ELA**") |
 | **Order Effective Date** | [ORDER EFFECTIVE DATE] |
 | **Offer Expiry** | This order form lapses if not countersigned by Licensee within thirty (30) calendar days of the date Licensor issues it. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
+| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**"), on behalf of itself and its Affiliates |
-| **Master Agreement** | Animus Core Pilot Evaluation & Commercial License Agreement between Licensor and Licensee dated [MASTER AGREEMENT DATE] ([`../LEGAL_EULA.md`](../LEGAL_EULA.md)) (the "**Master Agreement**") |
+| **Master Agreement** | Animus Core Pilot Evaluation & Commercial License Agreement between Licensor and Licensee dated [MASTER AGREEMENT DATE] ([`../LEGAL_EULA.md`](../../LEGAL_EULA.md)) (the "**Master Agreement**") |
 | **Designation** | This order form **designates a Global Strategic Master Agreement** for the purposes of Master Agreement §3.1. |
 
 ---
@@ -72,7 +72,7 @@ The 5% discount under Option A is conditional on payment in full by its due date
 
 **4.3 Delivery on payment.** Licensor will issue production License Files within two (2) business days after receipt of the first payment. The Term, and Licensee's obligation to pay the Committed Fees, begin on the Order Effective Date regardless of when Licensee or any Affiliate requests or installs License Files.
 
-**4.4 Currency, settlement & taxes.** All amounts are in **USD**, payable by wire transfer via **SWIFT or Fedwire** to the account stated on Licensor's invoice, and are invoiced to and payable by Licensee alone (not by individual Affiliates). Fees exclude all taxes. Licensee bears all wire, correspondent-bank, and currency-conversion charges. If Licensee is required by law to withhold tax, it shall withhold only at the applicable treaty rate on receipt of Licensor's treaty documentation ([`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)), furnish official receipts, and increase the payment so that Licensor receives the full invoiced amount.
+**4.4 Currency, settlement & taxes.** All amounts are in **USD**, payable by wire transfer via **SWIFT or Fedwire** to the account stated on Licensor's invoice, and are invoiced to and payable by Licensee alone (not by individual Affiliates). Fees exclude all taxes. Licensee bears all wire, correspondent-bank, and currency-conversion charges. If Licensee is required by law to withhold tax, it shall withhold only at the applicable treaty rate on receipt of Licensor's treaty documentation ([`W8BEN_GUIDE.md`](../operations_legal/W8BEN_GUIDE.md)), furnish official receipts, and increase the payment so that Licensor receives the full invoiced amount.
 
 **4.5 No contingency.** Licensee confirms that it has completed its evaluation of the Software. The Fees are not contingent on any acceptance test, benchmark result, latency threshold, future functionality, regional rollout, or Licensee's deployment timetable.
 
@@ -96,9 +96,9 @@ This §5 restates, and is in addition to, Master Agreement §3.3.
 
 ## 6. Deliverables, Support & Engineering
 
-**6.1 Deliverables.** Production builds of the Animus Core engine for each supported platform, the public C-ABI header interface, the nanobind-based zero-copy Python bridge, and the `replay_bench` benchmark verification harness, as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §3, for deployment across the Licensed Scope.
+**6.1 Deliverables.** Production builds of the Animus Core engine for each supported platform, the public C-ABI header interface, the nanobind-based zero-copy Python bridge, and the `replay_bench` benchmark verification harness, as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](../operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md) §3, for deployment across the Licensed Scope.
 
-**6.2 Engineering scope.** Everything in the Institutional Enterprise tier (custom wire-schema engineering and kernel-bypass/NIC architecture consulting), plus **one (1) structured custom kernel/FPGA optimization engagement per contract year**, scoped in a written statement of work to Licensee's own reference hardware, of up to [NUMBER] engineering days. The sub-40ns baseline performance characterization extends to custom hardware (FPGA bitstreams, SmartNIC drivers) only once that environment has been co-designed and validated under that engagement ([`../COMMERCIAL.md`](../COMMERCIAL.md) §2).
+**6.2 Engineering scope.** Everything in the Institutional Enterprise tier (custom wire-schema engineering and kernel-bypass/NIC architecture consulting), plus **one (1) structured custom kernel/FPGA optimization engagement per contract year**, scoped in a written statement of work to Licensee's own reference hardware, of up to [NUMBER] engineering days. The sub-40ns baseline performance characterization extends to custom hardware (FPGA bitstreams, SmartNIC drivers) only once that environment has been co-designed and validated under that engagement ([`../COMMERCIAL.md`](../../COMMERCIAL.md) §2).
 
 **6.3 Support.** Dedicated Slack Connect channel and priority email, handled directly by Licensor's Founder & Chief Architect. Licensor will use **commercially reasonable efforts** to give an initial response to Severity-1 incidents within **two (2) hours** during Licensor's coverage hours of **07:00–21:00 IST, Monday–Friday** (01:30–15:30 UTC). Incidents raised outside coverage hours — which include most of the US trading session at CME Aurora and NY4 — are handled from the start of the next coverage window. This is a best-efforts target, not a guaranteed service level, and carries no service credits. Extended or 24/7 coverage is available only under a separately priced support addendum.
 

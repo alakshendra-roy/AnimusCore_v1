@@ -103,7 +103,7 @@ AnimusCore_v1/license_tools/private/
 # data; the generated PDF embeds it. Both are local-only, gitignored
 # regardless of where they're generated. See scripts/generate_w8ben.py.
 scripts/.w8ben_config.json
-docs/W8BEN_*_prefilled.pdf
+docs/operations_legal/W8BEN_*_prefilled.pdf
 .cache/
 # Broadened 2026-09-03 pre-flight audit: a real, signed W8BEN was found
 # sitting untracked at AnimusCore_v1/W8BEN_Alakshendra_Roy_(Official

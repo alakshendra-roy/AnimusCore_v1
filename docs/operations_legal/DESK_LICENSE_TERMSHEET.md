@@ -1,7 +1,7 @@
 # Animus Core C++ Ingestion Engine — Desk License Term Sheet
 
 > ## ⚠️ DRAFT TERM SHEET — NOT REVIEWED BY COUNSEL — NON-BINDING
-> This is an indicative commercial term sheet, not a definitive agreement. It is intended to summarize proposed terms for discussion and does not itself grant any license, create any payment obligation, or bind either party. A definitive **Desk License Agreement ("DLA")**, consistent with [`../LEGAL_EULA.md`](../LEGAL_EULA.md) and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md), governs the actual license and must be executed before any production deployment, invoicing, or IP transfer. This document has not been reviewed by a licensed attorney and must not be treated as final or enforceable until it has been.
+> This is an indicative commercial term sheet, not a definitive agreement. It is intended to summarize proposed terms for discussion and does not itself grant any license, create any payment obligation, or bind either party. A definitive **Desk License Agreement ("DLA")**, consistent with [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md), governs the actual license and must be executed before any production deployment, invoicing, or IP transfer. This document has not been reviewed by a licensed attorney and must not be treated as final or enforceable until it has been.
 >
 > **This is a new tier, drafted alongside — not in place of — [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md).** The Desk License is a narrower-scope, lower-commitment offering than the Institutional Enterprise tier; it is not a discounted version of that tier's terms. See §2.4 for the scope boundary and §8 for how a desk outgrowing this tier upgrades. See [`../docs/ASYNC_EVALUATION_PLAYBOOK.md`](ASYNC_EVALUATION_PLAYBOOK.md) §3 for the sales process this term sheet is issued from.
 
@@ -14,7 +14,7 @@
 | **Document ID** | ANM-DL-TS-2026-v1 |
 | **Effective Date** | [EFFECTIVE DATE] |
 | **Expiration of Offer** | This term sheet expires **thirty (30) calendar days** from the Effective Date if not countersigned by Licensee, after which it may be withdrawn or revised by Licensor at its sole discretion. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
+| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**," "**Client**") |
 | **Scope Classification** | Desk License — single production node, single strategy or single telemetry/surveillance pipeline, capped core count, as defined in §2.4 |
 
@@ -57,17 +57,17 @@ Use beyond any one of these limits (a second node, a second strategy, or a core 
 | **Zero-copy Python Bridge** | Nanobind-based bridge mapping SPSC ring-buffer entries directly into NumPy `ndarray` views, no intermediate copy |
 | **Benchmark Verification Harness** | `replay_bench` / `harness_benchmark` — synthetic packet driver for measuring bare-metal p50/p90/p99/p99.9 latencies on Licensee's own hardware |
 
-All artifacts are delivered under the license grant and restrictions of the definitive DLA (§6). **No source code is delivered under this tier** — full stop, and unlike [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §5.4, no source-code *escrow* option exists at this tier either (see §5.4 below). A desk that needs escrow as a continuity safeguard should be scoped into Institutional Enterprise (§8) instead; a desk that needs actual standing source access needs a wholly separate, more expensive arrangement — the "Custom Source License" tier in [`../COMMERCIAL_OVERVIEW.md`](../COMMERCIAL_OVERVIEW.md) §4 — which is not part of either this term sheet or the Institutional Enterprise term sheet, and is not something either grants by default.
+All artifacts are delivered under the license grant and restrictions of the definitive DLA (§6). **No source code is delivered under this tier** — full stop, and unlike [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §5.4, no source-code *escrow* option exists at this tier either (see §5.4 below). A desk that needs escrow as a continuity safeguard should be scoped into Institutional Enterprise (§8) instead; a desk that needs actual standing source access needs a wholly separate, more expensive arrangement — the "Custom Source License" tier in [`../../COMMERCIAL_OVERVIEW.md`](../../COMMERCIAL_OVERVIEW.md) §4 — which is not part of either this term sheet or the Institutional Enterprise term sheet, and is not something either grants by default.
 
 ---
 
 ## 4. Evaluation-to-Production Conversion Protocol
 
 **Stage 1 — 30-Day Self-Serve Evaluation.**
-Licensee evaluates the engine using the free [`Pilot_Kit/`](../Pilot_Kit/PILOT_README.md) (Windows) or [`eval_kit/`](../eval_kit/README.md) (Linux) kit, following the async process in [`ASYNC_EVALUATION_PLAYBOOK.md`](ASYNC_EVALUATION_PLAYBOOK.md) §1. No production use or fee obligation arises from Stage 1 alone.
+Licensee evaluates the engine using the free [`Pilot_Kit/`](../../Pilot_Kit/PILOT_README.md) (Windows) or [`eval_kit/`](../../eval_kit/README.md) (Linux) kit, following the async process in [`ASYNC_EVALUATION_PLAYBOOK.md`](ASYNC_EVALUATION_PLAYBOOK.md) §1. No production use or fee obligation arises from Stage 1 alone.
 
 **Stage 2 — Checklist-Verified Benchmark Acceptance.**
-Using [`PILOT_EVAL_CHECKLIST.md`](PILOT_EVAL_CHECKLIST.md)'s §3 acceptance thresholds on Licensee's own representative hardware, Licensee independently measures and records tail latency and throughput. Failure to meet the published thresholds on Licensee's hardware does not obligate conversion to Stage 3, and does not by itself entitle Licensee to a fee reduction below §2.1's fixed figure once set.
+Using [`PILOT_EVAL_CHECKLIST.md`](../technical_eval/PILOT_EVAL_CHECKLIST.md)'s §3 acceptance thresholds on Licensee's own representative hardware, Licensee independently measures and records tail latency and throughput. Failure to meet the published thresholds on Licensee's hardware does not obligate conversion to Stage 3, and does not by itself entitle Licensee to a fee reduction below §2.1's fixed figure once set.
 
 **Stage 3 — Scoping & Conversion to Desk License Agreement.**
 Upon Licensee's written interest following Stage 2, Licensor issues the scoping questionnaire (§2.1.1) and a fixed order form. Upon Licensee's countersignature, the Parties execute a definitive Desk License Agreement incorporating the commercial terms in §2, the deliverables in §3, and the IP, support, and legal terms in §§5–7 below, refined as mutually agreed.
@@ -98,7 +98,7 @@ Upon Licensee's written interest following Stage 2, Licensor issues the scoping 
 
 ## 7. Execution, Governing Law & Signatures
 
-**7.1 Governing Law; Arbitration.** This term sheet and any definitive DLA entered pursuant to it are governed by the laws of **India**, without regard to conflict-of-laws principles, consistent with [`../LEGAL_EULA.md`](../LEGAL_EULA.md) §9.2 and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) §8.1. Any dispute arising out of or relating to this term sheet or the DLA shall be referred to and finally resolved by arbitration administered by the **Singapore International Arbitration Centre ("SIAC")** under the SIAC Rules then in force, seated in **Singapore**, before **one (1) arbitrator**, in the **English** language. Either Party may seek interim or injunctive relief from a court of competent jurisdiction pending constitution of the arbitral tribunal.
+**7.1 Governing Law; Arbitration.** This term sheet and any definitive DLA entered pursuant to it are governed by the laws of **India**, without regard to conflict-of-laws principles, consistent with [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §9.2 and [`PILOT_CONTRACT.md`](PILOT_CONTRACT.md) §8.1. Any dispute arising out of or relating to this term sheet or the DLA shall be referred to and finally resolved by arbitration administered by the **Singapore International Arbitration Centre ("SIAC")** under the SIAC Rules then in force, seated in **Singapore**, before **one (1) arbitrator**, in the **English** language. Either Party may seek interim or injunctive relief from a court of competent jurisdiction pending constitution of the arbitral tribunal.
 
 **7.2 Non-Binding Effect.** Except for this §7 and any confidentiality obligations under a separate NDA referenced in §4 Stage 1, this term sheet is an indicative summary of proposed terms and does not itself create a binding license, payment obligation, or exclusivity commitment. Binding obligations arise only upon execution of the definitive DLA.
 
@@ -121,7 +121,7 @@ If Licensee's usage outgrows the scope fixed in §2.4 — a second production no
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Chief Architect | [TITLE] |
 | **Date** | ________ | ________ |
-| **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation, per `../LEGAL_INCORPORATION_BRIEF.md`] | [CLIENT ADDRESS] |
+| **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation, per `../../LEGAL_INCORPORATION_BRIEF.md`] | [CLIENT ADDRESS] |
 
 ---
 
