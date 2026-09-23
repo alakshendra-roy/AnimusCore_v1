@@ -44,7 +44,7 @@
 | **Redistribution** | None. Internal production use only (Master Agreement §4(b)) |
 | **Source code access** | None (see §7) |
 
-**3.3 Out-of-scope use.** Use of the Software by or for any other desk, asset class, business unit, or Affiliate — including a second desk within the Designated Asset Class — requires a signed scope amendment or a separate order form (for firm-wide or multi-region deployment, the Global Strategic Master Agreement order form, [`CONTRACT_TIER3_GLOBAL_480K.md`](CONTRACT_TIER3_GLOBAL_480K.md)). Out-of-scope use is a material breach of the Master Agreement.
+**3.3 Out-of-scope use.** Use of the Software by or for any other desk, asset class, business unit, or Affiliate — including a second desk within the Designated Asset Class — requires a signed scope amendment or a separate order form (for firm-wide or multi-region deployment, the Global Strategic Master Agreement order form, [`CONTRACT_GLOBAL_STRATEGIC_480K.md`](CONTRACT_GLOBAL_STRATEGIC_480K.md)). Out-of-scope use is a material breach of the Master Agreement.
 
 **3.4 License Files.** Each production node receives its own RSA-2048-signed, hardware-fingerprint-bound License File under the mechanism in Master Agreement §2.2, encoding this order form's term. Licensee shall keep a current register of licensed node fingerprints for the Designated Desk and provide it to Licensor on request, no more than once per calendar quarter.
 
