@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Animus Core — Pilot Evaluation &amp; Commercial License Agreement</title>
+<style>
+  @page { size: letter; margin: 1in; }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #e7e7e7;
+    color: #111111;
+    font-family: Georgia, "Times New Roman", Times, serif;
+    font-size: 12pt;
+    line-height: 1.55;
+  }
+
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 14px 20px;
+    background: #1a1a1a;
+  }
+  .toolbar span {
+    color: #cfcfcf;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12px;
+    letter-spacing: .02em;
+  }
+  .toolbar button {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #111111;
+    background: #ffffff;
+    border: none;
+    border-radius: 4px;
+    padding: 9px 18px;
+    cursor: pointer;
+  }
+  .toolbar button:hover { background: #e2e2e2; }
+
+  .page {
+    max-width: 8.5in;
+    margin: 28px auto 60px;
+    padding: 1in;
+    background: #ffffff;
+    box-shadow: 0 0 18px rgba(0,0,0,0.18);
+  }
+
+  h1 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 19pt;
+    font-weight: 700;
+    margin: 0 0 4px;
+    text-align: center;
+  }
+  .subtitle {
+    text-align: center;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 10.5pt;
+    color: #444444;
+    margin: 0 0 28px;
+    letter-spacing: .02em;
+  }
+
+  h2 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 12.5pt;
+    font-weight: 700;
+    border-bottom: 1px solid #111111;
+    padding-bottom: 4px;
+    margin: 30px 0 14px;
+    page-break-after: avoid;
+  }
+  h2:first-of-type { margin-top: 0; }
+
+  h3 {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 20px 0 10px;
+    page-break-after: avoid;
+  }
+
+  p { margin: 0 0 12px; text-align: justify; }
+  strong { font-weight: 700; }
+
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin-bottom: 4px; text-align: justify; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 16px;
+    font-size: 11pt;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #999999;
+    padding: 7px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #f0f0f0;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 9.5pt;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+  tr { page-break-inside: avoid; }
+
+  .sig-table td { height: 30px; }
+
+  .parties {
+    margin: 0 0 16px;
+    padding-left: 22px;
+  }
+  .parties li { margin-bottom: 10px; }
+
+  blockquote {
+    margin: 0 0 14px;
+    padding: 10px 16px;
+    border-left: 3px solid #444444;
+    font-style: italic;
+  }
+
+  @media print {
+    .toolbar { display: none; }
+    html, body { background: #ffffff; }
+    .page {
+      max-width: none;
+      margin: 0;
+      padding: 0;
+      box-shadow: none;
+    }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar no-print">
+  <button onclick="window.print()">Print to PDF</button>
+  <span>Letter format · black &amp; white printable</span>
+</div>
+
+<div class="page">
+
+<h1>Animus Core — Pilot Evaluation &amp; Commercial License Agreement</h1>
+<div class="subtitle">Master Software License Agreement</div>
+
+<p>This Pilot Evaluation &amp; Commercial License Agreement ("<strong>Agreement</strong>") is entered into as of <strong>[EFFECTIVE DATE]</strong> ("<strong>Effective Date</strong>") by and between:</p>
+<ul class="parties">
+  <li><strong>Animus Technologies Private Limited</strong>, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: <strong>[CIN — to be inserted upon issuance of the Certificate of Incorporation]</strong>), operating under the "Animus Core" brand and formerly conducting this business as a sole proprietorship under its Founder, Alakshendra Roy ("<strong>Animus Core</strong>," "<strong>Vendor</strong>," "<strong>we</strong>," "<strong>us</strong>"); and</li>
+  <li><strong>[CUSTOMER LEGAL ENTITY NAME]</strong>, a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("<strong>Customer</strong>," "<strong>you</strong>"),</li>
+</ul>
+<p>each individually a "<strong>Party</strong>" and together the "<strong>Parties</strong>."</p>
+
+<h2>1. Definitions</h2>
+<table>
+  <tr><th style="width:26%">Term</th><th>Meaning</th></tr>
+  <tr><td>"<strong>Software</strong>"</td><td>The Animus Core telemetry engine, including compiled binaries (<em>AnimusNative.dll</em> / <em>libanimus_native.so</em> / <em>libanimus_native.dylib</em> / <em>AnimusCore_v1.dll</em>), the accompanying Python SDK, sample/integration code, and all associated documentation.</td></tr>
+  <tr><td>"<strong>Licensed Hardware</strong>"</td><td>The single physical machine identified by the Hardware Fingerprint submitted by Customer under Section 2.2, against which a License File is cryptographically bound.</td></tr>
+  <tr><td>"<strong>Hardware Fingerprint</strong>"</td><td>The SHA-256 digest of that machine's <em>MachineGuid</em> and primary network adapter MAC address, as produced by the Vendor-supplied fingerprinting utility.</td></tr>
+  <tr><td>"<strong>License File</strong>"</td><td>The RSA-2048-signed <em>.lic</em> file issued by Vendor, binding a specific license grant (evaluation or production) to one Hardware Fingerprint, verified entirely offline by the Software with no network dependency.</td></tr>
+  <tr><td>"<strong>Evaluation Period</strong>"</td><td>The thirty (30) calendar days beginning on the date Vendor issues Customer's evaluation License File, as further described in Section 2.</td></tr>
+  <tr><td>"<strong>Documentation</strong>"</td><td>All user guides, quickstart materials, benchmark reports, and API references Vendor makes available with the Software.</td></tr>
+</table>
+
+<h2>2. Evaluation License Grant</h2>
+<h3>2.1 Grant</h3>
+<p>Subject to Customer's compliance with this Agreement, Vendor grants Customer a non-exclusive, non-transferable, non-sublicensable, revocable license to install and use the Software, solely:</p>
+<p>(a) during the Evaluation Period;<br>
+(b) on the single Licensed Hardware machine identified in Customer's evaluation License File;<br>
+(c) for the sole purpose of internal evaluation and testing of the Software's suitability for Customer's business, and not for production use, resale, or use in delivering any service to a third party.</p>
+
+<h3>2.2 Hardware Fingerprint Binding</h3>
+<p>Customer shall generate a Hardware Fingerprint using Vendor's supplied read-only utility and transmit it to Vendor. Vendor shall issue a License File bound to that Hardware Fingerprint alone. A License File issued under this Agreement will not verify successfully, and the gated features it controls will not function, on any machine other than the Licensed Hardware. Customer shall not attempt to spoof, falsify, or otherwise misrepresent a Hardware Fingerprint to obtain a License File for hardware other than the machine actually fingerprinted.</p>
+
+<h3>2.3 Core Functionality Not Gated</h3>
+<p>For the avoidance of doubt, core telemetry event ingestion is not gated by the License File; only certain opt-in tuning features (e.g., CPU core-affinity pinning) require a valid, unexpired License File bound to the Licensed Hardware, and such features fail closed (disabled) rather than defaulting to any unlicensed behavior.</p>
+
+<h3>2.4 Expiration</h3>
+<p>Upon expiration of the Evaluation Period, the evaluation License File shall cease to verify as valid, and Customer's rights under Section 2.1 terminate automatically without notice. Continued use of the Software after expiration requires an executed production order form under Section 3, or a written extension executed by both Parties.</p>
+
+<h2>3. Conversion to Commercial License</h2>
+<p>Following the Evaluation Period, Customer may elect to enter a commercial engagement under one of the four production tiers described in Vendor's then-current commercial materials:</p>
+<ul>
+  <li><strong>Desk License</strong> — single production node, single strategy or pipeline, capped core count;</li>
+  <li><strong>Institutional Enterprise (Desk ELA)</strong> — single designated trading desk, multi-node;</li>
+  <li><strong>OEM / Redistribution</strong> — redistribution into a third party's product, under a separate OEM Distribution Agreement;</li>
+  <li><strong>Global Strategic Master Agreement (Global Enterprise ELA)</strong> — uncapped global deployment across Customer and its Affiliates, subject to Section 3.1.</li>
+</ul>
+<p>Any such commercial license shall be governed by a separate written order form or license schedule executed by both Parties, which shall incorporate the general terms of this Agreement (Sections 3.2, 3.3 and 4–9) except as expressly modified by that order form. Where an order form grants production rights, Sections 4(d) and 4(e) apply by reference to the licensed scope stated in that order form rather than to the single Licensed Hardware and Evaluation Period of Section 2. No commercial license, fee obligation, or production right is created by this Agreement standing alone — this Agreement, absent an executed order form, governs the Evaluation Period only.</p>
+
+<h3>3.1 Global Strategic Master Agreement — Enterprise Master License Grant</h3>
+<p>Where Customer's order form designates a Global Strategic Master Agreement, the following terms apply in addition to, and where inconsistent supersede, the general Desk License / Institutional Enterprise / OEM-Redistribution production terms referenced above:</p>
+<p>(a) <strong>Affiliate scope.</strong> The uncapped, global deployment right granted under a Global Strategic Master Agreement order form extends only to Customer and its Affiliates — meaning any entity that, directly or indirectly, owns or controls more than fifty percent (50%) of the voting securities or equivalent voting interest of Customer, or of which Customer owns or controls more than fifty percent (50%) of such voting interest, for so long as that ownership or control relationship continues. An entity ceases to be an Affiliate, and its license rights under the Global Strategic Master Agreement grant terminate automatically, upon the relationship falling below that threshold (e.g., divestiture, spin-off, change of control). Customer shall maintain and, upon Vendor's written request no more than once per calendar year, provide a current list of entities relying on the Global Strategic Master Agreement grant as Affiliates.</p>
+<p>(b) <strong>Deployment scope.</strong> Subject to (a), the Global Strategic Master Agreement grant covers deployment across all of Customer's and its Affiliates' data centers, co-location racks, and edge platforms globally, without the per-node or per-core ceilings applicable to Desk License, Institutional Enterprise, or OEM / Redistribution, and without requiring per-node or per-core license tracking across distributed clusters — entitlement is tracked at the master-agreement level, not the individual node level, though each deployed node still issues and verifies its own RSA-2048-signed, hardware-fingerprint-bound license file per Section 2.2's mechanism.</p>
+<p>(c) <strong>Escrow / read-only audit access.</strong> Vendor shall make available to Customer's internal compliance, risk, or security audit function read-only access to the Software's source code, either via a mutually agreed third-party source-code escrow arrangement or a controlled read-only inspection environment specified in the order form, solely for the purpose of internal security, memory-safety, and concurrency verification. Such access:</p>
+<p>&nbsp;&nbsp;(i) does not include any right to copy, extract, compile, modify, or create derivative works from the inspected source, except as strictly necessary to generate an internal audit finding for Customer's own compliance records;<br>
+&nbsp;&nbsp;(ii) is subject to the non-derivation and non-disclosure covenants in (d) below in addition to the general confidentiality obligation in Section 9.1; and<br>
+&nbsp;&nbsp;(iii) may be conditioned by Vendor on a facility, personnel, or export-control screening consistent with Section 9.4, where the order form so specifies.</p>
+<p>(d) <strong>Anti-fork, non-derivation, non-compete, and non-disclosure covenants.</strong> In consideration of the escrow/audit access granted under (c), Customer covenants that it shall not, and shall not permit any Affiliate, contractor, or third party to: (i) fork, derive, adapt, or produce any competing or substantially similar work from the inspected source code ("non-derivation"); (ii) use knowledge gained from source inspection to build, procure, or commission a product or service competing with the Software, beyond the general restriction already stated in Section 4(f); or (iii) disclose the inspected source, in whole or in part, to any person other than those of Customer's employees or Affiliates' employees with a demonstrated need to know for the audit purpose stated in (c), each of whom shall be bound by confidentiality obligations no less protective than this Agreement's. These covenants, together with Vendor's underlying copyright in the Software, are without prejudice to and do not limit Vendor's rights and remedies under applicable law, including the assignment and licensing provisions of Sections 18 and 19 of the (Indian) Copyright Act, 1957, governing the scope of any rights in the Software that Vendor has or has not assigned or licensed to Customer — for the avoidance of doubt, no assignment of copyright in the Software occurs under a Global Strategic Master Agreement order form, only the escrow/inspection license described in (c).</p>
+<p>(e) <strong>Export control.</strong> All source and binary materials made available under this Section 3.1 remain subject to Section 9.4; where Customer or an Affiliate is located in, or the materials would transit through, a jurisdiction subject to applicable export control or sanctions restrictions, Vendor may condition or decline escrow/audit access accordingly.</p>
+<p>(f) <strong>Precedence.</strong> Nothing in this Section 3.1 expands Customer's rights beyond a license — it does not transfer ownership of, or any copyright interest in, the Software, which remains governed by Section 5.</p>
+
+<h3>3.2 Proprietary Technology, Trade Secrets &amp; Clean-Room Protection</h3>
+<p>This Section 3.2 applies under every order form and, to the extent Customer receives any Confidential Information of Vendor, during the Evaluation Period.</p>
+<p>(a) <strong>Proprietary Technology.</strong> "Proprietary Technology" means the Software and all of Vendor's designs, implementations, and know-how embodied in or relating to it, including without limitation: (i) the lock-free single-producer/single-consumer and multi-producer ring-buffer data structures, their memory-ordering protocols, and their index and sequence-number schemes; (ii) the invariant-TSC timestamping routines and TSC calibration and cross-core drift-compensation methods; (iii) the cache-line-aligned (<em>alignas(64)</em>) memory layouts, padding schemes, false-sharing elimination techniques, and shared-memory segment formats; (iv) the zero-copy C-ABI and Python bridge interfaces; (v) the license-verification and hardware-fingerprinting mechanism; and (vi) Vendor's benchmarking methodology, tuning profiles, and unpublished performance data.</p>
+<p>(b) <strong>Trade Secrets.</strong> Those elements of the Proprietary Technology that Vendor has not published in its public repository — including production build configurations and compiler/tuning profiles, non-public source branches, source made available under Section 3.1(c), workload-specific latency characterizations, and unreleased features and roadmap — are Vendor's trade secrets and Confidential Information, protected for as long as they qualify as trade secrets under applicable law and in any event for not less than five (5) years after the end of the last order form. The publication of any portion of the Software's source code under Vendor's public dual-license grants Customer no right beyond that license and this Agreement, and does not diminish Vendor's copyright in, or the contractual restrictions of this Agreement on, that portion.</p>
+<p>(c) <strong>No reverse engineering or extraction.</strong> In addition to Section 4(a), Customer shall not (i) instrument, trace, memory-dump, or side-channel-probe the Software for the purpose of reconstructing its data-structure layouts, memory-ordering protocols, or timing routines; (ii) disassemble or diff successive binary releases to derive unpublished changes; or (iii) remove, patch, bypass, or emulate the license-verification mechanism.</p>
+<p>(d) <strong>Clean-room covenant.</strong> Customer shall not use the Proprietary Technology or any Confidential Information of Vendor — including information retained in the unaided memory of personnel who accessed Vendor's non-public materials — to design, develop, specify, or commission a shared-memory ingestion engine, lock-free queue, or timestamping subsystem that substitutes for the Software. Any such development undertaken by or for Customer during the term of any order form and for eighteen (18) months after it ends shall be performed only by personnel who have not accessed Vendor's non-public materials, and Customer shall, on Vendor's reasonable written request, certify that separation in writing. This covenant restricts the use of Vendor's information; it does not restrict any individual's employment or use of general skills and publicly available knowledge.</p>
+<p>(e) <strong>Equitable relief.</strong> A breach of this Section 3.2 or of Section 4 would cause Vendor irreparable harm for which damages would be an inadequate remedy. Vendor may seek injunctive relief under Section 9.2, without posting a bond to the extent permitted by law, in addition to all other remedies.</p>
+
+<h3>3.3 Committed Term, No Termination for Convenience &amp; Fee Acceleration</h3>
+<p>This Section 3.3 applies to every production order form unless that order form expressly states otherwise.</p>
+<p>(a) <strong>Firm commitment.</strong> The Initial Term stated in an order form (twelve (12) months unless otherwise stated) is a firm, non-cancellable commitment. The total fees for the entire Initial Term (the "Committed Fees") are fully committed and become an unconditional payment obligation of Customer upon execution of the order form. Any installment schedule stated in an order form — monthly, quarterly, or otherwise — is an accommodation as to the timing of payment only and does not reduce, condition, or divide Customer's obligation to pay the Committed Fees in full.</p>
+<p>(b) <strong>No termination for convenience.</strong> Customer has no right to terminate an order form or this Agreement for convenience, and no right to reduce the licensed scope, during the Initial Term or any Renewal Term. Customer's non-use or reduced use of the Software; discontinuation or cancellation of the project, desk, strategy, or business line for which the Software was licensed; change in Customer's budget or strategy; or change of control of Customer does not suspend, reduce, or excuse payment of the Committed Fees.</p>
+<p>(c) <strong>Fees non-refundable.</strong> All fees paid are non-refundable and non-creditable, except solely as provided in Section 3.3(f).</p>
+<p>(d) <strong>Acceleration Events.</strong> Each of the following is an "Acceleration Event": (i) Customer gives notice of, or purports to effect, termination or cancellation of an order form other than under Section 3.3(f); (ii) Customer gives written notice that it will cease or has ceased using the Software, or that the project, desk, or deployment for which the Software was licensed has been discontinued; (iii) Customer fails to pay any undisputed installment within ten (10) business days after written notice of non-payment; (iv) Vendor terminates an order form under Section 8.2 for Customer's uncured material breach; or (v) Customer becomes subject to any insolvency, winding-up, administration, or analogous proceeding.</p>
+<p>(e) <strong>Acceleration.</strong> Upon an Acceleration Event, all unpaid installments of the Committed Fees for the remainder of the then-current term immediately accelerate and become due and payable in full within ten (10) business days after Vendor's written demand, without further notice. No annual-prepayment discount applies to accelerated amounts. The Parties acknowledge that accelerated amounts are the agreed price of a committed term, payable on an accelerated timetable, and are not a penalty or an estimate of damages. Where the Acceleration Event arises under Section 3.3(d)(i) or (ii) and Customer is not otherwise in breach, Customer's license continues for the remainder of the paid term once the accelerated amount is paid.</p>
+<p>(f) <strong>Sole exception — Vendor's uncured material breach.</strong> If Customer terminates an order form under Section 8.2 because of Vendor's material breach that Vendor has failed to cure within thirty (30) days after Customer's detailed written notice (this thirty-day period replacing, for a Vendor breach under a production order form, the ten-day period in Section 8.2), no Acceleration Event occurs, Customer is released from installments falling due after the termination date, and Vendor shall refund any prepaid fees attributable to the period after the termination date. This is Customer's sole remedy for recovery of fees on such termination.</p>
+<p>(g) <strong>Late payment; suspension; costs.</strong> Undisputed amounts not paid when due bear interest at the lesser of one and one-half percent (1.5%) per month and the maximum rate permitted by law. On ten (10) business days' written notice, Vendor may suspend issuance of License Files, updates, and support until overdue amounts are paid; suspension does not suspend Customer's payment obligations. Customer shall reimburse Vendor's reasonable costs of collecting amounts not paid when due, including arbitration and legal fees. Customer shall pay all amounts without set-off, counterclaim, or deduction, other than tax withholding required by law.</p>
+<p>(h) <strong>Renewal.</strong> Unless an order form states otherwise, it renews for successive twelve (12)-month Renewal Terms unless either Party gives written notice of non-renewal at least ninety (90) days before the end of the then-current term. Each Renewal Term is a committed term subject to this Section 3.3. Vendor may change the fees for a Renewal Term by written notice given at least one hundred twenty (120) days before that Renewal Term begins.</p>
+
+<h2>4. Restrictions</h2>
+<p>Customer shall not, and shall not permit any third party to:</p>
+<p>(a) Reverse engineer, decompile, disassemble, or otherwise attempt to derive the source code, algorithms, or underlying structure of the compiled Software binaries, except to the limited extent such restriction is expressly prohibited by applicable law notwithstanding this limitation;</p>
+<p>(b) Redistribute, sublicense, sell, rent, lease, lend, or otherwise make the Software (in whole or in part, including any compiled binary, License File, or Documentation) available to any third party, whether or not for consideration;</p>
+<p>(c) Remove, obscure, or alter any proprietary notice, trademark, or licensing/attribution marking contained in or on the Software;</p>
+<p>(d) Use the Software on any hardware other than the Licensed Hardware, or attempt to circumvent, disable, or tamper with the Hardware Fingerprint verification or License File signature-verification mechanism;</p>
+<p>(e) Use the Software beyond the scope of the license expressly granted in Section 2 (including any production, revenue-generating, or third-party-facing use during the Evaluation Period);</p>
+<p>(f) Use the Software to build a product or service that competes with the Software;</p>
+<p>(g) Publish or disclose to any third party the results of any benchmark or performance test of the Software without Vendor's prior written consent, except to Customer's own auditors and regulators under a duty of confidentiality;</p>
+<p>(h) Breach the protections of the Proprietary Technology set out in Section 3.2.</p>
+
+<h2>5. Intellectual Property</h2>
+<h3>5.1 Ownership</h3>
+<p>Animus Core (or its licensors) retains all right, title, and interest in and to the Software, including all Intellectual Property Rights therein. No rights are granted to Customer other than the limited license expressly set forth in Section 2. This Agreement does not constitute a sale of the Software or any copy thereof.</p>
+<h3>5.2 Definition</h3>
+<p>"Intellectual Property Rights" means all patent, copyright, trade secret, trademark, and other proprietary rights, worldwide, whether or not registered.</p>
+<h3>5.3 No Implied Rights; Feedback</h3>
+<p>All rights not expressly granted to Customer are reserved by Vendor. Any feedback, suggestions, or improvement ideas Customer voluntarily provides regarding the Software may be used by Vendor without restriction or obligation to Customer.</p>
+<h3>5.4 Customer Data</h3>
+<p>As between the Parties, Customer retains all rights in the telemetry data, event streams, and other content Customer processes through the Software. Vendor claims no ownership interest in Customer's data.</p>
+
+<h2>6. Warranty Disclaimer</h2>
+<blockquote><strong>THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTY OF ANY KIND.</strong></blockquote>
+<p>To the maximum extent permitted by applicable law, Vendor expressly disclaims all warranties, whether express, implied, statutory, or otherwise, including without limitation any implied warranties of merchantability, fitness for a particular purpose, title, and non-infringement, and any warranties arising out of course of dealing or usage of trade. Vendor does not warrant that the Software will be uninterrupted, error-free, or free of harmful components, or that any particular latency, throughput, or other performance figure published in Vendor's benchmark materials will be achieved on Customer's hardware or workload. This Section 6 is especially applicable during the Evaluation Period, which is provided solely for Customer's own testing at no warranty and, unless otherwise stated in an executed order form, at no fee.</p>
+
+<h2>7. Limitation of Liability</h2>
+<p>To the maximum extent permitted by applicable law:</p>
+<p>(a) In no event shall either Party be liable for any indirect, incidental, special, consequential, or punitive damages, including without limitation lost profits, lost revenue, lost data, or business interruption, arising out of or relating to this Agreement or the Software, however caused and under any theory of liability (contract, tort, negligence, or otherwise), even if advised of the possibility of such damages;</p>
+<p>(b) Vendor's total aggregate liability arising out of or relating to this Agreement or the Software shall not exceed the total fees actually paid by Customer to Vendor under this Agreement in the twelve (12) months preceding the event giving rise to the claim, or [US]$[CAP AMOUNT] if no fees have been paid (including during the Evaluation Period);</p>
+<p>(c) The limitations in this Section 7 apply regardless of the failure of essential purpose of any limited remedy and shall not apply to (i) either Party's indemnification obligations, if any are added by a subsequent order form, (ii) Customer's breach of Sections 3.2, 4 or 5, (iii) Customer's obligation to pay fees, including Committed Fees accelerated under Section 3.3, or (iv) either Party's gross negligence or willful misconduct, in each case only to the extent such exclusion is required by applicable law.</p>
+<p>(d) The Reference Topology Appendix and staging/canary UAT protocol that scope Vendor's performance commitments for production order forms are documented separately in Vendor's compliance and risk-mitigation materials.</p>
+
+<h2>8. Term &amp; Termination</h2>
+<p><strong>8.1 Term.</strong> This Agreement commences on the Effective Date and continues until the earlier of (a) expiration of the Evaluation Period without conversion under Section 3, or (b) termination under this Section 8.</p>
+<p><strong>8.2 Termination for Cause.</strong> Either Party may terminate this Agreement immediately upon written notice if the other Party materially breaches this Agreement and fails to cure such breach within ten (10) days of notice (or immediately, without a cure period, for breaches of Section 4).</p>
+<p><strong>8.3 Effect of Termination.</strong> Upon termination or expiration, Customer shall immediately cease all use of the Software, uninstall all copies, and destroy or return any License File and Confidential Information in its possession, and shall certify the same in writing within ten (10) business days on Vendor's request. Termination does not relieve Customer of any payment obligation accrued or accelerated under Section 3.3. Sections 1, 3.2, 3.3 (as to accrued and accelerated amounts), 4, 5, 6, 7, 8.3, 8.4, and 9 survive termination.</p>
+<p><strong>8.4 Production Order Forms.</strong> While an order form is in effect, this Agreement continues for as long as that order form remains in effect, and the only termination rights available to either Party during its Initial Term or any Renewal Term are those in Section 8.2, subject to Section 3.3.</p>
+
+<h2>9. General Provisions</h2>
+<p><strong>9.1 Confidentiality.</strong> Each Party shall protect the other's non-public technical and business information disclosed under this Agreement using at least the same degree of care it uses for its own similarly sensitive information, and shall not disclose such information to third parties except as necessary to exercise its rights or perform its obligations hereunder.</p>
+<p><strong>9.2 Governing Law; Arbitration.</strong> This Agreement shall be governed by the laws of India, without regard to its conflict-of-laws principles. Any dispute, controversy, or claim arising out of or relating to this Agreement, including any question regarding its existence, validity, or termination, shall be referred to and finally resolved by arbitration administered by the Singapore International Arbitration Centre ("SIAC") in accordance with the Arbitration Rules of the Singapore International Arbitration Centre ("SIAC Rules") for the time being in force, which rules are deemed to be incorporated by reference into this Section 9.2. The seat of the arbitration shall be Singapore. The tribunal shall consist of one (1) arbitrator, unless the Parties otherwise agree or the SIAC Rules require otherwise given the amount in dispute. The language of the arbitration shall be English. Nothing in this Section 9.2 prevents either Party from seeking interim or injunctive relief from a court of competent jurisdiction pending constitution of the arbitral tribunal — matching the arbitration clause used across Vendor's evaluation, pilot, and production agreements, so the dispute-resolution mechanism is the same across the free evaluation, paid pilot, and production license stages of the relationship.</p>
+<p><strong>9.3 Assignment.</strong> Customer shall not assign or transfer this Agreement, in whole or in part, without Vendor's prior written consent. Vendor may assign this Agreement in connection with a merger, acquisition, or sale of substantially all its assets.</p>
+<p><strong>9.4 Export Compliance.</strong> Customer shall comply with all applicable export control and economic sanctions laws in its use of the Software. Vendor's cross-border invoicing, DTAA characterization, and RBI/FEMA export-compliance pipeline are documented separately in Vendor's compliance materials.</p>
+<p><strong>9.5 Entire Agreement.</strong> This Agreement (together with any executed order form under Section 3) constitutes the entire agreement between the Parties regarding its subject matter and supersedes all prior or contemporaneous agreements, whether written or oral, on that subject.</p>
+<p><strong>9.6 Severability.</strong> If any provision of this Agreement is held unenforceable, the remaining provisions shall remain in full force and effect, and the unenforceable provision shall be reformed to the minimum extent necessary to make it enforceable.</p>
+<p><strong>9.7 Notices.</strong> All notices under this Agreement shall be in writing and delivered to the addresses specified in the signature block below (or such other address as a Party designates in writing).</p>
+<p><strong>9.8 No Waiver.</strong> No failure or delay by either Party in exercising any right under this Agreement shall operate as a waiver of that right.</p>
+
+<h2>Signature Block</h2>
+<table class="sig-table">
+  <tr><th style="width:22%">&nbsp;</th><th style="width:39%">Vendor</th><th>Customer</th></tr>
+  <tr><td><strong>Entity Name</strong></td><td>Animus Technologies Private Limited (Animus Core)</td><td>[CUSTOMER LEGAL ENTITY NAME]</td></tr>
+  <tr><td><strong>Signature</strong></td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td><strong>Name</strong></td><td>Alakshendra Roy</td><td>[PRINTED NAME]</td></tr>
+  <tr><td><strong>Title</strong></td><td>Founder &amp; Director</td><td>[TITLE]</td></tr>
+  <tr><td><strong>Date</strong></td><td>&nbsp;</td><td>&nbsp;</td></tr>
+  <tr><td><strong>Notice Address</strong></td><td>inquiries@animusinfra.com (email notice; registered office address to be added upon issuance of the Certificate of Incorporation)</td><td>[CUSTOMER ADDRESS]</td></tr>
+</table>
+
+</div>
+</body>
+</html>
