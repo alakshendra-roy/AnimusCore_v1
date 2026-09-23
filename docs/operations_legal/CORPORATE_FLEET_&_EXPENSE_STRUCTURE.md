@@ -63,9 +63,16 @@ Most Mercedes-Benz passenger models exceed 1.6L displacement, so the **> 1.6L ro
 
 ## 3. IOCL XTRAPOWER Corporate Fleet Account & Premium Fuel
 
-### 3.1 Correction to the source brief
+### 3.1 XP95 vs. XP100 — both are real, distinct IOCL products
 
-The task that produced this document named **"XP95"** as IndianOil's high-octane product. **IndianOil's actual premium-petrol brand is XP100** (100-octane, launched 2020, marketed for high-performance vehicles including the Mercedes-Benz AMG range) — there is no IOCL product called XP95 as far as this drafting pass could confirm. Use **XP100** in any actual fuel-card setup or vendor correspondence; **Shell V-Power** (Shell's own premium-fuel line) is correctly named in the source brief and needs no correction.
+**Correction to this document's own 2026-09-24 draft:** an earlier version of this section incorrectly claimed IOCL had no "XP95" product — that was wrong, based on a search pass that only checked for XP100 and treated its absence from those results as XP95 not existing. A direct search confirms **both are real, separately branded IndianOil fuels**:
+
+| Product | RON (octane) | Launched | Positioning |
+|---|---|---|---|
+| **XP95** | 95 | May 2021 | IndianOil's "first 95-octane petrol" — a premium step up from standard ~91 RON branded petrol, priced only modestly above regular premium fuel (a small per-litre markup, not a specialist/niche price point), positioned for everyday premium use, not exclusively performance cars. |
+| **XP100** | 100 | 2020 | IndianOil's "first 100-octane petrol" — marketed specifically at high-performance vehicles (Porsche/Ferrari/Lamborghini/BMW M/Mercedes-AMG-class engines), priced well above XP95 and standard fuel, with narrower outlet availability. |
+
+For a Mercedes-Benz lease under this playbook, **which grade is actually appropriate depends on the specific engine/trim** (a mainstream Mercedes-Benz saloon typically runs fine on premium ~95 RON fuel; only AMG-tier performance engines are the segment XP100 is marketed at) — confirm the manufacturer's actual minimum/recommended octane rating for the specific model leased before defaulting to the more expensive XP100 grade on the assumption that "higher octane is always better" for that engine. **Shell V-Power** (Shell's own premium-fuel line) is correctly named in the source brief and needs no correction.
 
 ### 3.2 XTRAPOWER account setup
 
@@ -78,7 +85,7 @@ IOCL's XTRAPOWER Fleet Card is a smart-card-based fleet-management and cashless-
 
 ### 3.3 High-octane fuel at non-XTRAPOWER outlets
 
-XP100 and Shell V-Power are typically dispensed at specific outlets within each brand's retail network, not universally at every station carrying that brand's fuel card — confirm outlet coverage near the Company's actual operating area before assuming the corporate card resolves fueling logistics end-to-end for a premium-fuel-specified engine.
+XP95 has materially wider outlet coverage than XP100 (a mainstream premium-fuel product vs. a narrower performance-fuel rollout) — Shell V-Power sits closer to XP95 on availability than to XP100. Confirm actual outlet coverage for whichever grade the leased vehicle needs near the Company's actual operating area before assuming the corporate card resolves fueling logistics end-to-end, particularly if XP100 turns out to be the correct grade for the specific engine.
 
 ---
 
