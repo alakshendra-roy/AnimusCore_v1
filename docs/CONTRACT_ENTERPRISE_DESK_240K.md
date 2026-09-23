@@ -1,4 +1,4 @@
-# Animus Core — Production Order Form: Institutional Enterprise Desk ELA
+# Animus Core — Institutional Enterprise Desk Order Form (Desk ELA)
 
 > ## ⚠️ DRAFT ORDER FORM — NOT REVIEWED BY COUNSEL — DO NOT SIGN AS-IS
 > This order form is structurally complete and priced for issuance, but it has not been reviewed by a licensed attorney. It must not be executed, and no invoice may be raised against it, until counsel has reviewed it together with the governing master agreement ([`../LEGAL_EULA.md`](../LEGAL_EULA.md)) and the Licensor's Certificate of Incorporation has been issued (see the CIN placeholder below and [`../LEGAL_INCORPORATION_BRIEF.md`](../LEGAL_INCORPORATION_BRIEF.md)).
@@ -59,16 +59,16 @@
 | Monthly equivalent | **$20,000** |
 | Annual Contract Value (ACV) — Committed Fees for the Initial Term | **$240,000** |
 
-**4.2 Billing option** (Licensee to select one at signature; if none is selected, Option B applies):
+**4.2 Billing.** Unless Licensee elects Option A at signature, Licensee is billed under the default Monthly Billing Schedule (Schedule B):
 
 | | Option | Payment | Terms |
 |---|---|---|---|
+| ☐ | **Standard — Monthly in advance** | **$20,000** per contract month × 12 = $240,000 | See Schedule B |
 | ☐ | **Option A — Annual prepayment** | **$228,000** (the $240,000 ACV less a 5% prepayment discount of $12,000), in one payment | Invoiced on the Order Effective Date; due Net-30 |
-| ☐ | **Option B — Quarterly in advance** | **$60,000** per Contract Quarter × 4 = $240,000 | See Schedule B |
 
-The 5% discount under Option A is conditional on payment in full by its due date; if Option A is not paid when due, Option B pricing applies to the Initial Term and Licensor may re-invoice accordingly.
+The 5% discount under Option A is conditional on payment in full by its due date; if Option A is not paid when due, the Monthly Billing Schedule applies to the Initial Term and Licensor may re-invoice accordingly.
 
-**4.3 Delivery on payment.** Licensor will issue production License Files within two (2) business days after receipt of the first payment (Option A payment, or the first Option B installment). The Term, and Licensee's obligation to pay the Committed Fees, begin on the Order Effective Date regardless of when Licensee requests or installs License Files.
+**4.3 Delivery on payment.** Licensor will issue production License Files within two (2) business days after receipt of the first payment (Option A payment, or the first monthly installment). The Term, and Licensee's obligation to pay the Committed Fees, begin on the Order Effective Date regardless of when Licensee requests or installs License Files.
 
 **4.4 Currency, settlement & taxes.** All amounts are in **USD**, payable by wire transfer via **SWIFT or Fedwire** to the account stated on Licensor's invoice. Fees exclude all taxes. Licensee bears all wire, correspondent-bank, and currency-conversion charges. If Licensee is required by law to withhold tax, it shall withhold only at the applicable treaty rate on receipt of Licensor's treaty documentation ([`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)), furnish official receipts, and increase the payment so that Licensor receives the full invoiced amount.
 
@@ -80,11 +80,11 @@ The 5% discount under Option A is conditional on payment in full by its due date
 
 This §5 restates, and is in addition to, Master Agreement §3.3.
 
-**5.1 Initial Term.** Twelve (12) months from the Order Effective Date (the "**Initial Term**"). The Initial Term is **firm, non-cancellable, and non-refundable**. The full $240,000 Committed Fees (or $228,000 under Option A) is an unconditional payment obligation of Licensee from the moment this order form is executed; the quarterly schedule under Option B governs only the timing of payment.
+**5.1 Initial Term.** Twelve (12) months from the Order Effective Date (the "**Initial Term**"). The Initial Term is **firm, non-cancellable, and non-refundable**. The full $240,000 Committed Fees (or $228,000 under Option A) is an unconditional payment obligation of Licensee from the moment this order form is executed; the Monthly Billing Schedule governs only the timing of payment.
 
 **5.2 No termination for convenience.** Licensee may not terminate this order form, or reduce the Licensed Scope, for convenience at any time. Non-use or reduced use of the Software, discontinuation of the Designated Desk or its project or strategy, a change in budget or strategy, or a change of control of Licensee does not reduce, suspend, or excuse any payment.
 
-**5.3 Fee acceleration.** If Licensee (a) gives notice of, or purports to effect, early termination or cancellation; (b) gives written notice that it will cease or has ceased using the Software, or that the Designated Desk's project has been discontinued; (c) fails to pay an undisputed installment within ten (10) business days after written notice of non-payment; (d) has this order form terminated by Licensor for Licensee's uncured material breach; or (e) becomes subject to insolvency or analogous proceedings — then **every unpaid quarterly installment for the entire remaining Initial Term (or then-current Renewal Term) immediately accelerates and becomes due and payable in full within ten (10) business days** of Licensor's written demand. Master Agreement §3.3(e) applies to the accelerated amount.
+**5.3 Fee acceleration.** If Licensee (a) gives notice of, or purports to effect, early termination or cancellation; (b) gives written notice that it will cease or has ceased using the Software, or that the Designated Desk's project has been discontinued; (c) fails to pay an undisputed installment within ten (10) business days after written notice of non-payment; (d) has this order form terminated by Licensor for Licensee's uncured material breach; or (e) becomes subject to insolvency or analogous proceedings — then **every unpaid monthly installment for the entire remaining Initial Term (or then-current Renewal Term) immediately accelerates and becomes due and payable in full within ten (10) business days** of Licensor's written demand. Master Agreement §3.3(e) applies to the accelerated amount.
 
 **5.4 Sole exception.** Acceleration does not apply, and Licensee receives a refund of prepaid fees for the period after termination, only where Licensee terminates for Licensor's material breach left uncured for thirty (30) days after Licensee's detailed written notice, as set out in Master Agreement §3.3(f).
 
@@ -94,7 +94,7 @@ This §5 restates, and is in addition to, Master Agreement §3.3.
 
 ## 6. Deliverables, Support & Maintenance
 
-**6.1 Deliverables.** Production builds of the Animus Core engine (`libanimus.so`, Linux x86_64), the public C-ABI header interface (Pimpl-isolated from internal ring-buffer layouts), the zero-copy Python bridge, and the `replay_bench` benchmark verification harness, each as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §3. No source code is delivered.
+**6.1 Deliverables.** Production builds of the Animus Core engine (`libanimus.so`, Linux x86_64), the public C-ABI header interface (Pimpl-isolated from internal ring-buffer layouts), the nanobind-based zero-copy Python bridge, and the `replay_bench` benchmark verification harness, each as described in [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) §3. No source code is delivered.
 
 **6.2 Engineering scope.** Custom C++/Python wire-schema engineering (`ANIMUS_DEFINE_SCHEMA`-registered schemas) for the Designated Desk, and kernel-bypass/NIC architecture consulting, as scoped in writing between the Parties during the Term.
 
@@ -131,17 +131,25 @@ Master Agreement §9.2 applies: laws of **India**; SIAC arbitration seated in **
 | Deployment locations | [e.g., Equinix NY4 — Secaucus, NJ] |
 | Expected production node count at start | [N] (informational only; node count is unlimited within the Designated Desk) |
 
-## Schedule B — Payment Schedule (Option B)
+## Schedule B — Monthly Payment Schedule
 
-| Installment | Contract Quarter | Invoice issued | Due | Amount (USD) |
+| Installment | Contract Month | Invoice issued | Due | Amount (USD) |
 |---|---|---|---|---|
-| 1 | Months 1–3 | Order Effective Date | Net-15 from invoice | $60,000 |
-| 2 | Months 4–6 | 15 days before the quarter starts | First day of Month 4 | $60,000 |
-| 3 | Months 7–9 | 15 days before the quarter starts | First day of Month 7 | $60,000 |
-| 4 | Months 10–12 | 15 days before the quarter starts | First day of Month 10 | $60,000 |
+| 1 | Month 1 | Order Effective Date | Net-15 from invoice | $20,000 |
+| 2 | Month 2 | 15 days before Month 2 begins | Net-15 from invoice | $20,000 |
+| 3 | Month 3 | 15 days before Month 3 begins | Net-15 from invoice | $20,000 |
+| 4 | Month 4 | 15 days before Month 4 begins | Net-15 from invoice | $20,000 |
+| 5 | Month 5 | 15 days before Month 5 begins | Net-15 from invoice | $20,000 |
+| 6 | Month 6 | 15 days before Month 6 begins | Net-15 from invoice | $20,000 |
+| 7 | Month 7 | 15 days before Month 7 begins | Net-15 from invoice | $20,000 |
+| 8 | Month 8 | 15 days before Month 8 begins | Net-15 from invoice | $20,000 |
+| 9 | Month 9 | 15 days before Month 9 begins | Net-15 from invoice | $20,000 |
+| 10 | Month 10 | 15 days before Month 10 begins | Net-15 from invoice | $20,000 |
+| 11 | Month 11 | 15 days before Month 11 begins | Net-15 from invoice | $20,000 |
+| 12 | Month 12 | 15 days before Month 12 begins | Net-15 from invoice | $20,000 |
 | | | | **Committed Fees** | **$240,000** |
 
-All installments are subject to acceleration under §5.3.
+Each invoice is issued fifteen (15) calendar days before the contract month it covers begins (Month 1 is invoiced on the Order Effective Date) and is due Net-15 from the invoice date. All installments are subject to acceleration under §5.3.
 
 ---
 
@@ -156,7 +164,7 @@ By signing, each Party agrees to this order form and the Master Agreement it inc
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Director | [TITLE] |
 | **Date** | ________ | ________ |
-| **Billing option selected** | — | ☐ Option A ($228,000 annual prepay) ☐ Option B ($60,000 quarterly) |
+| **Billing option selected** | — | ☐ Standard — Monthly ($20,000/month) ☐ Option A ($228,000 annual prepay) |
 | **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation]; inquiries@animusinfra.com | [CLIENT ADDRESS] |
 
 ---
