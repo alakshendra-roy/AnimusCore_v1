@@ -46,18 +46,20 @@ For the avoidance of doubt, core telemetry event ingestion is not gated by the L
 
 ### 2.4 Expiration
 
-Upon expiration of the Evaluation Period, the evaluation License File shall cease to verify as valid, and Customer's rights under Section 2.1 terminate automatically without notice. Continued use of the Software after expiration requires a Production Node or Custom Source License under Section 3, or a written extension executed by both Parties.
+Upon expiration of the Evaluation Period, the evaluation License File shall cease to verify as valid, and Customer's rights under Section 2.1 terminate automatically without notice. Continued use of the Software after expiration requires an executed production order form under Section 3, or a written extension executed by both Parties.
 
 ---
 
 ## 3. Conversion to Commercial License
 
-Following the Evaluation Period, Customer may elect to enter a commercial engagement under one of the tiers described in Vendor's then-current commercial materials (see `COMMERCIAL_OVERVIEW.md`), including without limitation:
+Following the Evaluation Period, Customer may elect to enter a commercial engagement under one of the four production tiers described in Vendor's then-current commercial materials (see `COMMERCIAL.md` §2):
 
-- **Production Node License** — a per-machine, hardware-locked, renewable production license;
-- **Custom Source License** — a negotiated source-access license with associated statement of work.
+- **Desk License** — single production node, single strategy or pipeline, capped core count (`docs/DESK_LICENSE_TERMSHEET.md`);
+- **Institutional Enterprise (Desk ELA)** — single designated trading desk, multi-node (`docs/ANIMUS_ENTERPRISE_TERMSHEET.md`; order form `docs/CONTRACT_TIER2_DESK_240K.md`);
+- **OEM / Redistribution** — redistribution into a third party's product, under a separate OEM Distribution Agreement;
+- **Global Strategic Master Agreement (Global Enterprise ELA)** — uncapped global deployment across Customer and its Affiliates, subject to Section 3.1 (order form `docs/CONTRACT_TIER3_GLOBAL_480K.md`).
 
-Any such commercial license shall be governed by a separate written order form or license schedule executed by both Parties, which shall incorporate the general terms of this Agreement (Sections 4–9) except as expressly modified by that order form. **No commercial license, fee obligation, or production right is created by this Agreement standing alone** — this Agreement, absent an executed order form, governs the Evaluation Period only.
+Any such commercial license shall be governed by a separate written order form or license schedule executed by both Parties, which shall incorporate the general terms of this Agreement (Sections 3.2, 3.3 and 4–9) except as expressly modified by that order form. Where an order form grants production rights, Sections 4(d) and 4(e) apply by reference to the licensed scope stated in that order form rather than to the single Licensed Hardware and Evaluation Period of Section 2. **No commercial license, fee obligation, or production right is created by this Agreement standing alone** — this Agreement, absent an executed order form, governs the Evaluation Period only.
 
 ### 3.1 Global Strategic Master Agreement — Enterprise Master License Grant
 
@@ -79,6 +81,40 @@ Where Customer's order form designates a **Global Strategic Master Agreement**, 
 
 (f) **Precedence.** Nothing in this Section 3.1 expands Customer's rights beyond a license — it does not transfer ownership of, or any copyright interest in, the Software, which remains governed by Section 5.
 
+### 3.2 Proprietary Technology, Trade Secrets & Clean-Room Protection
+
+This Section 3.2 applies under every order form and, to the extent Customer receives any Confidential Information of Vendor, during the Evaluation Period.
+
+(a) **Proprietary Technology.** "**Proprietary Technology**" means the Software and all of Vendor's designs, implementations, and know-how embodied in or relating to it, including without limitation: (i) the lock-free single-producer/single-consumer and multi-producer ring-buffer data structures, their memory-ordering protocols, and their index and sequence-number schemes; (ii) the invariant-TSC timestamping routines and TSC calibration and cross-core drift-compensation methods; (iii) the cache-line-aligned (`alignas(64)`) memory layouts, padding schemes, false-sharing elimination techniques, and shared-memory segment formats; (iv) the zero-copy C-ABI and Python bridge interfaces; (v) the license-verification and hardware-fingerprinting mechanism; and (vi) Vendor's benchmarking methodology, tuning profiles, and unpublished performance data.
+
+(b) **Trade Secrets.** Those elements of the Proprietary Technology that Vendor has not published in its public repository — including production build configurations and compiler/tuning profiles, non-public source branches, source made available under Section 3.1(c), workload-specific latency characterizations, and unreleased features and roadmap — are Vendor's trade secrets and Confidential Information, protected for as long as they qualify as trade secrets under applicable law and in any event for not less than five (5) years after the end of the last order form. The publication of any portion of the Software's source code under Vendor's public dual-license (`LICENSE`) grants Customer no right beyond that license and this Agreement, and does not diminish Vendor's copyright in, or the contractual restrictions of this Agreement on, that portion.
+
+(c) **No reverse engineering or extraction.** In addition to Section 4(a), Customer shall not (i) instrument, trace, memory-dump, or side-channel-probe the Software for the purpose of reconstructing its data-structure layouts, memory-ordering protocols, or timing routines; (ii) disassemble or diff successive binary releases to derive unpublished changes; or (iii) remove, patch, bypass, or emulate the license-verification mechanism.
+
+(d) **Clean-room covenant.** Customer shall not use the Proprietary Technology or any Confidential Information of Vendor — including information retained in the unaided memory of personnel who accessed Vendor's non-public materials — to design, develop, specify, or commission a shared-memory ingestion engine, lock-free queue, or timestamping subsystem that substitutes for the Software. Any such development undertaken by or for Customer during the term of any order form and for eighteen (18) months after it ends shall be performed only by personnel who have not accessed Vendor's non-public materials, and Customer shall, on Vendor's reasonable written request, certify that separation in writing. This covenant restricts the use of Vendor's information; it does not restrict any individual's employment or use of general skills and publicly available knowledge.
+
+(e) **Equitable relief.** A breach of this Section 3.2 or of Section 4 would cause Vendor irreparable harm for which damages would be an inadequate remedy. Vendor may seek injunctive relief under Section 9.2, without posting a bond to the extent permitted by law, in addition to all other remedies.
+
+### 3.3 Committed Term, No Termination for Convenience & Fee Acceleration
+
+This Section 3.3 applies to every production order form unless that order form expressly states otherwise.
+
+(a) **Firm commitment.** The Initial Term stated in an order form (twelve (12) months unless otherwise stated) is a **firm, non-cancellable commitment**. The total fees for the entire Initial Term (the "**Committed Fees**") are fully committed and become an unconditional payment obligation of Customer upon execution of the order form. Any quarterly installment schedule is an accommodation as to the **timing of payment only** and does not reduce, condition, or divide Customer's obligation to pay the Committed Fees in full.
+
+(b) **No termination for convenience.** Customer has **no right to terminate** an order form or this Agreement for convenience, and no right to reduce the licensed scope, during the Initial Term or any Renewal Term. Customer's non-use or reduced use of the Software; discontinuation or cancellation of the project, desk, strategy, or business line for which the Software was licensed; change in Customer's budget or strategy; or change of control of Customer does not suspend, reduce, or excuse payment of the Committed Fees.
+
+(c) **Fees non-refundable.** All fees paid are non-refundable and non-creditable, except solely as provided in Section 3.3(f).
+
+(d) **Acceleration Events.** Each of the following is an "**Acceleration Event**": (i) Customer gives notice of, or purports to effect, termination or cancellation of an order form other than under Section 3.3(f); (ii) Customer gives written notice that it will cease or has ceased using the Software, or that the project, desk, or deployment for which the Software was licensed has been discontinued; (iii) Customer fails to pay any undisputed installment within ten (10) business days after written notice of non-payment; (iv) Vendor terminates an order form under Section 8.2 for Customer's uncured material breach; or (v) Customer becomes subject to any insolvency, winding-up, administration, or analogous proceeding.
+
+(e) **Acceleration.** Upon an Acceleration Event, **all unpaid installments of the Committed Fees for the remainder of the then-current term immediately accelerate and become due and payable in full within ten (10) business days** after Vendor's written demand, without further notice. No annual-prepayment discount applies to accelerated amounts. The Parties acknowledge that accelerated amounts are the agreed price of a committed term, payable on an accelerated timetable, and are not a penalty or an estimate of damages. Where the Acceleration Event arises under Section 3.3(d)(i) or (ii) and Customer is not otherwise in breach, Customer's license continues for the remainder of the paid term once the accelerated amount is paid.
+
+(f) **Sole exception — Vendor's uncured material breach.** If Customer terminates an order form under Section 8.2 because of Vendor's material breach that Vendor has failed to cure within thirty (30) days after Customer's detailed written notice (this thirty-day period replacing, for a Vendor breach under a production order form, the ten-day period in Section 8.2), no Acceleration Event occurs, Customer is released from installments falling due after the termination date, and Vendor shall refund any prepaid fees attributable to the period after the termination date. This is Customer's sole remedy for recovery of fees on such termination.
+
+(g) **Late payment; suspension; costs.** Undisputed amounts not paid when due bear interest at the lesser of one and one-half percent (1.5%) per month and the maximum rate permitted by law. On ten (10) business days' written notice, Vendor may suspend issuance of License Files, updates, and support until overdue amounts are paid; suspension does not suspend Customer's payment obligations. Customer shall reimburse Vendor's reasonable costs of collecting amounts not paid when due, including arbitration and legal fees. Customer shall pay all amounts without set-off, counterclaim, or deduction, other than tax withholding required by law.
+
+(h) **Renewal.** Unless an order form states otherwise, it renews for successive twelve (12)-month Renewal Terms unless either Party gives written notice of non-renewal at least ninety (90) days before the end of the then-current term. Each Renewal Term is a committed term subject to this Section 3.3. Vendor may change the fees for a Renewal Term by written notice given at least one hundred twenty (120) days before that Renewal Term begins.
+
 ---
 
 ## 4. Restrictions
@@ -95,7 +131,11 @@ Customer shall not, and shall not permit any third party to:
 
 (e) Use the Software beyond the scope of the license expressly granted in Section 2 (including any production, revenue-generating, or third-party-facing use during the Evaluation Period);
 
-(f) Use the Software to build a product or service that competes with the Software.
+(f) Use the Software to build a product or service that competes with the Software;
+
+(g) Publish or disclose to any third party the results of any benchmark or performance test of the Software without Vendor's prior written consent, except to Customer's own auditors and regulators under a duty of confidentiality;
+
+(h) Breach the protections of the Proprietary Technology set out in Section 3.2.
 
 ---
 
@@ -135,7 +175,7 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 (b) **VENDOR'S TOTAL AGGREGATE LIABILITY** arising out of or relating to this Agreement or the Software shall not exceed the total fees actually paid by Customer to Vendor under this Agreement in the twelve (12) months preceding the event giving rise to the claim, or **[US]$[CAP AMOUNT]** if no fees have been paid (including during the Evaluation Period);
 
-(c) The limitations in this Section 7 apply regardless of the failure of essential purpose of any limited remedy and shall not apply to (i) either Party's indemnification obligations, if any are added by a subsequent order form, (ii) Customer's breach of Sections 4 or 5, or (iii) either Party's gross negligence or willful misconduct, in each case only to the extent such exclusion is required by applicable law.
+(c) The limitations in this Section 7 apply regardless of the failure of essential purpose of any limited remedy and shall not apply to (i) either Party's indemnification obligations, if any are added by a subsequent order form, (ii) Customer's breach of Sections 3.2, 4 or 5, (iii) Customer's obligation to pay fees, including Committed Fees accelerated under Section 3.3, or (iv) either Party's gross negligence or willful misconduct, in each case only to the extent such exclusion is required by applicable law.
 
 (d) The Reference Topology Appendix and staging/canary UAT protocol that scope Vendor's performance commitments for production order forms are documented in `COMPLIANCE_AND_RISK_MITIGATION.md` §1.
 
@@ -147,7 +187,9 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 **8.2 Termination for Cause.** Either Party may terminate this Agreement immediately upon written notice if the other Party materially breaches this Agreement and fails to cure such breach within ten (10) days of notice (or immediately, without a cure period, for breaches of Section 4).
 
-**8.3 Effect of Termination.** Upon termination or expiration, Customer shall immediately cease all use of the Software, uninstall all copies, and destroy or return any License File and Confidential Information in its possession. Sections 1, 4, 5, 6, 7, 8.3, and 9 survive termination.
+**8.3 Effect of Termination.** Upon termination or expiration, Customer shall immediately cease all use of the Software, uninstall all copies, and destroy or return any License File and Confidential Information in its possession, and shall certify the same in writing within ten (10) business days on Vendor's request. Termination does not relieve Customer of any payment obligation accrued or accelerated under Section 3.3. Sections 1, 3.2, 3.3 (as to accrued and accelerated amounts), 4, 5, 6, 7, 8.3, 8.4, and 9 survive termination.
+
+**8.4 Production Order Forms.** While an order form is in effect, this Agreement continues for as long as that order form remains in effect, and the only termination rights available to either Party during its Initial Term or any Renewal Term are those in Section 8.2, subject to Section 3.3.
 
 ---
 
@@ -185,4 +227,4 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 ---
 
 > ## ⚠️ REMINDER
-> Do not distribute this document to any prospective customer, and do not treat it as binding, until it has been reviewed and approved by a qualified attorney licensed in the governing jurisdiction selected in Section 9.2. In particular, the liability cap (Section 7), warranty disclaimer (Section 6), export/sanctions language (Section 9.4), and the SIAC arbitration clause (Section 9.2 — a founder-selected draft, not counsel-vetted; confirm forum-fit and Singapore-seated-award enforceability against actual customer jurisdictions) are jurisdiction-dependent and may require material revision to be enforceable where Vendor and Customer are located.
+> Do not distribute this document to any prospective customer, and do not treat it as binding, until it has been reviewed and approved by a qualified attorney licensed in the governing jurisdiction selected in Section 9.2. In particular, the liability cap (Section 7), warranty disclaimer (Section 6), export/sanctions language (Section 9.4), and the SIAC arbitration clause (Section 9.2 — a founder-selected draft, not counsel-vetted; confirm forum-fit and Singapore-seated-award enforceability against actual customer jurisdictions) are jurisdiction-dependent and may require material revision to be enforceable where Vendor and Customer are located. Counsel should also specifically confirm: (i) that the Section 3.3 fee acceleration will be treated under Indian law as a debt for a committed term rather than a penalty under Section 74 of the Indian Contract Act, 1872, particularly where Vendor has terminated the license (Section 3.3(d)(iv)); (ii) that the Section 3.2(d) clean-room covenant is framed as a restriction on use of information and does not operate as a restraint of trade under Section 27 of that Act; and (iii) the scope of trade-secret protection that remains available given that portions of the Software's source are published in Vendor's public repository (Section 3.2(b)).

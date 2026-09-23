@@ -26,12 +26,14 @@
 
 | Option | Structure | Terms |
 |---|---|---|
-| **Option A** | 100% upfront, annual | Net-30 from invoice date |
+| **Option A** | 100% upfront, annual, with a 5% prepayment discount | USD $228,000 (USD $240,000 less USD $12,000), Net-30 from invoice date |
 | **Option B** | Quarterly advance | USD $60,000 per quarter, Net-15 from invoice date |
 
 **2.3 Currency & Settlement.** All amounts are stated and payable in **USD**, by wire transfer via **SWIFT or Fedwire**. Licensee bears all wire, correspondent-bank, and currency-conversion fees; invoiced amounts are net of any such fees or withholding, subject to applicable tax treaty documentation (see [`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)).
 
 **2.4 Scope of Use.** The license covers **unlimited CPU cores, threads, packet volumes, and production nodes** within Licensee's designated trading unit/desk, as identified in the definitive MSLA — this is the scope boundary that distinguishes this tier from the single-node Desk License ([`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) §2.4): Institutional Enterprise is **single-desk, multi-node**, not single-node. There are no per-core, per-thread, per-tick, or per-node metering penalties within that scope. Use outside the designated trading unit/desk (a second desk, a different business unit) requires a separate license or scope amendment.
+
+**2.5 Committed Term — No Termination for Convenience.** The initial twelve (12)-month term is **firm, non-cancellable, and non-refundable**. Licensee will have no right to terminate for convenience. If Licensee attempts early termination, gives notice of non-use or project discontinuation, or defaults on an installment, all remaining unpaid quarterly installments for the full twelve-month commitment accelerate and become due within ten (10) business days. The sole exception is Licensee's termination for Licensor's uncured material breach. The binding terms are [`../LEGAL_EULA.md`](../LEGAL_EULA.md) §3.3 and the order form, [`CONTRACT_TIER2_DESK_240K.md`](CONTRACT_TIER2_DESK_240K.md) §5.
 
 ---
 
@@ -70,7 +72,7 @@ Upon Licensee's written acceptance following Stage 2, the Parties execute a defi
 
 **5.2 Clean Room Certification.** Licensor certifies that the Animus Core engine is 100% original work product, developed without reference to, copying from, or incorporation of any GPL, copyleft, or otherwise incompatible third-party licensed source.
 
-**5.3 Use Restrictions.** Licensee shall not reverse-engineer, decompile, disassemble, or attempt to derive source code from the delivered binary artifacts, except to the extent such restriction is unenforceable under applicable law. Redistribution, sublicensing, or provision of the Software or its outputs to any third party outside Licensee's designated trading unit/desk is prohibited absent Licensor's prior written consent.
+**5.3 Use Restrictions.** Licensee shall not reverse-engineer, decompile, disassemble, or attempt to derive source code from the delivered binary artifacts, except to the extent such restriction is unenforceable under applicable law. Redistribution, sublicensing, or provision of the Software or its outputs to any third party outside Licensee's designated trading unit/desk is prohibited absent Licensor's prior written consent. The definitive terms add a prohibition on instrumenting or memory-probing the Software to reconstruct its lock-free data structures, invariant-TSC routines, or cache-line layouts, and an eighteen (18)-month clean-room covenant after the term ends ([`../LEGAL_EULA.md`](../LEGAL_EULA.md) §3.2).
 
 **5.4 Source Code Escrow.** At Licensee's request and as a term of the definitive MSLA, Licensor will negotiate a source code escrow arrangement with an independent, mutually agreed escrow agent. Escrowed source would be releasable to Licensee solely upon (a) Licensor's bankruptcy, insolvency, or cessation of business, or (b) Licensor's uncured, material failure to provide contracted maintenance obligations under §6, following written notice and a cure period as defined in the MSLA. No escrow account exists as of the Effective Date of this term sheet; establishing one is subject to a separate escrow agreement and may carry additional fees to be agreed in the MSLA.
 
