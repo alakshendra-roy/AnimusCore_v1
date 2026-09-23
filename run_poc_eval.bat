@@ -10,10 +10,14 @@ rem cl.exe (MSVC 2019+), then runs a 10-second POC soak test and prints the
 rem scorecard.
 rem
 rem Usage:
-rem   run_poc_eval.bat [duration_seconds] [mpmc_producer_threads]
+rem   run_poc_eval.bat [duration_seconds] [mpmc_producer_threads] [pin_base_core]
 rem
-rem Both arguments are optional; defaults are 10 seconds and
-rem max(2, logical_cores/2) producer threads.
+rem All arguments are optional; defaults are 10 seconds, max(2,
+rem logical_cores/2) producer threads, and no core pinning. Pass
+rem pin_base_core (e.g. `2`) to pin every producer/consumer thread to a
+rem distinct logical core via animus::sys::pin_current_thread_to_core_exclusive
+rem for a pinned-vs-unpinned comparison -- if given, mpmc_producer_threads
+rem must also be given (it is positional arg 2).
 
 set "SCRIPT_DIR=%~dp0"
 set "SRC=%SCRIPT_DIR%poc_eval\poc_eval_harness.cpp"
@@ -21,6 +25,12 @@ set "OUT=%SCRIPT_DIR%poc_eval\poc_eval_harness.exe"
 set "DURATION=%~1"
 if "%DURATION%"=="" set "DURATION=10"
 set "PRODUCERS=%~2"
+set "PIN_BASE_CORE=%~3"
+if not "%PIN_BASE_CORE%"=="" if "%PRODUCERS%"=="" (
+    echo error: pin_base_core given as arg 3 but mpmc_producer_threads ^(arg 2^) was not. 1>&2
+    echo Usage: run_poc_eval.bat [duration_seconds] [mpmc_producer_threads] [pin_base_core] 1>&2
+    exit /b 1
+)
 
 rem Prefer clang-cl if present (matches the compiler this harness is
 rem developed/validated against elsewhere in the repo -- see bench\); fall
@@ -67,10 +77,12 @@ echo.
 echo Running %DURATION%s POC soak test...
 echo.
 
-if "%PRODUCERS%"=="" (
-    "%OUT%" %DURATION%
-) else (
+if not "%PIN_BASE_CORE%"=="" (
+    "%OUT%" %DURATION% %PRODUCERS% %PIN_BASE_CORE%
+) else if not "%PRODUCERS%"=="" (
     "%OUT%" %DURATION% %PRODUCERS%
+) else (
+    "%OUT%" %DURATION%
 )
 
 endlocal

@@ -33,6 +33,18 @@
 // number against the target the POC spec names (sub-15ns median ingest,
 // sub-100ns median tick-to-telemetry); if the target isn't met on the
 // machine this runs on, the scorecard prints FAIL, not a rounded-up number.
+//
+// Optional core pinning (3rd CLI arg, `pin_base_core`): when given, every
+// producer/consumer thread in both phases is pinned via
+// animus::sys::pin_current_thread_to_core_exclusive (include/animus/
+// thread_affinity.hpp) -- the *_exclusive variant specifically, not the
+// plain affinity-only pin, per that header's own documented Phase 14
+// finding: pinning a thread to a core without also raising its scheduling
+// priority can make P99.99 WORSE, not better, because a preempted-but-
+// pinned thread has nowhere else to go until its one core frees up, unlike
+// an unpinned thread that can migrate to an idle core. Each phase's threads
+// get distinct core indices (see run_spsc_phase/run_mpmc_phase) so the
+// producer and consumer never share a physical core with each other.
 
 #include <algorithm>
 #include <atomic>
@@ -52,6 +64,8 @@
 #include <cpuid.h>
 #include <x86intrin.h>
 #endif
+
+#include "../include/animus/thread_affinity.hpp"
 
 #include "../AnimusCore_v1/animus.hpp"
 
@@ -212,9 +226,12 @@ struct SpscResult {
     uint64_t total_pushed;
     uint64_t total_popped;
     bool sequence_intact; // every popped seq strictly increasing, none skipped
+    bool pin_requested;
+    bool producer_pinned;
+    bool consumer_pinned;
 };
 
-SpscResult run_spsc_phase(double phase_seconds, double cycles_per_ns) {
+SpscResult run_spsc_phase(double phase_seconds, double cycles_per_ns, long pin_base_core) {
     constexpr size_t kRingCapacity = 8192;
     constexpr uint64_t kSampleStride = 8;
 
@@ -228,8 +245,16 @@ SpscResult run_spsc_phase(double phase_seconds, double cycles_per_ns) {
 
     std::atomic<uint64_t> total_popped{0};
     std::atomic<bool> sequence_intact{true};
+    std::atomic<bool> consumer_pinned{false};
+
+    const bool pin_requested = pin_base_core >= 0;
 
     std::thread consumer([&]() {
+        if (pin_requested) {
+            consumer_pinned.store(
+                animus::sys::pin_current_thread_to_core_exclusive(static_cast<size_t>(pin_base_core) + 1),
+                std::memory_order_relaxed);
+        }
         Event ev;
         uint64_t expected_seq = 0;
         for (;;) {
@@ -246,6 +271,11 @@ SpscResult run_spsc_phase(double phase_seconds, double cycles_per_ns) {
             }
         }
     });
+
+    bool producer_pinned = false;
+    if (pin_requested) {
+        producer_pinned = animus::sys::pin_current_thread_to_core_exclusive(static_cast<size_t>(pin_base_core));
+    }
 
     g_tracking.store(false, std::memory_order_relaxed);
     g_alloc_count.store(0, std::memory_order_relaxed);
@@ -277,6 +307,9 @@ SpscResult run_spsc_phase(double phase_seconds, double cycles_per_ns) {
     result.total_pushed = seq;
     result.total_popped = total_popped.load(std::memory_order_relaxed);
     result.sequence_intact = sequence_intact.load(std::memory_order_relaxed) && (result.total_pushed == result.total_popped);
+    result.pin_requested = pin_requested;
+    result.producer_pinned = producer_pinned;
+    result.consumer_pinned = consumer_pinned.load(std::memory_order_relaxed);
     (void)cycles_per_ns;
     return result;
 }
@@ -290,9 +323,12 @@ struct MpmcResult {
     uint64_t total_popped;
     double wall_seconds;
     unsigned producer_threads;
+    bool pin_requested;
+    bool consumer_pinned;
+    unsigned producers_pinned;
 };
 
-MpmcResult run_mpmc_phase(double phase_seconds, unsigned producer_threads) {
+MpmcResult run_mpmc_phase(double phase_seconds, unsigned producer_threads, long pin_base_core) {
     constexpr size_t kRingCapacity = 1u << 16;
     constexpr uint64_t kSampleStride = 8;
 
@@ -301,11 +337,22 @@ MpmcResult run_mpmc_phase(double phase_seconds, unsigned producer_threads) {
     std::atomic<bool> stop{false};
     std::atomic<uint64_t> global_seq{0};
     std::atomic<uint64_t> total_popped{0};
+    const bool pin_requested = pin_base_core >= 0;
+    std::atomic<bool> consumer_pinned{false};
+    std::atomic<unsigned> producers_pinned{0};
 
     std::vector<std::vector<uint64_t>> per_thread_samples(producer_threads);
     for (auto& v : per_thread_samples) v.reserve(2'000'000 / (producer_threads ? producer_threads : 1));
 
     std::thread consumer([&]() {
+        if (pin_requested) {
+            // Consumer gets pin_base_core; producers get pin_base_core+1..
+            // +producer_threads (see below) -- distinct cores so the
+            // consumer never shares a physical core with any producer.
+            consumer_pinned.store(
+                animus::sys::pin_current_thread_to_core_exclusive(static_cast<size_t>(pin_base_core)),
+                std::memory_order_relaxed);
+        }
         Event ev;
         while (!stop.load(std::memory_order_relaxed)) {
             if (ring.pop(ev)) total_popped.fetch_add(1, std::memory_order_relaxed);
@@ -324,11 +371,19 @@ MpmcResult run_mpmc_phase(double phase_seconds, unsigned producer_threads) {
     // allocates on construction on some standard-library implementations,
     // and that startup allocation is not part of the hot path under test
     // (same reasoning bench/hotpath_bench.cpp documents for its consumer
-    // thread). Only the timed push()/pop() region below is tracked.
+    // thread). Only the timed push()/pop() region below is tracked. Pinning
+    // itself (a direct OS syscall, no heap allocation) is safe to perform
+    // either side of the watchdog arm -- done here, before the `start` wait,
+    // purely so a pin failure is resolved well before the timed region.
     std::atomic<bool> start{false};
     std::chrono::steady_clock::time_point phase_deadline{};
     for (unsigned t = 0; t < producer_threads; ++t) {
         producers.emplace_back([&, t]() {
+            if (pin_requested) {
+                if (animus::sys::pin_current_thread_to_core_exclusive(static_cast<size_t>(pin_base_core) + 1 + t)) {
+                    producers_pinned.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
             std::vector<uint64_t>& samples = per_thread_samples[t];
             while (!start.load(std::memory_order_acquire)) {
                 // wait for the deadline to be published
@@ -374,6 +429,9 @@ MpmcResult run_mpmc_phase(double phase_seconds, unsigned producer_threads) {
     result.total_popped = total_popped.load(std::memory_order_relaxed);
     result.wall_seconds = std::chrono::duration<double>(wall_end - phase_start).count();
     result.producer_threads = producer_threads;
+    result.pin_requested = pin_requested;
+    result.consumer_pinned = consumer_pinned.load(std::memory_order_relaxed);
+    result.producers_pinned = producers_pinned.load(std::memory_order_relaxed);
     return result;
 }
 
@@ -394,6 +452,15 @@ int main(int argc, char** argv) {
         if (parsed > 0) producer_threads = static_cast<unsigned>(parsed);
     }
 
+    // Optional 3rd arg: base logical core index for exclusive pinning (see
+    // this file's header comment). -1 (default) disables pinning entirely,
+    // reproducing an ordinary unpinned run for comparison.
+    long pin_base_core = -1;
+    if (argc > 3) {
+        pin_base_core = std::atol(argv[3]);
+        if (pin_base_core < 0) pin_base_core = -1;
+    }
+
     const double phase_seconds = duration_seconds / 2.0;
 
     print_rule();
@@ -406,14 +473,19 @@ int main(int argc, char** argv) {
     const double cycles_per_ns = calibrate_cycles_per_ns();
     std::printf("TSC frequency      : %.4f GHz (calibrated against steady_clock)\n", cycles_per_ns);
     std::printf("Requested duration : %.1f s (%.1f s Phase A / %.1f s Phase B)\n", duration_seconds, phase_seconds, phase_seconds);
-    std::printf("MPMC producers     : %u threads + 1 consumer\n\n", producer_threads);
+    std::printf("MPMC producers     : %u threads + 1 consumer\n", producer_threads);
+    if (pin_base_core >= 0) {
+        std::printf("Core pinning       : ENABLED, base core %ld (animus::sys::pin_current_thread_to_core_exclusive)\n\n", pin_base_core);
+    } else {
+        std::printf("Core pinning       : disabled (unpinned run -- pass a 3rd arg, e.g. `2`, to enable)\n\n");
+    }
 
     std::printf("Phase A: SPSC ingest latency (animus::SpscRingBuffer<Event>)...\n");
-    const SpscResult spsc = run_spsc_phase(phase_seconds, cycles_per_ns);
+    const SpscResult spsc = run_spsc_phase(phase_seconds, cycles_per_ns, pin_base_core);
     const uint64_t spsc_allocs = g_alloc_count.load(std::memory_order_relaxed);
 
     std::printf("Phase B: MPMC throughput under contention (animus::LockFreeRingBuffer<Event>)...\n\n");
-    const MpmcResult mpmc = run_mpmc_phase(phase_seconds, producer_threads);
+    const MpmcResult mpmc = run_mpmc_phase(phase_seconds, producer_threads, pin_base_core);
     const uint64_t mpmc_allocs = g_alloc_count.load(std::memory_order_relaxed);
 
     print_rule();
@@ -421,6 +493,10 @@ int main(int argc, char** argv) {
     print_rule();
 
     std::printf("[Phase A -- SPSC Ingest]\n");
+    if (spsc.pin_requested) {
+        std::printf("  core pinning         : producer=%s consumer=%s\n",
+                    spsc.producer_pinned ? "PINNED" : "FAILED", spsc.consumer_pinned ? "PINNED" : "FAILED");
+    }
     std::printf("  events pushed        : %llu\n", static_cast<unsigned long long>(spsc.total_pushed));
     std::printf("  events popped        : %llu\n", static_cast<unsigned long long>(spsc.total_popped));
     std::printf("  sequence intact      : %s\n", spsc.sequence_intact ? "yes (every event drained exactly once, in order)" : "NO -- loss or reorder detected");
@@ -436,6 +512,10 @@ int main(int argc, char** argv) {
                 spsc_allocs == 0 ? "0 (PASS)" : "FAIL -- see count above");
 
     std::printf("[Phase B -- MPMC Throughput]\n");
+    if (mpmc.pin_requested) {
+        std::printf("  core pinning         : producers=%u/%u consumer=%s\n",
+                    mpmc.producers_pinned, mpmc.producer_threads, mpmc.consumer_pinned ? "PINNED" : "FAILED");
+    }
     std::printf("  producer threads     : %u\n", mpmc.producer_threads);
     std::printf("  wall time            : %.3f s\n", mpmc.wall_seconds);
     std::printf("  events pushed        : %llu\n", static_cast<unsigned long long>(mpmc.total_pushed));
@@ -467,11 +547,21 @@ int main(int argc, char** argv) {
                 spsc.sequence_intact ? "intact" : "BROKEN",
                 spsc.sequence_intact ? "PASS" : "FAIL");
     print_rule();
-    std::printf("Note: results are specific to the CPU, OS scheduler state, and background\n");
-    std::printf("load of the machine this ran on. Re-run with a dedicated/isolated core\n");
-    std::printf("(see docs/technical_eval/COMPATIBILITY_TUNING_GUIDE.md) for production-\n");
-    std::printf("representative numbers -- a shared, non-isolated core under a general-\n");
-    std::printf("purpose OS scheduler will show materially higher tail latency than this.\n");
+    if (pin_base_core >= 0) {
+        std::printf("Note: this run used core pinning + elevated thread priority (see \"core\n");
+        std::printf("pinning\" lines above) but NOT kernel-level isolation (isolcpus/nohz_full/\n");
+        std::printf("rcu_nocbs, Linux-only) or a NUMA-pinned allocation -- results are still\n");
+        std::printf("specific to this host and background load, not a Reference Topology number.\n");
+        std::printf("See docs/technical_eval/COMPATIBILITY_TUNING_GUIDE.md Sec.2 for full kernel\n");
+        std::printf("tuning beyond what this process can do on its own.\n");
+    } else {
+        std::printf("Note: results are specific to the CPU, OS scheduler state, and background\n");
+        std::printf("load of the machine this ran on. Re-run with a dedicated/isolated core\n");
+        std::printf("(see docs/technical_eval/COMPATIBILITY_TUNING_GUIDE.md, and pass a 3rd CLI\n");
+        std::printf("arg to enable this harness's own core pinning) for production-representative\n");
+        std::printf("numbers -- a shared, non-isolated core under a general-purpose OS scheduler\n");
+        std::printf("will show materially higher tail latency than this.\n");
+    }
 
     const bool overall_pass = ingest_pass && tick_pass && (spsc_allocs + mpmc_allocs) == 0 && spsc.sequence_intact;
     return overall_pass ? EXIT_SUCCESS : EXIT_FAILURE;
