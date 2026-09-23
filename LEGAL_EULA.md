@@ -6,7 +6,7 @@
 
 **This Pilot Evaluation & Commercial License Agreement** ("**Agreement**") is entered into as of **[EFFECTIVE DATE]** ("**Effective Date**") by and between:
 
-- **Animus Technologies Private Limited**, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Core" brand and formerly conducting this business as a sole proprietorship under its Founder, Alakshendra Roy ("**Animus Core**," "**Vendor**," "**we**," "**us**"); and
+- **Animus Technologies (OPC) Private Limited**, a One Person Company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Core" brand and formerly conducting this business as a sole proprietorship under its Founder, Alakshendra Roy ("**Animus Core**," "**Vendor**," "**we**," "**us**"); and
 - **[CUSTOMER LEGAL ENTITY NAME]**, a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Customer**," "**you**"),
 
 each individually a "**Party**" and together the "**Parties**."
@@ -217,7 +217,7 @@ TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW:
 
 | | Vendor | Customer |
 |---|---|---|
-| **Entity Name** | Animus Technologies Private Limited (Animus Core) | [CUSTOMER LEGAL ENTITY NAME] |
+| **Entity Name** | Animus Technologies (OPC) Private Limited (Animus Core) | [CUSTOMER LEGAL ENTITY NAME] |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Director | [TITLE] |

@@ -19,7 +19,7 @@ from scratch each time.
       law (India), arbitration forum (SIAC/Singapore), and cross-border
       enforceability are founder-drafted, not vetted. Tracked in GitHub
       issue #7.
-- [ ] **CIN not issued** -- Animus Technologies Private Limited's
+- [ ] **CIN not issued** -- Animus Technologies (OPC) Private Limited's
       incorporation is decided but not filed; every contract has a
       `[CIN -- pending]` placeholder and no registered notice address.
 - [ ] **Client-side contract fields are all placeholders** -- expected

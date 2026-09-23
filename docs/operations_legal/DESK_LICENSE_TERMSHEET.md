@@ -14,7 +14,7 @@
 | **Document ID** | ANM-DL-TS-2026-v1 |
 | **Effective Date** | [EFFECTIVE DATE] |
 | **Expiration of Offer** | This term sheet expires **thirty (30) calendar days** from the Effective Date if not countersigned by Licensee, after which it may be withdrawn or revised by Licensor at its sole discretion. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
+| **Licensor** | Animus Technologies (OPC) Private Limited, a One Person Company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Licensor**," "**Animus**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**," "**Client**") |
 | **Scope Classification** | Desk License — single production node, single strategy or single telemetry/surveillance pipeline, capped core count, as defined in §2.4 |
 
@@ -116,7 +116,7 @@ If Licensee's usage outgrows the scope fixed in §2.4 — a second production no
 
 | | Licensor | Licensee |
 |---|---|---|
-| **Entity / Individual** | Animus Technologies Private Limited, by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
+| **Entity / Individual** | Animus Technologies (OPC) Private Limited, by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Chief Architect | [TITLE] |

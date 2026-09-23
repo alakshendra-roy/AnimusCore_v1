@@ -13,7 +13,7 @@
 | **Commercial Tier** | Global Strategic Master Agreement — Global Enterprise License Agreement ("**Global ELA**") |
 | **Order Effective Date** | [ORDER EFFECTIVE DATE] |
 | **Offer Expiry** | This order form lapses if not countersigned by Licensee within thirty (30) calendar days of the date Licensor issues it. |
-| **Licensor** | Animus Technologies Private Limited, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
+| **Licensor** | Animus Technologies (OPC) Private Limited, a One Person Company incorporated under the Companies Act, 2013, having its registered office in India (CIN: [CIN — to be inserted upon issuance of the Certificate of Incorporation; see [`../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md)]), operating under the "Animus Core" brand ("**Licensor**") |
 | **Licensee** | [CLIENT LEGAL ENTITY NAME], a [ENTITY TYPE] organized under the laws of [JURISDICTION] ("**Licensee**"), on behalf of itself and its Affiliates |
 | **Master Agreement** | Animus Core Pilot Evaluation & Commercial License Agreement between Licensor and Licensee dated [MASTER AGREEMENT DATE] ([`../LEGAL_EULA.md`](../../LEGAL_EULA.md)) (the "**Master Agreement**") |
 | **Designation** | This order form **designates a Global Strategic Master Agreement** for the purposes of Master Agreement §3.1. |
@@ -165,7 +165,7 @@ By signing, each Party agrees to this order form and the Master Agreement it inc
 
 | | Licensor | Licensee |
 |---|---|---|
-| **Entity** | Animus Technologies Private Limited | [CLIENT LEGAL ENTITY NAME], for itself and its Affiliates |
+| **Entity** | Animus Technologies (OPC) Private Limited | [CLIENT LEGAL ENTITY NAME], for itself and its Affiliates |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Director | [TITLE] |

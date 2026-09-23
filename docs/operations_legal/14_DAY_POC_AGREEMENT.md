@@ -9,7 +9,7 @@
 
 **14-DAY TECHNICAL PROOF-OF-CONCEPT AGREEMENT AND MUTUAL NON-DISCLOSURE AGREEMENT**
 
-This Agreement is entered into as of **[EFFECTIVE DATE]** by and between **Animus Technologies Private Limited**, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — pending issuance; see `../../LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Infrastructure" name, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Animus**"), and **[CLIENT LEGAL ENTITY NAME]**, a [entity type] organized under the laws of [jurisdiction] ("**Client**"), each a "Party" and together the "Parties."
+This Agreement is entered into as of **[EFFECTIVE DATE]** by and between **Animus Technologies (OPC) Private Limited**, a One Person Company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — pending issuance; see `../../LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Infrastructure" name, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Animus**"), and **[CLIENT LEGAL ENTITY NAME]**, a [entity type] organized under the laws of [jurisdiction] ("**Client**"), each a "Party" and together the "Parties."
 
 **Recitals.** Animus has developed a C++17 zero-copy, lock-free telemetry and market-data ingestion engine ("**Software**"). Client wishes to independently verify the Software's tail-latency characteristics on Client's own hardware and tick-replay harness before considering it for any production use. This is a **non-production, technical-verification-only** engagement: Client shall not use the Software, in whole or part, to execute, route, or influence any live or simulated trade against a real market, exchange, or counterparty during the Term. Nothing in this Agreement obligates either Party to enter any further agreement, except as expressly stated in §5.
 
@@ -55,7 +55,7 @@ THE SOFTWARE IS PROVIDED "AS IS" FOR NON-PRODUCTION EVALUATION ONLY. ANIMUS DISC
 
 | | Animus Infrastructure | Client |
 |---|---|---|
-| **Entity / Individual** | Animus Technologies Private Limited (Animus Infrastructure), by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
+| **Entity / Individual** | Animus Technologies (OPC) Private Limited (Animus Infrastructure), by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Chief Architect | [TITLE] |

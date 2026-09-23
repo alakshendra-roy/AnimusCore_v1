@@ -9,7 +9,7 @@
 
 **MASTER PROOF-OF-PERFORMANCE PILOT AGREEMENT AND MUTUAL NON-DISCLOSURE AGREEMENT**
 
-This Agreement is entered into as of **[EFFECTIVE DATE]** by and between **Animus Technologies Private Limited**, a company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `../../LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Infrastructure" name for this engagement, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Animus**"), and **[CLIENT LEGAL ENTITY NAME]**, a [entity type] organized under the laws of [jurisdiction] ("**Client**"), each a "Party" and together the "Parties."
+This Agreement is entered into as of **[EFFECTIVE DATE]** by and between **Animus Technologies (OPC) Private Limited**, a One Person Company incorporated under the Companies Act, 2013, having its registered office in India (CIN: **[CIN — to be inserted upon issuance of the Certificate of Incorporation; see `../../LEGAL_INCORPORATION_BRIEF.md`]**), operating under the "Animus Infrastructure" name for this engagement, represented by **Alakshendra Roy, Founder & Chief Architect** ("**Animus**"), and **[CLIENT LEGAL ENTITY NAME]**, a [entity type] organized under the laws of [jurisdiction] ("**Client**"), each a "Party" and together the "Parties."
 
 ## 1. Scope — The 30-Day Proof-of-Performance Engagement
 
@@ -69,7 +69,7 @@ This Agreement terminates automatically at the end of the Term (§1) unless exte
 
 | | Animus Infrastructure | Client |
 |---|---|---|
-| **Entity / Individual** | Animus Technologies Private Limited (Animus Infrastructure), by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
+| **Entity / Individual** | Animus Technologies (OPC) Private Limited (Animus Infrastructure), by Alakshendra Roy | [CLIENT LEGAL ENTITY NAME] |
 | **Signature** | ___________________________ | ___________________________ |
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Chief Architect | [TITLE] |
