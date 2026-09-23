@@ -35,6 +35,32 @@ These reduce scheduler-induced jitter on the cores a producer/consumer pair occu
 
 **Environment disclosure applies here too:** a run of `run_poc_eval.sh`/`run_poc_eval.bat` on a general-purpose, non-isolated development host will show materially higher P99/P99.9 tail latency than the same code on a tuned host per the above — the harness prints this caveat directly in its own scorecard. Treat an untuned run as a correctness/regression check, not a production-representative latency number.
 
+### 2.1 Measured Impact of Pinning Alone (Application-Level Only, No Kernel Isolation)
+
+`poc_eval_harness.cpp` (repo root, `run_poc_eval.sh`/`.bat`) takes an optional 3rd CLI argument, `pin_base_core`, that pins every producer/consumer thread in both phases to a distinct logical core via `animus::sys::pin_current_thread_to_core_exclusive` — deliberately the pin **+ elevated-priority** variant, not plain affinity pinning, per that function's own documented rationale (a pinned-but-not-prioritized thread has nowhere to migrate to when preempted, which measurably worsened P99.99 in this project's own earlier benchmarking — see `thread_affinity.hpp`'s comment above `pin_current_thread_to_core_exclusive`). The table below is one actual before/after run on the same host, back to back, isolating that one variable:
+
+| Metric | Unpinned | Pinned (`pin_base_core=4`) | Change |
+|---|---|---|---|
+| P50 SPSC ingest latency | 55.39 ns | 19.43 ns | 2.9x lower |
+| P99 SPSC ingest latency | 109.13 ns | 25.22 ns | 4.3x lower |
+| P50 tick-to-telemetry | 155.84 ns | 34.31 ns | 4.5x lower |
+| P99 tick-to-telemetry | 398,189 ns | 56.22 ns | ~7,100x lower |
+| P99.9 tick-to-telemetry | 2,488,476 ns | 59,682 ns | ~42x lower (one outlier still visible) |
+| MPMC pushes/sec (4 producers) | 7.82M | 9.66M | +24% |
+| Heap allocations (both phases) | 0 | 0 | unchanged |
+| Target: P50 ingest < 15 ns | FAIL | FAIL (19.43 ns — within ~30%) | — |
+| Target: P50 tick-to-telemetry < 100 ns | FAIL | **PASS** | — |
+
+**Read this narrowly.** This is `SetThreadAffinityMask`/`SetThreadIdealProcessor` + `THREAD_PRIORITY_TIME_CRITICAL`/`HIGH_PRIORITY_CLASS` on an **unmodified Windows development laptop** (Intel Core i7-14650HX, hybrid P-core/E-core, 24 logical cores) — no `isolcpus`/`nohz_full`/`rcu_nocbs` (Linux-only kernel boot parameters this host doesn't have), no `REALTIME_PRIORITY_CLASS` (requires a privilege this session didn't hold, so it fell back to `HIGH_PRIORITY_CLASS` per `set_thread_high_priority()`'s documented fallback), and no NUMA/hugepage tuning. It demonstrates that application-level pinning *by itself* already removes most scheduler-induced tail latency (the P99 tick-to-telemetry improvement in particular), while the remaining P99.9 outlier and the still-missed sub-15ns ingest target are consistent with exactly the residual OS interference §2's kernel-level items (`isolcpus`, `nohz_full`, real-time scheduling class) exist to remove. A Linux host with the full §2 checklist applied — and, on Linux, `sched_setscheduler(SCHED_FIFO)` actually succeeding rather than falling back to `nice(-20)` — would be expected to close more of the remaining gap, but that is an expectation to verify on that host, not a number asserted here.
+
+Reproduce this comparison yourself:
+
+```bash
+./run_poc_eval.sh 10 4          # unpinned baseline
+./run_poc_eval.sh 10 4 4        # pinned, base core 4 (Linux/macOS)
+run_poc_eval.bat 10 4 4         # pinned, base core 4 (Windows)
+```
+
 ## 3. Low-Overhead Python Bridge Integration (nanobind)
 
 The core engine's Python interop (`bindings/animus_py.cpp`, C++17, built via `bindings/CMakeLists.txt`) is a native **nanobind** extension binding `animus::SpscRingBuffer<TelemetryPayload>` directly — chosen over pybind11 specifically for nanobind's smaller per-call dispatch overhead and binary footprint (a build-time property to verify yourself for your own workload, per that file's own comment, not to take as an unverified claim).
@@ -58,8 +84,12 @@ grep -m1 -o 'constant_tsc\|nonstop_tsc' /proc/cpuinfo
 cat /sys/devices/system/clocksource/clocksource0/current_clocksource   # expect "tsc"
 
 # Run the POC harness and read its own printed CPU/TSC diagnostics + scorecard:
-./run_poc_eval.sh 10        # Linux
-run_poc_eval.bat 10         # Windows
+./run_poc_eval.sh 10        # Linux, unpinned
+run_poc_eval.bat 10         # Windows, unpinned
+
+# Compare against a pinned run (see §2.1) on the same host:
+./run_poc_eval.sh 10 4 4    # Linux, pinned to base core 4
+run_poc_eval.bat 10 4 4     # Windows, pinned to base core 4
 ```
 
 *This guide describes build/runtime configuration as implemented in the code cited above. For which specific latency figures a given order form contractually guarantees under a tuned Reference Topology versus an untuned host, see [`../../COMPLIANCE_AND_RISK_MITIGATION.md`](../../COMPLIANCE_AND_RISK_MITIGATION.md) §1.*
