@@ -6,22 +6,27 @@
 <title>Animus Capital Command</title>
 <style>
   :root{
-    --canvas:#07090E;
-    --panel:#0F141C;
-    --panel-raised:#131A24;
-    --border:#1E293B;
-    --border-soft:#161E2B;
-    --ink-primary:#E6EDF3;
-    --ink-secondary:#93A2B8;
-    --ink-muted:#5B6B82;
-    --emerald:#00E676;
-    --emerald-dim:#0A3A26;
+    --canvas:#050807;
+    --canvas-deep:#04100c;
+    --canvas-mid:#061a14;
+    --panel:#0A1712;
+    --panel-raised:#0E2019;
+    --border:rgba(16,185,129,0.16);
+    --border-soft:rgba(16,185,129,0.09);
+    --ink-primary:#E9F2ED;
+    --ink-secondary:#94A9A0;
+    --ink-muted:#5B7268;
+    --emerald:#10B981;
+    --emerald-deep:#059669;
+    --emerald-dim:rgba(16,185,129,0.14);
     --gold:#F59E0B;
-    --gold-dim:#3A2A0A;
+    --champagne:#D97706;
+    --gold-dim:rgba(217,119,6,0.14);
     --crimson:#EF4444;
     --crimson-dim:#3A1414;
     --azure:#3B82F6;
     --azure-dim:#0F2340;
+    --ink-on-emerald:#04140D;
     --mono: 'JetBrains Mono','SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
     --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
     --radius:10px;
@@ -29,8 +34,16 @@
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
+  html{ background:var(--canvas); }
   body{
-    background:var(--canvas);
+    position:relative;
+    background-color:var(--canvas);
+    background-image:
+      radial-gradient(ellipse 900px 560px at 14% -8%, rgba(16,185,129,0.13), transparent 62%),
+      radial-gradient(ellipse 760px 520px at 104% 6%, rgba(217,119,6,0.06), transparent 58%),
+      radial-gradient(ellipse 1200px 900px at 50% 115%, var(--canvas-mid), var(--canvas-deep) 55%, var(--canvas) 100%);
+    background-attachment:fixed;
+    background-repeat:no-repeat;
     color:var(--ink-primary);
     font-family:var(--sans);
     font-size:14px;
@@ -38,7 +51,18 @@
     -webkit-font-smoothing:antialiased;
     padding-bottom:60px;
   }
-  ::selection{ background:var(--emerald); color:#031A0F; }
+  body::before{
+    content:"";
+    position:fixed; inset:0; z-index:0; pointer-events:none;
+    opacity:0.05;
+    mix-blend-mode:screen;
+    background-image:
+      repeating-linear-gradient(118deg, rgba(16,185,129,0.55) 0px, rgba(16,185,129,0.55) 1px, transparent 1px, transparent 28px),
+      repeating-linear-gradient(28deg, rgba(217,119,6,0.4) 0px, rgba(217,119,6,0.4) 1px, transparent 1px, transparent 36px),
+      repeating-radial-gradient(circle at 50% 0%, rgba(16,185,129,0.3) 0px, transparent 1px, transparent 64px);
+  }
+  .cmdbar, .shell{ position:relative; z-index:1; }
+  ::selection{ background:var(--emerald); color:var(--ink-on-emerald); }
   .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
   a{ color:var(--azure); }
 
@@ -50,7 +74,7 @@
   /* ===== Top command bar ===== */
   .cmdbar{
     position:sticky; top:0; z-index:50;
-    background:rgba(7,9,14,0.94);
+    background:rgba(4,16,12,0.90);
     backdrop-filter:blur(10px);
     border-bottom:1px solid var(--border);
     padding:10px 20px;
@@ -62,17 +86,18 @@
   .brand{ display:flex; align-items:center; gap:10px; margin-right:auto; }
   .brand-mark{
     width:30px; height:30px; border-radius:7px;
-    background:linear-gradient(135deg,var(--emerald),#00A855);
+    background:linear-gradient(135deg,var(--emerald),var(--emerald-deep));
     display:flex; align-items:center; justify-content:center;
-    font-weight:800; color:#031A0F; font-size:14px; font-family:var(--mono);
+    font-weight:800; color:var(--ink-on-emerald); font-size:14px; font-family:var(--mono);
     flex:none;
+    box-shadow:0 0 0 1px rgba(217,119,6,0.3);
   }
   .brand-text .t1{ font-weight:700; font-size:13.5px; letter-spacing:0.02em; }
   .brand-text .t2{ font-size:10.5px; color:var(--ink-muted); letter-spacing:0.08em; text-transform:uppercase; }
   .status-chip{
     display:flex; align-items:center; gap:6px;
     font-size:10.5px; color:var(--emerald); letter-spacing:0.06em; text-transform:uppercase;
-    padding:4px 9px; border:1px solid var(--emerald-dim); border-radius:20px; background:rgba(0,230,118,0.06);
+    padding:4px 9px; border:1px solid var(--emerald-dim); border-radius:20px; background:rgba(16,185,129,0.07);
     white-space:nowrap;
   }
   .status-dot{ width:6px; height:6px; border-radius:50%; background:var(--emerald); box-shadow:0 0 6px var(--emerald); }
@@ -119,8 +144,9 @@
   }
   .tier-tab:hover{ border-color:#334155; }
   .tier-tab.active{
-    background:linear-gradient(180deg,rgba(0,230,118,0.08),rgba(0,230,118,0.02));
+    background:linear-gradient(180deg,rgba(16,185,129,0.10),rgba(217,119,6,0.02));
     border-color:var(--emerald);
+    box-shadow:inset 0 0 0 1px rgba(217,119,6,0.12);
   }
   .tier-tab .tt-num{ font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-muted); }
   .tier-tab.active .tt-num{ color:var(--emerald); }
@@ -132,8 +158,11 @@
   @media (max-width:560px){ .tier-tabs{ grid-template-columns:repeat(2,1fr);} }
 
   .panel{
-    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    position:relative;
+    background:linear-gradient(180deg,rgba(16,185,129,0.035),rgba(0,0,0,0) 120px),var(--panel);
+    border:1px solid var(--border); border-radius:var(--radius);
     padding:16px 16px 18px; margin-bottom:18px;
+    box-shadow:0 1px 0 rgba(217,119,6,0.05) inset;
   }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap; }
   .panel-title{ font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-primary); }
@@ -159,23 +188,26 @@
   .ctrl{ display:flex; flex-direction:column; gap:4px; }
   .ctrl label{ font-size:10px; color:var(--ink-muted); display:flex; justify-content:space-between; text-transform:uppercase; letter-spacing:0.03em; }
   .ctrl label span{ font-family:var(--mono); color:var(--ink-secondary); text-transform:none; letter-spacing:0; }
+  .wf-tooltip{ font-size:10px; color:var(--ink-muted); line-height:1.4; margin-top:1px; font-style:italic; }
+  .wf-tooltip::before{ content:"ⓘ "; color:var(--champagne); font-style:normal; }
   input[type=range]{
     -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px;
     background:var(--border); outline:none; cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb{
     -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
-    background:var(--emerald); border:2px solid #031A0F; cursor:pointer; box-shadow:0 0 0 1px var(--emerald);
+    background:var(--emerald); border:2px solid var(--ink-on-emerald); cursor:pointer; box-shadow:0 0 0 1px var(--emerald);
   }
   input[type=range]::-moz-range-thumb{
-    width:14px; height:14px; border-radius:50%; background:var(--emerald); border:2px solid #031A0F; cursor:pointer;
+    width:14px; height:14px; border-radius:50%; background:var(--emerald); border:2px solid var(--ink-on-emerald); cursor:pointer;
   }
 
   .tag{ display:inline-flex; align-items:center; gap:5px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em; padding:2px 8px; border-radius:20px; font-weight:700; }
-  .tag-emerald{ background:rgba(0,230,118,0.1); color:var(--emerald); border:1px solid var(--emerald-dim); }
+  .tag-emerald{ background:rgba(16,185,129,0.1); color:var(--emerald); border:1px solid var(--emerald-dim); }
   .tag-gold{ background:rgba(245,158,11,0.1); color:var(--gold); border:1px solid var(--gold-dim); }
   .tag-crimson{ background:rgba(239,68,68,0.1); color:var(--crimson); border:1px solid var(--crimson-dim); }
   .tag-azure{ background:rgba(59,130,246,0.1); color:var(--azure); border:1px solid var(--azure-dim); }
+  .tag-champagne{ background:rgba(217,119,6,0.1); color:var(--champagne); border:1px solid var(--gold-dim); }
 
   /* ===== Lifestyle profile ===== */
   .lifestyle-grid{ display:grid; grid-template-columns:1fr; gap:10px; }
@@ -193,6 +225,7 @@
   .pe-btn b{ display:block; font-size:12px; margin-bottom:1px; }
   .pe-btn.active{ border-color:var(--azure); color:var(--ink-primary); background:rgba(59,130,246,0.08); }
   .alloc-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed var(--border-soft); }
+  .alloc-row:hover{ background:linear-gradient(90deg,rgba(217,119,6,0.05),transparent 60%); }
   .alloc-row:last-child{ border-bottom:none; }
   .alloc-swatch{ width:10px; height:10px; border-radius:3px; flex:none; }
   .alloc-name{ flex:1; font-size:12px; }
@@ -204,21 +237,21 @@
 
   /* ===== Mentor console ===== */
   .mentor-box{
-    background:#0A0D13; border:1px solid var(--border); border-radius:var(--radius-sm);
+    background:#050E0A; border:1px solid var(--border); border-radius:var(--radius-sm);
     padding:14px; font-family:var(--mono); font-size:12px; color:var(--emerald); min-height:150px;
     white-space:pre-wrap; line-height:1.6;
   }
-  .mentor-box .m-head{ color:var(--gold); font-weight:700; display:block; margin-bottom:8px; }
+  .mentor-box .m-head{ color:var(--champagne); font-weight:700; display:block; margin-bottom:8px; }
   .mentor-box .m-empty{ color:var(--ink-muted); font-family:var(--sans); }
   .btn{
     border:1px solid var(--border); background:var(--panel-raised); color:var(--ink-primary);
     padding:9px 14px; border-radius:var(--radius-sm); font-size:11.5px; font-weight:600; cursor:pointer;
     letter-spacing:0.02em; transition:border-color .15s, background .15s;
   }
-  .btn:hover{ border-color:#334155; }
-  .btn-primary{ background:linear-gradient(180deg,var(--emerald),#00B85E); border-color:transparent; color:#031A0F; }
+  .btn:hover{ border-color:var(--emerald); }
+  .btn-primary{ background:linear-gradient(180deg,var(--emerald),var(--emerald-deep)); border-color:transparent; color:var(--ink-on-emerald); }
   .btn-primary:hover{ filter:brightness(1.06); }
-  .btn-gold{ background:linear-gradient(180deg,var(--gold),#C9790A); border-color:transparent; color:#2A1600; }
+  .btn-gold{ background:linear-gradient(180deg,var(--gold),var(--champagne)); border-color:transparent; color:#2A1600; }
   .btn-row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
 
   .footer-note{ text-align:center; font-size:10.5px; color:var(--ink-muted); margin-top:20px; }
@@ -339,17 +372,17 @@
 
   var TIERS = [
     { id:1, usd:20000, name:"Foundation Vault", vehicle:"Volkswagen Virtus GT Plus 1.5 TSI DSG + Maruti XL6", fuel:"4x Full Tanks · IOCL XP95 (personal card)", residence:"Current Residence", vault:"Aggressive liquid vault formation", note:"Bank the surplus. Prove the recurring line first.",
-      cloudPct:0.05, ca:35000, vehicleLease:85000, fuelAllow:20000, drawPct:55, dlfLease:0, staffPool:40000, familyTransfer:100000 },
+      cloudPct:0.05, ca:35000, vehicleLease:85000, fuelAllow:20000, drawPct:55, dlfLease:0, staffPool:40000, familyTransfer:100000, householdStaff:100000 },
     { id:2, usd:40000, name:"Belaire Transition", vehicle:"Mercedes-Benz E 450 4MATIC / AMG GLC 43 Coupé", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Belaire", vault:"Formal treasury cadence begins", note:"Upgrade shelter, not identity.",
-      cloudPct:0.05, ca:55000, vehicleLease:220000, fuelAllow:55000, drawPct:50, dlfLease:350000, staffPool:90000, familyTransfer:150000 },
+      cloudPct:0.05, ca:55000, vehicleLease:220000, fuelAllow:55000, drawPct:50, dlfLease:350000, staffPool:90000, familyTransfer:150000, householdStaff:100000 },
     { id:3, usd:60000, name:"The Crest Standard", vehicle:"Mercedes E 450 LWB (executive) + Virtus GT (daily)", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Crest", vault:"Dual-vehicle operating cadence", note:"Two cars, one focus: enterprise contracts.",
-      cloudPct:0.045, ca:70000, vehicleLease:380000, fuelAllow:85000, drawPct:48, dlfLease:550000, staffPool:140000, familyTransfer:200000 },
+      cloudPct:0.045, ca:70000, vehicleLease:380000, fuelAllow:85000, drawPct:48, dlfLease:550000, staffPool:140000, familyTransfer:200000, householdStaff:100000 },
     { id:4, usd:80000, name:"The Mercedes Ceiling", vehicle:"Mercedes-Maybach S 580 4MATIC or AMG G 63", fuel:"Unlimited IOCL XP100/XP95 Fleet Card", residence:"DLF The Crest / The Magnolias", vault:"Ceiling tier — protect the moat", note:"This is the top of the sensible curve. Everything past it must be earned twice.",
-      cloudPct:0.04, ca:90000, vehicleLease:650000, fuelAllow:130000, drawPct:45, dlfLease:750000, staffPool:190000, familyTransfer:250000 },
+      cloudPct:0.04, ca:90000, vehicleLease:650000, fuelAllow:130000, drawPct:45, dlfLease:750000, staffPool:190000, familyTransfer:250000, householdStaff:100000 },
     { id:5, usd:100000, name:"Exotic Tier Upgrade", vehicle:"Porsche 911 Turbo S (992.2 AWD Flat-6) + Maybach S 580 Chauffeur", fuel:"Unlimited IOCL XP100", residence:"DLF The Magnolias", vault:"Exotic assets, not exotic decisions", note:"The Porsche is a reward for contracts already signed — never collateral for ones you hope to sign.",
-      cloudPct:0.035, ca:110000, vehicleLease:950000, fuelAllow:170000, drawPct:42, dlfLease:900000, staffPool:260000, familyTransfer:300000 },
+      cloudPct:0.035, ca:110000, vehicleLease:950000, fuelAllow:170000, drawPct:42, dlfLease:900000, staffPool:260000, familyTransfer:300000, householdStaff:100000 },
     { id:6, usd:120000, name:"Sovereign Tier", vehicle:"Bentley Continental GT Speed / Flying Spur W12 + Flagship Garage", fuel:"White-Glove XP100 Card", residence:"DLF The Camellias", vault:"Sovereign compound — full compounding discipline", note:"At this altitude the only remaining risk is complacency.",
-      cloudPct:0.03, ca:140000, vehicleLease:1450000, fuelAllow:220000, drawPct:40, dlfLease:1400000, staffPool:380000, familyTransfer:400000 }
+      cloudPct:0.03, ca:140000, vehicleLease:1450000, fuelAllow:220000, drawPct:40, dlfLease:1400000, staffPool:380000, familyTransfer:400000, householdStaff:100000 }
   ];
 
   var PE_BANDS = [
@@ -395,7 +428,7 @@
     tierIdx: 0,
     fx: 90.00,
     cloudPct: null, ca: null, vehicleLease: null, fuelAllow: null,
-    drawPct: null, dlfLease: null, staffPool: null, familyTransfer: null,
+    drawPct: null, dlfLease: null, staffPool: null, familyTransfer: null, householdStaff: null,
     peBand: 'fair',
     investPct: 50
   };
@@ -449,6 +482,7 @@
     var dlfLease = state.dlfLease !== null ? state.dlfLease : t.dlfLease;
     var staffPool = state.staffPool !== null ? state.staffPool : t.staffPool;
     var familyTransfer = state.familyTransfer !== null ? state.familyTransfer : t.familyTransfer;
+    var householdStaff = state.householdStaff !== null ? state.householdStaff : t.householdStaff;
 
     var cloudInfra = grossINR * cloudPct;
     var deductions = cloudInfra + ca + vehicleLease + fuelAllow;
@@ -464,7 +498,7 @@
     var monthlyTDS = annualTax / 12;
     var inHandCash = founderDraw - monthlyTDS;
 
-    var fixedAllocations = dlfLease + staffPool + familyTransfer;
+    var fixedAllocations = dlfLease + staffPool + familyTransfer + householdStaff;
     var guiltFree = inHandCash - fixedAllocations;
 
     var totalBurn = deductions + fixedAllocations + monthlyTDS + corpTax;
@@ -475,7 +509,7 @@
       pretaxProfit:pretaxProfit, founderDraw:founderDraw, drawPct:drawPct,
       retainedPortion:retainedPortion, corpTax:corpTax, retainedEarnings:retainedEarnings,
       monthlyTDS:monthlyTDS, inHandCash:inHandCash,
-      dlfLease:dlfLease, staffPool:staffPool, familyTransfer:familyTransfer, fixedAllocations:fixedAllocations,
+      dlfLease:dlfLease, staffPool:staffPool, familyTransfer:familyTransfer, householdStaff:householdStaff, fixedAllocations:fixedAllocations,
       guiltFree:guiltFree, totalBurn:totalBurn
     };
   }
@@ -498,7 +532,7 @@
       btn.addEventListener('click', function(){
         state.tierIdx = parseInt(btn.getAttribute('data-idx'),10);
         state.cloudPct = state.ca = state.vehicleLease = state.fuelAllow = null;
-        state.drawPct = state.dlfLease = state.staffPool = state.familyTransfer = null;
+        state.drawPct = state.dlfLease = state.staffPool = state.familyTransfer = state.householdStaff = null;
         renderAll();
       });
     });
@@ -556,17 +590,22 @@
       '<div class="wf-title">Fixed Monthly Allocations</div>' +
       '<div class="wf-amount hl-crimson">-'+fmtINR(w.fixedAllocations)+'</div></div>' +
       '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.fixedAllocations)+'%;background:var(--crimson);"></div></div>' +
-      '<div class="wf-detail"><span>'+ (w.t.residence) +': '+fmtINR(w.dlfLease)+'</span><span>Staff pool '+fmtINR(w.staffPool)+'</span><span>Family transfers '+fmtINR(w.familyTransfer)+'</span></div>' +
+      '<div class="wf-detail"><span>'+ (w.t.residence) +': '+fmtINR(w.dlfLease)+'</span><span>Staff pool '+fmtINR(w.staffPool)+'</span><span>Family transfers '+fmtINR(w.familyTransfer)+'</span><span>Household staff &amp; logistics '+fmtINR(w.householdStaff)+'</span></div>' +
       '<div class="wf-controls">' +
         slider('dlfLease','Residence Lease', state.dlfLease!==null?state.dlfLease:w.t.dlfLease, 0, 2000000, 10000, fmtINR, 'dlfLease') +
         slider('staffPool','Chef / Driver Staff Pool', state.staffPool!==null?state.staffPool:w.t.staffPool, 0, 500000, 5000, fmtINR, 'staffPool') +
         slider('familyTransfer','Family Liquidity Transfers', state.familyTransfer!==null?state.familyTransfer:w.t.familyTransfer, 0, 600000, 5000, fmtINR, 'familyTransfer') +
+        '<div class="ctrl" style="grid-column:1 / -1;">' +
+          '<label title="Funded via Personal Founder Draw. 100% compliant personal household overhead (Zero corporate TDS/PF overhead).">Household Staff &amp; Private Logistics <span id="householdStaffVal">'+fmtINR(state.householdStaff!==null?state.householdStaff:w.t.householdStaff)+'</span></label>' +
+          '<input type="range" id="householdStaff" data-key="householdStaff" min="0" max="300000" step="5000" value="'+(state.householdStaff!==null?state.householdStaff:w.t.householdStaff)+'">' +
+          '<div class="wf-tooltip">Funded via Personal Founder Draw · Private Chauffeur + Full-time Housekeeping/Cook · 100% compliant personal household overhead (Zero corporate TDS/PF overhead).</div>' +
+        '</div>' +
       '</div></div>';
 
     // Step 6
     var guiltFreeColor = w.guiltFree >= 0 ? 'var(--emerald)' : 'var(--crimson)';
     html += '<div class="wf-step" style="border-color:'+(w.guiltFree>=0?'var(--emerald-dim)':'var(--crimson-dim)')+';">' +
-      '<div class="wf-step-head"><div class="wf-num" style="background:'+guiltFreeColor+';color:#031A0F;">6</div>' +
+      '<div class="wf-step-head"><div class="wf-num" style="background:'+guiltFreeColor+';color:var(--ink-on-emerald);">6</div>' +
       '<div class="wf-title">100% Guilt-Free Discretionary Pool</div>' +
       '<div class="wf-amount" style="color:'+guiltFreeColor+';">'+fmtINR(w.guiltFree)+'</div></div>' +
       '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(Math.abs(w.guiltFree))+'%;background:'+guiltFreeColor+';"></div></div>' +
