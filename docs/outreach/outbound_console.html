@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outbound Operations Console — Animus Core</title>
+<style>
+  :root{
+    --bg:#0a0d12; --panel:#12161d; --panel2:#171c25; --border:#232a36;
+    --text:#e7ebf1; --muted:#8b96a8; --accent:#4f9cff;
+    --ready:#2fbf71; --contacted:#6b7480; --bounced:#e5534b; --sent:#22c55e;
+    --tierA:#f0b429; --tierB:#9aa5b1;
+    --py:#8b5cf6; --raw:#22c1c3; --in:#f59e0b; --gs:#ec4899;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;}
+  header{position:sticky;top:0;z-index:10;background:rgba(10,13,18,.95);backdrop-filter:blur(6px);border-bottom:1px solid var(--border);padding:14px 20px;}
+  h1{font-size:18px;margin:0 0 2px;}
+  .sub{color:var(--muted);font-size:12.5px;margin-bottom:10px;}
+  .counts{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-bottom:10px;}
+  .counts b{color:var(--text);}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap;}
+  .tab{background:var(--panel2);border:1px solid var(--border);color:var(--muted);padding:6px 12px;border-radius:20px;font-size:12.5px;cursor:pointer;user-select:none;}
+  .tab.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+  main{max-width:980px;margin:0 auto;padding:16px 20px 60px;}
+  .pipeline-heading{margin:22px 0 8px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:8px;}
+  .pipeline-heading .dot{width:8px;height:8px;border-radius:50%;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
+  .card.locked{opacity:.62;}
+  .row1{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;}
+  .firm{font-weight:600;font-size:14.5px;}
+  .badge{font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:10px;letter-spacing:.02em;white-space:nowrap;}
+  .badge.pipe-py{background:rgba(139,92,246,.18);color:var(--py);}
+  .badge.pipe-raw{background:rgba(34,193,195,.18);color:var(--raw);}
+  .badge.pipe-in{background:rgba(245,158,11,.18);color:var(--in);}
+  .badge.pipe-gs{background:rgba(236,72,153,.18);color:var(--gs);}
+  .badge.tier-A{background:rgba(240,180,41,.15);color:var(--tierA);}
+  .badge.tier-B{background:rgba(154,165,177,.15);color:var(--tierB);}
+  .badge.status-ready{background:rgba(47,191,113,.15);color:var(--ready);}
+  .badge.status-contacted{background:rgba(107,116,128,.25);color:#c3c9d1;}
+  .badge.status-bounced{background:rgba(229,83,75,.18);color:var(--bounced);}
+  .badge.status-sent{background:rgba(34,197,94,.25);color:var(--sent);}
+  .badge.longcycle{background:rgba(255,255,255,.06);color:var(--muted);}
+  .meta{color:var(--muted);font-size:12.5px;line-height:1.5;}
+  .meta b{color:var(--text);font-weight:500;}
+  .notes{color:var(--muted);font-size:11.5px;margin-top:4px;font-style:italic;}
+  details{margin-top:8px;}
+  summary{cursor:pointer;color:var(--accent);font-size:12px;user-select:none;}
+  pre{white-space:pre-wrap;font-family:inherit;font-size:12.5px;background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;color:#dbe2ec;max-height:260px;overflow:auto;}
+  .actions{display:flex;gap:8px;margin-top:10px;}
+  button{font-family:inherit;font-size:12px;font-weight:600;border-radius:7px;padding:6px 12px;cursor:pointer;border:1px solid var(--border);background:var(--panel2);color:var(--text);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.sent-on{background:var(--sent);border-color:var(--sent);color:#04140a;}
+  button:disabled{opacity:.4;cursor:not-allowed;}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1c2330;border:1px solid var(--border);padding:8px 16px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .2s;pointer-events:none;}
+  .toast.show{opacity:1;}
+  .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:13px;}
+</style>
+</head>
+<body>
+<header>
+  <h1>Outbound Operations Console</h1>
+  <div class="sub">All 4 GTM motions in one view · local only, never pushed · localStorage-persisted send state on this machine only</div>
+  <div class="counts" id="counts"></div>
+  <div class="tabs" id="tabs">
+    <div class="tab active" data-filter="all">All</div>
+    <div class="tab" data-filter="in">Indian FinTech &amp; Aero</div>
+    <div class="tab" data-filter="gs">Gaming &amp; Security</div>
+    <div class="tab" data-filter="ready">Ready Only</div>
+    <div class="tab" data-filter="contacted">Contacted</div>
+  </div>
+</header>
+<main id="list"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+const SIGNATURE = "\n\nAlakshendra Roy\nFounder & Chief Architect — Animus Core\nalakshendra@animusinfra.com | +91 9891161189\nanimusinfra.com";
+
+// ---------- Shared templates (Python-bridge motion, OUTREACH_TEMPLATES.md) ----------
+const PY = {
+  emailA: "Subject: 64.9ns p99, RDTSC-measured — worth 20 minutes?\n\nHi [First Name],\n\nCross-core SPSC dispatch on our engine measures p50 53.3ns / p99 64.9ns / p99.9 111.6ns, RDTSC-resolution, lfence-serialized, calibrated against steady_clock — not QPC-quantized guesswork. Sustained throughput 47.3M msgs/sec.\n\nThe part that usually matters more to a desk: the Python SDK drains that ring at ~26ns/event (amortized), zero-copy, direct buffer pointers via nanobind — no serialization, no socket, no message broker between the ring buffer and your strategy code. Same Python, same logic, different transport underneath it.\n\nWe run a paid 30-day Proof-of-Performance: Week 1 historical replay on your own data, Week 2 shadow execution live with zero production risk, Week 3 tail-latency characterization on your hardware, Week 4 a signed-off decision either way.\n\nWorth a 20-minute call to see if it's a fit?" + SIGNATURE,
+  emailB: "Subject: 47.3M msgs/sec, one machine — how are you moving telemetry today?\n\nHi [First Name],\n\nOur lock-free SPSC ring sustains 47.3M msgs/sec cross-core, p99 dispatch latency 64.9ns (RDTSC-measured). At 8-producer MPMC contention it still holds 7.2M pushes/sec.\n\nThe same ring drains into Python at ~26ns/event, zero-copy, direct buffer pointers — no serialization step eating into that headroom. If your desk is capped by a broker/socket layer well below what the transport could sustain, that's a specific, fixable bottleneck.\n\nWe validate against your own hardware and event shapes in a paid 30-day Proof-of-Performance — historical replay first, then live shadow execution, zero production risk.\n\nWorth 20 minutes to compare against your current numbers?" + SIGNATURE,
+  emailC: "Subject: Same strategy Python, ~26ns/event to drain — no rewrite\n\nHi [First Name],\n\nIf your strategy logic is in Python and your data path runs through IPC or a socket layer: our SDK drains the native ring at ~26ns/event (amortized), zero-copy, direct buffer pointers through nanobind — not a serialized message per event.\n\nUnderneath that, the transport measures p99 64.9ns cross-core (RDTSC-resolution) with 47.3M msgs/sec sustained. The SDK is a drop-in replacement for whatever's moving data into your strategy code today — not a rewrite of it.\n\nWe validate both layers against your own data and hardware in a paid 30-day Proof-of-Performance, no production risk.\n\nWorth a quick call to see if it's a fit?" + SIGNATURE,
+  inmailA: "[First Name] — cross-core dispatch on the engine I built runs p99 64.9ns (RDTSC, not QPC-rounded), and the Python SDK drains it at ~26ns/event zero-copy — no IPC serialization between the ring and your strategy code. If your desk is still paying a socket/serialization tax to get signals into Python, this removes it without a rewrite. Paid 30-day PoP — historical replay, then live shadow, no production risk. Open to a quick call?",
+  inmailB: "[First Name] — our lock-free ring sustains 47.3M msgs/sec cross-core at p99 64.9ns (RDTSC-measured). Python SDK drains it at ~26ns/event, zero-copy — no serialization eating into that before your strategy code sees it. If your data path is capped well below what the transport could sustain, that's usually a socket/broker bottleneck, not a hardware one. Paid 30-day PoP against your own data. Worth a call?",
+  inmailC: "[First Name] — if your strategy's in Python and it's fed through IPC or a socket, our SDK drains a native ring at ~26ns/event, zero-copy, direct buffer pointers — no rewrite, just a different transport underneath the same code. Transport itself runs p99 64.9ns cross-core, RDTSC-measured. Paid 30-day PoP against your own hardware, no production risk. Open to a quick call?"
+};
+
+// ---------- Shared templates (Raw-engine global motion, lead_pipeline.md) ----------
+const RAW = {
+  email: "Subject: 0 heap allocations, 153 runs, 62 minutes straight — soak report attached\n\nHi [First Name],\n\nWe just finished a 62-minute unattended soak of our core telemetry engine: 153 back-to-back runs, SPSC ingest latency holding at a 21.08ns median (P90 24.39ns, P99 27.70ns), MPMC throughput steady at a 7.47M pushes/sec median under 8-producer contention. Every run verified zero heap allocations on the hot path via a runtime watchdog, and 153/153 event sequences intact — no loss, no reordering, across 21M+ events per run.\n\nWe're also not hiding the one thing that didn't look perfect: run #123 hit a single 30ms scheduler-preemption spike — real, reported as-is, not smoothed over.\n\nIf your team is fighting tail-latency jitter, allocation regressions under load, or a serialization tax between your market-data path and strategy code, this is a fifteen-minute conversation, not a sales pitch — bring your own hardware and event shapes and we'll run the same harness on your box.\n\nWorth a look?" + SIGNATURE,
+  inmail: "Hi [First Name] — ran a 62-minute, 153-run soak on our zero-allocation C++ telemetry engine: 21.08ns median SPSC ingest, 0 heap allocations end to end, sequence-intact on every single run. Full report + one honest outlier (a single 30ms scheduler spike) here: [link]. If tail-latency jitter or allocation regressions are live pain for your team, open to running the same harness on your own hardware — 15 minutes to see if it's worth a longer look?"
+};
+
+function bespoke(opener, hook, cta){
+  return "Hi [First Name],\n\n" + opener + "\n\n" + hook + "\n\nWe're not hiding the one imperfection either: run #123 of 153 hit a single 30ms scheduler-preemption spike, reported as-is, not smoothed over.\n\n" + cta + SIGNATURE;
+}
+
+const SOAK = "62-minute unattended soak, 153 back-to-back runs on an i7-14650HX: 21.08ns median SPSC ingest (P90 24.39ns, P99 27.70ns), 30.59ns median tick-to-telemetry, 7.47M pushes/sec MPMC median under 8-producer contention, zero heap allocations across every run, 153/153 event sequences intact across 21.3M+ events.";
+
+// ---------- Account data ----------
+const ACCOUNTS = [
+// ===== PIPELINE 1: PYTHON-BRIDGE (global, executive batch sent 2026-09-22/23) =====
+{id:"py-hrt", pipeline:"py", firm:"Hudson River Trading", tier:"A", segment:"Batch 1 · Global HFT", persona:"Head of Trading Technology / Platform Engineering Lead", domain:"hudsonrivertrading.com", channel:"LinkedIn InMail", status:"contacted", statusDate:"2026-09-22", contact:"Partial leads only (Hashem / Joshua Oreman)", draft:PY.inmailC, notes:"Also appears on the raw-engine pipeline below (Staged there for this exact reason)."},
+{id:"py-drw", pipeline:"py", firm:"DRW", tier:"B", segment:"Executive batch · Global HFT", persona:"Chief Technology Officer", domain:"drw.com", channel:"LinkedIn InMail", status:"contacted", statusDate:"2026-09-23", contact:"Steve Hunt, CTO", draft:PY.inmailC, notes:"Also on raw-engine pipeline below."},
+{id:"py-optiver", pipeline:"py", firm:"Optiver", tier:"B", segment:"Executive batch · Global HFT", persona:"Global Head of Engineering / CTO", domain:"optiver.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Scott McKenzie + Lance Braunstein", draft:PY.emailA, notes:"Also Staged on raw-engine pipeline."},
+{id:"py-imc", pipeline:"py", firm:"IMC Trading", tier:"B", segment:"Executive batch · Global HFT", persona:"Managing Director", domain:"imc.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Sunny Khiani, MD", draft:PY.emailC, notes:"Also Staged on raw-engine pipeline."},
+{id:"py-tower", pipeline:"py", firm:"Tower Research Capital (Global)", tier:"C", segment:"Executive batch · Global HFT", persona:"Chief Executive Officer", domain:"tower-research.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Albert An, CEO", draft:PY.emailA, notes:"Distinct from the India engineering-site row in the Indian pipeline below."},
+{id:"py-xtx", pipeline:"py", firm:"XTX Markets", tier:"B", segment:"Executive batch · Global HFT", persona:"Founder & Co-CEO", domain:"xtxmarkets.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Alex Gerko", draft:PY.emailB, notes:""},
+{id:"py-jump", pipeline:"py", firm:"Jump Trading", tier:"Ad hoc", segment:"Executive batch · outside 25-firm ICP", persona:"President & CIO", domain:"jumptrading.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Dave Olsen", draft:PY.emailB, notes:"Excluded from original ICP (C++-native), sent anyway as exec outreach; also Ready on raw-engine pipeline where the exclusion doesn't apply."},
+{id:"py-janestreet", pipeline:"py", firm:"Jane Street", tier:"Ad hoc", segment:"Executive batch · outside 25-firm ICP", persona:"Head of Technology", domain:"janestreet.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Yaron Minsky", draft:PY.emailC, notes:"Core language is OCaml, not Python — Python-bridge fit is weak; also on raw-engine pipeline."},
+{id:"py-belvedere", pipeline:"py", firm:"Belvedere Trading", tier:"B", segment:"Batch 4 · Global HFT", persona:"Owner & Head of R&D", domain:"belvederetrading.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Thomas Hutchinson", draft:PY.emailC, notes:""},
+{id:"py-geneva", pipeline:"py", firm:"Geneva Trading", tier:"Ad hoc", segment:"outside 25-firm ICP", persona:"Partner & CTO", domain:"genevatrading.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Darek Potchebout", draft:PY.emailB, notes:""},
+{id:"py-oldmission", pipeline:"py", firm:"Old Mission Capital", tier:"B", segment:"Batch 4 · Global HFT", persona:"Chief Technology Officer", domain:"oldmissioncapital.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Bryan Russina", draft:PY.emailC, notes:""},
+{id:"py-sig", pipeline:"py", firm:"Susquehanna International Group (SIG)", tier:"Ad hoc", segment:"outside 25-firm ICP", persona:"Head of Core Tech", domain:"sig.com", channel:"Email", status:"contacted", statusDate:"2026-09-23", contact:"Todd Stern", draft:PY.emailA, notes:""},
+{id:"py-ctc", pipeline:"py", firm:"Chicago Trading Company (CTC)", tier:"B", segment:"Batch 4 · Global HFT", persona:"Core Trading Systems Desk", domain:"chicagotrading.com", channel:"Email (team alias)", status:"contacted", statusDate:"2026-09-23", contact:"coretech@ alias", draft:PY.emailB, notes:""},
+{id:"py-peak6", pipeline:"py", firm:"Peak6", tier:"Ad hoc", segment:"outside 25-firm ICP", persona:"—", domain:"peak6.com", channel:"Email", status:"bounced", statusDate:"2026-09-23", contact:"— alias missing", draft:PY.emailB, notes:"Bounced: alias missing. Needs a corrected endpoint before retry."},
+{id:"py-wolverine", pipeline:"py", firm:"Wolverine Trading", tier:"B", segment:"Batch 3 · Global HFT", persona:"Head of Trading Technology", domain:"wolve.com", channel:"Email", status:"bounced", statusDate:"2026-09-23", contact:"— Exchange 5.7.1 tenant restriction", draft:PY.emailA, notes:"Bounced: tenant restriction. XR Trading was added as the batch replacement."},
+{id:"py-xrtrading", pipeline:"py", firm:"XR Trading", tier:"B", segment:"Batch 3 replacement · Chicago prop", persona:"President / Execution Tech", domain:"xrtrading.com", channel:"Direct Corporate Email", status:"contacted", statusDate:"2026-09-23", contact:"Matt Haraburda, President", draft:PY.emailB, notes:"Added as the Wolverine Trading bounce replacement; no ICP variant assigned originally."},
+
+// ===== PIPELINE 2: RAW-ENGINE GLOBAL SOAK (lead_pipeline.md) =====
+{id:"raw-citadel", pipeline:"raw", firm:"Citadel Securities", tier:"1", segment:"Tier 1 · US", persona:"Head of Trading Systems Engineering", domain:"citadelsecurities.com", channel:"Direct Email", status:"ready", draft:RAW.email, notes:""},
+{id:"raw-jump", pipeline:"raw", firm:"Jump Trading", tier:"1", segment:"Tier 1 · US", persona:"Lead Low-Latency C++ Engineer", domain:"jumptrading.com", channel:"LinkedIn InMail", status:"contacted", statusDate:"2026-09-23", draft:RAW.inmail, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-drw", pipeline:"raw", firm:"DRW", tier:"1", segment:"Tier 1 · US", persona:"Head of Core Infrastructure", domain:"drw.com", channel:"Direct Email", status:"contacted", statusDate:"2026-09-23", draft:RAW.email, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-hrt", pipeline:"raw", firm:"Hudson River Trading", tier:"1", segment:"Tier 1 · US", persona:"Head of Execution Infrastructure", domain:"hudsonrivertrading.com", channel:"LinkedIn InMail", status:"contacted", statusDate:"2026-09-22", draft:RAW.inmail, notes:"Contacted 2026-09-22 under the Python-bridge motion — see pipeline 1 above. Staged in the source doc for this exact sequencing reason."},
+{id:"raw-janestreet", pipeline:"raw", firm:"Jane Street", tier:"1", segment:"Tier 1 · US", persona:"Lead Low-Latency C++ Engineer", domain:"janestreet.com", channel:"LinkedIn InMail", status:"contacted", statusDate:"2026-09-23", draft:RAW.inmail, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-tower", pipeline:"raw", firm:"Tower Research Capital", tier:"1", segment:"Tier 1 · US", persona:"Head of Trading Technology", domain:"tower-research.com", channel:"Direct Email", status:"contacted", statusDate:"2026-09-23", draft:RAW.email, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-belvedere", pipeline:"raw", firm:"Belvedere Trading", tier:"1", segment:"Tier 1 · US", persona:"Head of Execution Infrastructure", domain:"belvederetrading.com", channel:"Direct Email", status:"contacted", statusDate:"2026-09-23", draft:RAW.email, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-optiver", pipeline:"raw", firm:"Optiver", tier:"1", segment:"Tier 1 · Europe", persona:"Head of Low-Latency Engineering", domain:"optiver.com", channel:"Direct Email", status:"contacted", statusDate:"2026-09-23", draft:RAW.email, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-flowtraders", pipeline:"raw", firm:"Flow Traders", tier:"1", segment:"Tier 1 · Europe", persona:"Lead Low-Latency C++ Engineer", domain:"flowtraders.com", channel:"LinkedIn InMail", status:"ready", draft:RAW.inmail, notes:""},
+{id:"raw-imc", pipeline:"raw", firm:"IMC Trading", tier:"1", segment:"Tier 1 · Europe", persona:"Head of Low-Latency Engineering", domain:"imc.com", channel:"Direct Email", status:"contacted", statusDate:"2026-09-23", draft:RAW.email, notes:"Contacted 2026-09-23 under the Python-bridge motion — see pipeline 1 above."},
+{id:"raw-wintermute", pipeline:"raw", firm:"Wintermute", tier:"1", segment:"Tier 1 · Europe", persona:"Head of Trading Technology", domain:"wintermute.com", channel:"LinkedIn InMail", status:"ready", draft:RAW.inmail, notes:""},
+{id:"raw-maven", pipeline:"raw", firm:"Maven Derivatives", tier:"1", segment:"Tier 1 · Europe", persona:"Head of Execution Infrastructure", domain:"mavensecurities.com", channel:"LinkedIn InMail", status:"ready", draft:RAW.inmail, notes:""},
+{id:"raw-graviton", pipeline:"raw", firm:"Graviton Research Capital", tier:"1", segment:"Tier 1 · APAC/India", persona:"Lead Low-Latency C++ Engineer", domain:"gravitonresearch.com", channel:"LinkedIn InMail", status:"ready", draft:RAW.inmail, notes:"Duplicate: also appears in the Indian domestic pipeline (row IN-A2) with a bespoke draft. Same real firm — don't send from both."},
+{id:"raw-alphagrep", pipeline:"raw", firm:"AlphaGrep", tier:"1", segment:"Tier 1 · APAC/India", persona:"Head of Trading Technology", domain:"alpha-grep.com", channel:"Direct Email", status:"ready", draft:RAW.email, notes:"Duplicate: also appears in the Indian domestic pipeline (row IN-A3) with a bespoke draft. Same real firm — don't send from both."},
+{id:"raw-quadeye", pipeline:"raw", firm:"Quadeye", tier:"1", segment:"Tier 1 · APAC/India", persona:"Head of Execution Infrastructure", domain:"quadeye.com", channel:"LinkedIn InMail", status:"ready", draft:RAW.inmail, notes:"Duplicate: also appears in the Indian domestic pipeline (row IN-A4) with a bespoke draft. Same real firm — don't send from both."},
+{id:"raw-nk", pipeline:"raw", firm:"NK Securities", tier:"1", segment:"Tier 1 · APAC/India", persona:"Lead Low-Latency C++ Engineer", domain:"nksecurities.com", channel:"Direct Email", status:"ready", draft:RAW.email, notes:""},
+
+// ===== PIPELINE 3: INDIAN DOMESTIC (indian_enterprise_pipeline.md) =====
+{id:"in-a1", pipeline:"in", firm:"iRage Capital Advisory", tier:"A", segment:"Fintech/Quant", persona:"Head of Trading Technology / CTO", domain:"irage.in", channel:"LinkedIn InMail", status:"ready", draft:bespoke("iRage's been running algo/HFT books since before most Indian shops had a C++ team, so I'll skip the primer.", "We just closed a 62-minute soak of our core telemetry engine — "+SOAK+" If your market-making desk is fighting tick-to-telemetry turnaround or MPMC contention jitter across strategies, this is directly relevant.", "Happy to send the self-contained verification harness — a 30-second run on your own hardware, your own event shapes. Worth a look?"), notes:""},
+{id:"in-a2", pipeline:"in", firm:"Graviton Research Capital", tier:"A", segment:"Fintech/Quant", persona:"Head of Engineering / Lead Low-Latency Systems Engineer", domain:"gravitonresearch.com", channel:"LinkedIn InMail", status:"ready", draft:bespoke("For a stat-arb book running across global venues, tick-to-telemetry latency compounds in ways raw throughput numbers don't capture.", SOAK+" That matters for a book that has to run unattended, 24/7, without a GC-style pause ever landing mid-signal.", "If unattended-book stability under continuous contention is a live concern, I can send our 30-second self-contained verification harness."), notes:"Duplicate: also appears on the raw-engine global pipeline (row RAW). Same real firm — don't send from both."},
+{id:"in-a3", pipeline:"in", firm:"AlphaGrep", tier:"A", segment:"Fintech/Quant", persona:"Head of Technology / VP Engineering", domain:"alpha-grep.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Running market-making consistently across eight offices means an engine has to behave identically on every box, not just fast on one.", "We built a soak protocol to test exactly that: "+SOAK, "Happy to share the self-contained verification harness (30-second run, your hardware) alongside the full soak PDF for an internal eval."), notes:"Duplicate: also appears on the raw-engine global pipeline (row RAW). Same real firm — don't send from both."},
+{id:"in-a4", pipeline:"in", firm:"Quadeye", tier:"A", segment:"Fintech/Quant", persona:"Head of Low-Latency Infrastructure", domain:"quadeye.com", channel:"LinkedIn InMail", status:"ready", draft:bespoke("For a core matching/signal pipeline running both onshore and IFSC books in parallel, contention-driven telemetry jitter is usually the first thing that breaks under load.", SOAK, "If contention-under-load is a real pain point, I can share the 30-second self-contained verification harness — run it on your own box with your own event shapes."), notes:"Duplicate: also appears on the raw-engine global pipeline (row RAW). Same real firm — don't send from both."},
+{id:"in-a5", pipeline:"in", firm:"Tower Research Capital India", tier:"A", segment:"Fintech/Quant", persona:"Site Lead / Director of Engineering, India (Gurugram)", domain:"tower-research.com", channel:"LinkedIn InMail", status:"ready", draft:bespoke("Reaching out to the Gurugram engineering site directly rather than through the global desk — this is about infrastructure evaluation, not a duplicate of any conversation already underway elsewhere at Tower.", SOAK+" Since your infra already runs bare-metal with core pinning globally, the relevant comparison point is whether our runtime holds that same discipline under your specific isolation setup.", "Happy to send the self-contained 30-second verification harness for your team to run independently."), notes:"Near-miss, not a conflict: the global Tower Research Capital entity was contacted 2026-09-23 under the Python-bridge motion (see pipeline 1) — different office, different persona."},
+{id:"in-a6", pipeline:"in", firm:"True Beacon", tier:"A", segment:"Fintech/Quant", persona:"Head of Quant Technology / CTO", domain:"truebeacon.com", channel:"Email", status:"ready", draft:bespoke("For a systematic AIF managing capital on behalf of UHNI clients, the number that should matter most isn't raw nanoseconds — it's whether execution is provably deterministic and nothing gets dropped or reordered under load.", SOAK, "If audit-grade execution integrity is something your team evaluates vendors on, I'm happy to share the self-contained verification harness so you can confirm the numbers independently."), notes:"Wealth-management AIF, not a pure HFT shop — softer, correctness-first framing."},
+{id:"in-a7", pipeline:"in", firm:"Tradelab Technologies", tier:"A", segment:"Fintech/Quant", persona:"VP Engineering / Head of Trading Infrastructure", domain:"tradelab.in", channel:"Email + LinkedIn", status:"ready", draft:bespoke("You're already selling low-latency execution and colocation infrastructure to Indian brokers — the engine underneath that stack is a direct product differentiator, not just internal tooling.", SOAK, "Given your OMS/RMS + algo/HFT stack, integration should be a drop-in evaluation. Happy to send the self-contained 30-second verification harness."), notes:"B2B2C angle — pitch as an embeddable component."},
+{id:"in-a8", pipeline:"in", firm:"Motilal Oswal Financial Services", tier:"A", segment:"Fintech/Quant", persona:"Head of Algo Trading Technology", domain:"motilaloswal.com", channel:"Email", status:"ready", draft:bespoke("Building and maintaining a zero-allocation, low-latency execution core in-house is a multi-month engineering investment most broking-technology teams would rather not carry.", SOAK, "Integration is a single-header C++17 drop-in. If useful, I can send the self-contained evaluation kit (dist/animus_poc_kit_v1.zip) and full soak PDF, no commitment required."), notes:"Large listed financial-services group — expect slower procurement cycle."},
+{id:"in-a9", pipeline:"in", firm:"IIFL Securities", tier:"A", segment:"Fintech/Quant", persona:"Head of Trading Systems / CTO", domain:"iiflsecurities.com", channel:"Email", status:"ready", draft:bespoke("Same pitch I'd make to any large broking-technology team carrying the cost of an in-house low-latency execution core: we built one, and just spent 62 unattended minutes proving it.", SOAK, "It drops in as a single C++17 header. Happy to send the self-contained verification kit and soak report for an independent internal test."), notes:"Recently renamed IIFL Securities Ltd → IIFL Capital Services Ltd — confirm current legal name before send."},
+{id:"in-a10", pipeline:"in", firm:"Angel One", tier:"A", segment:"Fintech/Quant", persona:"VP Engineering, Trading Platform (SmartAPI)", domain:"angelone.in", channel:"Email", status:"ready", draft:bespoke("SmartAPI puts you in a different position than most firms I talk to — you're serving retail and algo developers directly, at real volume.", SOAK+" Allocation overhead on the ingest path is a cost multiplied across every connected client, not just an internal metric.", "Happy to share the self-contained 30-second verification harness so your platform team can see how it behaves under your own traffic shapes."), notes:"Largest public retail broking tech surface in India — strong logo-win value."},
+{id:"in-b1", pipeline:"in", firm:"Hindustan Aeronautics Limited (HAL)", tier:"B", segment:"Aerospace/Defense", persona:"General Manager / Director, Avionics & Flight Test Systems", domain:"hal-india.co.in", channel:"LinkedIn InMail / formal correspondence", status:"ready", longcycle:true, draft:bespoke("Dear [Title] Team,\n\nFlight-test telemetry ingest has to hold its timing guarantees under continuous multi-sensor contention with no allocation-driven pauses.", "That's the exact condition we stress-tested: "+SOAK+" Invariant TSC-based cycle counters throughout.", "If there is interest in reviewing this for avionics data-bus telemetry applications, I would welcome the opportunity to share the full technical report and a self-contained verification harness."), notes:"Navratna PSU — long-cycle, relationship-first."},
+{id:"in-b2", pipeline:"in", firm:"Bharat Electronics Limited (BEL)", tier:"B", segment:"Aerospace/Defense", persona:"General Manager, Real-Time & Radar Systems", domain:"bel-india.in", channel:"LinkedIn InMail / formal correspondence", status:"ready", longcycle:true, draft:bespoke("Dear [Title] Team,\n\nMulti-channel radar and EW signal ingest shares a structural constraint with our own core engine's test conditions: no allocation-driven pause can land mid-track.", "We validated this over a 62-minute soak: "+SOAK, "If this is relevant to real-time or radar-adjacent systems work at BEL, I would be glad to share the full soak report and a self-contained verification harness."), notes:"Navratna PSU — long-cycle."},
+{id:"in-b3", pipeline:"in", firm:"DRDO — Aeronautical Development Establishment (ADE)", tier:"B", segment:"Aerospace/Defense", persona:"Scientist 'G' / Director, Flight Control & UAV Systems", domain:"drdo.gov.in", channel:"Formal correspondence / referral", status:"ready", longcycle:true, draft:bespoke("Dear [Title] Team,\n\nFlight-control-loop software carries the same non-negotiable timing-determinism requirement our core engine was built to satisfy.", SOAK+" Invariant TSC-based cycle counters throughout — methodologically similar in spirit to an environmental-qualification burn-in, applied to software timing.", "Should this be of interest for flight-control or UAV telemetry systems work, I would welcome an introduction to the appropriate group."), notes:"Government lab — lowest-probability, longest-cycle account on this list; needs a referral, not cold email."},
+{id:"in-b4", pipeline:"in", firm:"Skyroot Aerospace", tier:"B", segment:"Aerospace/Defense", persona:"Head of Avionics / VP Engineering", domain:"skyroot.in", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Rocket avionics telemetry has to hold up through a downlink at high sample rates with zero tolerance for an allocation-driven stall on the flight computer's hot path.", "So we built our soak test to mirror that discipline: "+SOAK, "Given the pace you're moving at, happy to send the self-contained 30-second verification harness directly — run it on your own flight-computer hardware."), notes:"Private, fast-moving startup — best fit for a direct founder-to-founder tone."},
+{id:"in-b5", pipeline:"in", firm:"Agnikul Cosmos", tier:"B", segment:"Aerospace/Defense", persona:"Head of Avionics & Telemetry", domain:"agnikul.in", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Building a single-piece 3D-printed engine in-house already means your team is reinventing more of the stack than most — telemetry doesn't have to be one more thing built from scratch.", SOAK, "It's a single-header C++17 drop-in, so evaluation shouldn't cost meaningful engineering time. Happy to send the self-contained verification kit and soak PDF."), notes:"Same startup-speed fit as Skyroot."},
+{id:"in-b6", pipeline:"in", firm:"Tata Advanced Systems Limited (TASL)", tier:"B", segment:"Aerospace/Defense", persona:"Head of Systems Engineering, Avionics Integration", domain:"tataadvancedsystems.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Integrating avionics and aerostructure subsystems across multiple OEM programs means every vendor claim gets audited before it's trusted — so I'll lead with the audit trail, not the pitch.", SOAK+" — full per-run data included, nothing aggregated away.", "If useful for a systems-engineering evaluation, I can share the full soak report and a self-contained verification harness for independent testing."), notes:"Tata Group entity — expect a formal vendor-onboarding process."},
+{id:"in-b7", pipeline:"in", firm:"L&T Precision Engineering and Systems", tier:"B", segment:"Aerospace/Defense", persona:"Head of Real-Time Systems / Chief Engineer, Missile & Guidance Systems", domain:"lntpes.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Real-time control for missile and artillery systems runs on the same non-negotiable premise our engine was built and tested against: no allocation-driven timing variance, ever.", SOAK+" Invariant TSC-based cycle counters throughout.", "Given the scale of L&T's precision-systems and defense-electronics work, I'd welcome the chance to share the full technical report and a self-contained verification harness."), notes:"India's largest private defense manufacturer by revenue — long sales cycle, high ceiling."},
+{id:"in-b8", pipeline:"in", firm:"Bharat Dynamics Limited (BDL)", tier:"B", segment:"Aerospace/Defense", persona:"General Manager, Guidance & Telemetry Systems", domain:"bdl-india.in", channel:"LinkedIn InMail / formal correspondence", status:"ready", longcycle:true, draft:bespoke("Dear [Title] Team,\n\nMissile guidance and telemetry data paths depend on the same integrity guarantee our soak protocol was designed to verify: no dropped or reordered packets under sustained load.", SOAK, "If relevant to guidance or telemetry systems work at BDL, I would welcome an introduction to the appropriate engineering group."), notes:"Navratna-adjacent PSU — long-cycle."},
+{id:"in-b9", pipeline:"in", firm:"Data Patterns (India) Limited", tier:"B", segment:"Aerospace/Defense", persona:"VP Engineering / Head of Real-Time Systems", domain:"datapatternsindia.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Since Data Patterns builds real-time avionics and telemetry hardware and software in-house, I'll skip the explainer and go straight to the data.", SOAK, "Given your team's own real-time systems depth, I suspect you'll get more value from the raw per-run dataset than from anything I could say about it."), notes:"Publicly listed (NSE: DATAPATTNS) — likely fastest-moving account on the aerospace/defense side."},
+{id:"in-b10", pipeline:"in", firm:"Dhruva Space", tier:"B", segment:"Aerospace/Defense", persona:"Head of Ground Segment & Telemetry", domain:"dhruvaspace.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Ground-station telemetry ingest during a live satellite pass has one non-negotiable requirement: sustained throughput with zero data loss, for the exact window the pass lasts.", "We built our soak test around that same bar: "+SOAK, "Given Dhruva's full-stack space/ground-segment work, I'd welcome the chance to share the complete soak report and a self-contained verification harness."), notes:"Ground segment is the cleanest match to Animus's own telemetry-engine framing."},
+
+// ===== PIPELINE 4: GAMING & SECURITY (gaming_security_pipeline.md) =====
+{id:"gs-a1", pipeline:"gs", firm:"Epic Games", tier:"A", segment:"Gaming Engine · $40k/mo", persona:"Lead Engine Programmer, Unreal Online Services", domain:"epicgames.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Instrumenting a dedicated server without ever letting telemetry touch frame time is a hard constraint, not a nice-to-have.", "We just closed a 62-minute unattended soak to prove exactly that: "+SOAK+" The lock-free SPSC design means telemetry sits entirely off the render/sim tick loop.", "If tick-budget preservation under telemetry load is a live concern, happy to send the self-contained 30-second verification harness (dist/animus_poc_kit_v1.zip) and full soak PDF."), notes:""},
+{id:"gs-a2", pipeline:"gs", firm:"Electronic Arts (Frostbite)", tier:"A", segment:"Gaming Engine · $40k/mo", persona:"Director of Engine Technology, Frostbite", domain:"ea.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("At Frostbite's scale — thousands of concurrent server instances across a distributed telemetry mesh — allocator lock contention on the hot sim loop isn't a rare edge case, it's a constant background tax.", SOAK, "If server-mesh telemetry contention at scale is a real pain point on the Frostbite platform side, happy to send the self-contained verification kit and soak report."), notes:"Target the Frostbite platform team specifically, not general EA corporate."},
+{id:"gs-a3", pipeline:"gs", firm:"Valve Corporation", tier:"A", segment:"Gaming Engine · $40k/mo", persona:"Principal Network Engineer, Source Engine", domain:"valvesoftware.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("A tick-rate server has zero margin for instrumentation to make a frame run long — so we built our core engine to guarantee it can't.", SOAK+" Lock-free SPSC isolating the telemetry sink entirely from the tick loop itself.", "Given Source's own dedicated-server model, this maps almost directly onto tick-rate telemetry for Steam-hosted servers. Happy to send the self-contained 30-second verification harness."), notes:"Valve has a flat org structure — lead with the engineer, not a title."},
+{id:"gs-a4", pipeline:"gs", firm:"Riot Games", tier:"A", segment:"Gaming Engine · $40k/mo", persona:"Head of Anti-Cheat Engineering / Principal Netcode Engineer", domain:"riotgames.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Anti-cheat instrumentation has a constraint most telemetry doesn't: it can't introduce timing variance of its own, or it becomes a side-channel a cheat can detect and exploit.", SOAK+" Deterministic tick-to-telemetry latency at 30.59ns median on a 128-tick-equivalent workload.", "If competitive-integrity-grade determinism in runtime logging is relevant to your anti-cheat or netcode work, happy to share the self-contained verification harness."), notes:""},
+{id:"gs-a5", pipeline:"gs", firm:"Activision Blizzard / Demonware", tier:"A", segment:"Gaming Engine · $40k/mo", persona:"VP of Server Engineering, Demonware", domain:"demonware.net", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Running dedicated-server telemetry across Demonware's globally distributed, massively concurrent Call of Duty infrastructure means the telemetry layer itself has to survive scale without ever touching the tick loop.", SOAK, "If tick-rate telemetry contention at your concurrent-server scale is a live engineering problem, happy to send the self-contained 30-second verification kit."), notes:"Target Demonware directly, not Activision corporate."},
+{id:"gs-a6", pipeline:"gs", firm:"CrowdStrike", tier:"A", segment:"Enterprise Security · $40k/mo", persona:"VP of Kernel Engineering / Principal Sensor Architect", domain:"crowdstrike.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("A kernel-level sensor has to run continuously, for months, without a single allocator stall reaching a ring-0-adjacent path.", "That's the exact condition our soak was designed around: "+SOAK+" Invariant TSC-based cycle counters throughout.", "If zero-footprint, allocation-free telemetry is relevant to Falcon sensor engineering, happy to share the full soak report — recognizing this likely needs to go through a formal vendor-review process on your side."), notes:"Large enterprise security vendor — expect a formal vendor-security-review gate."},
+{id:"gs-a7", pipeline:"gs", firm:"Cloudflare", tier:"A", segment:"Enterprise Security · $40k/mo", persona:"Principal Engineer, Edge Telemetry", domain:"cloudflare.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Edge telemetry matters most exactly when it's hardest to keep — under a volumetric flood, which is precisely when a naive pipeline starts dropping events.", SOAK, "If sequence-integrity-under-load is relevant to edge proxy or kernel-bypass DDoS telemetry work at Cloudflare, happy to share the full report and self-contained verification harness."), notes:"Public engineering-blog culture — good fit for a technical, data-forward cold email."},
+{id:"gs-a8", pipeline:"gs", firm:"Palo Alto Networks", tier:"A", segment:"Enterprise Security · $40k/mo", persona:"VP of Strata Core Engineering / Principal Architect, PAN-OS Data Plane", domain:"paloaltonetworks.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("Data-plane packet processing can't absorb allocation-driven timing variance without that variance eventually showing up in throughput.", SOAK, "If deterministic runtime telemetry is relevant to PAN-OS data-plane engineering, happy to share the full soak report — recognizing this will likely route through a formal technical/security review."), notes:"Large enterprise security vendor — formal review gate expected."},
+{id:"gs-a9", pipeline:"gs", firm:"Fortinet", tier:"A", segment:"Enterprise Security · $40k/mo", persona:"Director of FortiOS Runtime Engineering / ASIC-Software Co-Design Lead", domain:"fortinet.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("Runtime telemetry sitting next to an ASIC/software co-design boundary can't add allocation overhead to the hot path without undermining the exact performance the hardware is there to deliver.", SOAK, "It's a single-header C++17 drop-in. Happy to share the self-contained verification kit and soak PDF, understanding a formal vendor-review process likely applies here."), notes:"Formal review gate expected."},
+{id:"gs-a10", pipeline:"gs", firm:"Zscaler", tier:"A", segment:"Enterprise Security · $40k/mo", persona:"VP of Zero Trust Exchange Engineering", domain:"zscaler.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("Real-time packet inspection at Zero Trust Exchange scale has the same failure mode edge telemetry does — sequence loss right when traffic peaks.", SOAK, "If telemetry resilience under peak inspection load is relevant to Zero Trust Exchange engineering, happy to share the full soak data — recognizing this will likely go through a formal vendor-intake process."), notes:"Formal review gate expected."},
+{id:"gs-b1", pipeline:"gs", firm:"Unity Technologies", tier:"B", segment:"Gaming Engine · $20k/mo", persona:"Head of Netcode for GameObjects / Principal Multiplayer Engineer", domain:"unity.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Multiplayer telemetry that touches the simulation tick is the fastest way to blow a frame budget across many concurrent sessions.", "Our lock-free SPSC design isolates telemetry from the sim loop entirely: "+SOAK, "If frame-budget preservation under Netcode for GameObjects telemetry load is a live concern, happy to send the self-contained 30-second verification harness."), notes:""},
+{id:"gs-b2", pipeline:"gs", firm:"Ubisoft", tier:"B", segment:"Gaming Engine · $20k/mo", persona:"Director of Live Ops Infrastructure, Anvil/Snowdrop", domain:"ubisoft.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Live-ops event streams across a large concurrent player population fail in the same way edge telemetry does under load — dropped or reordered events right when volume peaks.", SOAK, "If your Anvil or Snowdrop live-ops infrastructure is fighting event-ingestion contention at scale, happy to share the self-contained verification kit and soak PDF."), notes:"Confirm which team owns telemetry infra — two engines, two orgs."},
+{id:"gs-b3", pipeline:"gs", firm:"Krafton / PUBG Studios", tier:"B", segment:"Gaming Engine · $20k/mo", persona:"Dedicated Server Tech Lead / Anti-Cheat Systems Architect", domain:"krafton.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Anti-cheat hooks that add measurable timing variance become a detectable side-channel — the instrumentation has to be as deterministic as the thing it's watching.", SOAK, "Given PUBG's dedicated-server-at-scale history, this maps closely onto tick instrumentation and anti-cheat hooks specifically. Happy to send the self-contained 30-second verification harness."), notes:""},
+{id:"gs-b4", pipeline:"gs", firm:"Roblox Corporation", tier:"B", segment:"Gaming Engine · $20k/mo", persona:"Principal Engineer, Simulation Infrastructure", domain:"roblox.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Distributed physics and client-server simulation at Roblox's concurrency scale is the sharpest version of the \"no allocator stall\" problem.", SOAK, "If allocation overhead on distributed simulation telemetry is a live concern, happy to share the self-contained verification kit and soak report."), notes:""},
+{id:"gs-b5", pipeline:"gs", firm:"Bohemia Interactive", tier:"B", segment:"Gaming Engine · $20k/mo", persona:"Enfusion Engine Network Lead / Principal Systems Programmer", domain:"bohemia.net", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Low-level network event logging inside a large persistent-world simulation engine like Enfusion has the same hot-loop-isolation requirement as a competitive multiplayer tick server.", SOAK, "Happy to send the self-contained 30-second verification harness (dist/animus_poc_kit_v1.zip) and full soak PDF so your team can run it independently."), notes:"Smaller, engineering-culture studio — good fit for a direct founder-to-founder tone."},
+{id:"gs-b6", pipeline:"gs", firm:"SentinelOne", tier:"B", segment:"Enterprise Security · $20k/mo", persona:"VP of Endpoint Telemetry Engineering / Principal Kernel Engineer, Singularity", domain:"sentinelone.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("An endpoint telemetry collector that runs continuously for months can't accumulate heap fragmentation without eventually degrading — determinism has to hold on day 200 the same way it does on day one.", SOAK, "If zero-fragmentation, allocation-free telemetry is relevant to the Singularity platform's endpoint collector, happy to share the full soak data — recognizing a formal vendor-review process likely applies."), notes:"Formal review gate expected."},
+{id:"gs-b7", pipeline:"gs", firm:"Darktrace", tier:"B", segment:"Enterprise Security · $20k/mo", persona:"Head of Sensor Engineering / Principal Network Telemetry Architect", domain:"darktrace.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("A detection model is only as good as the sensor feed underneath it — dropped events during exactly the flood conditions worth detecting undermine the whole pipeline.", SOAK, "If sensor-level sequence integrity under flood/attack conditions is relevant to the Cyber AI detection pipeline, happy to share the full soak report and a self-contained verification harness."), notes:""},
+{id:"gs-b8", pipeline:"gs", firm:"Qualys", tier:"B", segment:"Enterprise Security · $20k/mo", persona:"VP of Cloud Agent Engineering / Principal Architect, Continuous Auditing", domain:"qualys.com", channel:"Email + LinkedIn", status:"ready", longcycle:true, draft:bespoke("Continuous cloud-agent auditing only stays \"low-overhead\" if the telemetry layer itself never fragments the heap across long-running operation.", SOAK, "It's a single-header C++17 drop-in. Happy to send the self-contained verification kit and soak PDF, recognizing this likely routes through a formal vendor-review process."), notes:"Formal review gate expected."},
+{id:"gs-b9", pipeline:"gs", firm:"Rapid7", tier:"B", segment:"Enterprise Security · $20k/mo", persona:"Director of Telemetry Ingestion / Principal Network Security Architect", domain:"rapid7.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("Network event ingestion at real-time streaming volume fails the same way any high-throughput pipeline does — sequence loss exactly when event volume spikes.", SOAK, "If telemetry-ingestion resilience under high-volume floods is relevant to your platform, happy to share the full soak data and a self-contained verification harness."), notes:""},
+{id:"gs-b10", pipeline:"gs", firm:"Tenable", tier:"B", segment:"Enterprise Security · $20k/mo", persona:"VP of Sensor Engineering / Principal Architect, Nessus Core Agent", domain:"tenable.com", channel:"Email + LinkedIn", status:"ready", draft:bespoke("A vulnerability sensor running continuously across a large asset base needs the same determinism-without-heap-exhaustion guarantee any 24/7 agent does.", SOAK, "If deterministic, allocation-free telemetry is relevant to the Nessus core agent or sensor runtime, happy to share the full soak report and a self-contained verification harness."), notes:""},
+];
+
+// ---------- Persistence ----------
+const LS_KEY = "animus_outbound_console_v1";
+function loadOverrides(){ try{ return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }catch(e){ return {}; } }
+function saveOverrides(o){ try{ localStorage.setItem(LS_KEY, JSON.stringify(o)); }catch(e){} }
+let overrides = loadOverrides();
+
+const PIPE_LABEL = {py:"Python-Bridge (Global)", raw:"Raw-Engine Global Soak", "in":"Indian Domestic", gs:"Gaming & Security"};
+const PIPE_DOT = {py:"var(--py)", raw:"var(--raw)", "in":"var(--in)", gs:"var(--gs)"};
+
+let activeFilter = "all";
+
+function effectiveStatus(a){
+  const ov = overrides[a.id];
+  if(ov === "sent") return "sent";
+  if(ov === "unsent") return a.status;
+  return a.status;
+}
+
+function matchesFilter(a){
+  const st = effectiveStatus(a);
+  switch(activeFilter){
+    case "all": return true;
+    case "in": return a.pipeline === "in";
+    case "gs": return a.pipeline === "gs";
+    case "ready": return st === "ready";
+    case "contacted": return st === "contacted" || st === "bounced" || st === "sent";
+    default: return true;
+  }
+}
+
+function statusBadge(a){
+  const st = effectiveStatus(a);
+  if(st === "sent") return '<span class="badge status-sent">SENT ✓</span>';
+  if(st === "contacted") return '<span class="badge status-contacted">CONTACTED ('+(a.statusDate||"")+')</span>';
+  if(st === "bounced") return '<span class="badge status-bounced">BOUNCED ('+(a.statusDate||"")+')</span>';
+  return '<span class="badge status-ready">READY</span>';
+}
+
+function escapeHtml(s){ return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+function render(){
+  const list = document.getElementById("list");
+  const groups = {py:[], raw:[], "in":[], gs:[]};
+  ACCOUNTS.filter(matchesFilter).forEach(a => groups[a.pipeline].push(a));
+
+  let html = "";
+  ["py","raw","in","gs"].forEach(p => {
+    if(groups[p].length === 0) return;
+    html += '<div class="pipeline-heading"><span class="dot" style="background:'+PIPE_DOT[p]+'"></span>'+PIPE_LABEL[p]+' ('+groups[p].length+')</div>';
+    groups[p].forEach(a => { html += cardHtml(a); });
+  });
+  if(html === "") html = '<div class="empty">No accounts match this filter.</div>';
+  list.innerHTML = html;
+
+  document.querySelectorAll("[data-copy]").forEach(btn => btn.addEventListener("click", () => copyDraft(btn.getAttribute("data-copy"))));
+  document.querySelectorAll("[data-mark]").forEach(btn => btn.addEventListener("click", () => toggleSent(btn.getAttribute("data-mark"))));
+
+  updateCounts();
+}
+
+function cardHtml(a){
+  const st = effectiveStatus(a);
+  const locked = st === "contacted";
+  const lc = a.longcycle ? '<span class="badge longcycle">LONG-CYCLE</span>' : "";
+  return '<div class="card '+(locked?"locked":"")+'">'
+    + '<div class="row1">'
+      + '<span class="firm">'+escapeHtml(a.firm)+'</span>'
+      + '<span class="badge pipe-'+a.pipeline+'">'+PIPE_LABEL[a.pipeline]+'</span>'
+      + '<span class="badge tier-'+(a.tier==="A"?"A":"B")+'">Tier '+escapeHtml(a.tier)+'</span>'
+      + statusBadge(a)
+      + lc
+    + '</div>'
+    + '<div class="meta"><b>'+escapeHtml(a.persona)+'</b> · '+escapeHtml(a.domain)+' · '+escapeHtml(a.channel)+(a.contact?(' · '+escapeHtml(a.contact)):"")+'</div>'
+    + (a.notes ? '<div class="notes">'+escapeHtml(a.notes)+'</div>' : "")
+    + '<details><summary>Preview draft</summary><pre>'+escapeHtml(a.draft)+'</pre></details>'
+    + '<div class="actions">'
+      + '<button class="primary" data-copy="'+a.id+'">Copy Draft</button>'
+      + '<button '+(st==="sent"?'class="sent-on" ':'')+(locked?'disabled ':'')+'data-mark="'+a.id+'">'+(st==="sent"?"Marked Sent ✓ (undo)":"Mark Sent")+'</button>'
+    + '</div>'
+  + '</div>';
+}
+
+function findAccount(id){ return ACCOUNTS.find(a => a.id === id); }
+
+function copyDraft(id){
+  const a = findAccount(id);
+  if(!a) return;
+  const text = a.draft;
+  const done = () => showToast('Draft copied for '+a.firm);
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else {
+    fallbackCopy(text, done);
+  }
+}
+function fallbackCopy(text, cb){
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); }catch(e){}
+  document.body.removeChild(ta);
+  cb();
+}
+
+function toggleSent(id){
+  const a = findAccount(id);
+  if(!a || a.status === "contacted") return;
+  const cur = overrides[id];
+  overrides[id] = (cur === "sent") ? "unsent" : "sent";
+  saveOverrides(overrides);
+  render();
+  showToast(overrides[id] === "sent" ? (a.firm+' marked Sent') : (a.firm+' reverted to Ready'));
+}
+
+function showToast(msg){
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+function updateCounts(){
+  const total = ACCOUNTS.length;
+  const ready = ACCOUNTS.filter(a => effectiveStatus(a) === "ready").length;
+  const contacted = ACCOUNTS.filter(a => effectiveStatus(a) === "contacted").length;
+  const bounced = ACCOUNTS.filter(a => effectiveStatus(a) === "bounced").length;
+  const sent = ACCOUNTS.filter(a => effectiveStatus(a) === "sent").length;
+  document.getElementById("counts").innerHTML =
+    '<span><b>'+total+'</b> total</span><span><b>'+ready+'</b> ready</span><span><b>'+sent+'</b> marked sent</span><span><b>'+contacted+'</b> contacted</span><span><b>'+bounced+'</b> bounced</span>';
+}
+
+document.querySelectorAll(".tab").forEach(tab => {
+  tab.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+    tab.classList.add("active");
+    activeFilter = tab.getAttribute("data-filter");
+    render();
+  });
+});
+
+render();
+</script>
+</body>
+</html>
