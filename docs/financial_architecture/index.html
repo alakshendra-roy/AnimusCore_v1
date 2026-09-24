@@ -6,13 +6,12 @@
 <title>Animus Capital Command</title>
 <style>
   :root{
-    --canvas:#050807;
-    --canvas-deep:#04100c;
-    --canvas-mid:#061a14;
-    --panel:#0A1712;
-    --panel-raised:#0E2019;
-    --border:rgba(16,185,129,0.16);
-    --border-soft:rgba(16,185,129,0.09);
+    --canvas:#06090c;
+    --canvas-mid:#0a1210;
+    --panel:#0d1512;
+    --panel-raised:#122019;
+    --border:rgba(212,175,55,0.2);
+    --border-soft:rgba(16,185,129,0.12);
     --ink-primary:#E9F2ED;
     --ink-secondary:#94A9A0;
     --ink-muted:#5B7268;
@@ -21,6 +20,7 @@
     --emerald-dim:rgba(16,185,129,0.14);
     --gold:#F59E0B;
     --champagne:#D97706;
+    --banknote-gold:#D4AF37;
     --gold-dim:rgba(217,119,6,0.14);
     --crimson:#EF4444;
     --crimson-dim:#3A1414;
@@ -39,9 +39,7 @@
     position:relative;
     background-color:var(--canvas);
     background-image:
-      radial-gradient(ellipse 900px 560px at 14% -8%, rgba(16,185,129,0.13), transparent 62%),
-      radial-gradient(ellipse 760px 520px at 104% 6%, rgba(217,119,6,0.06), transparent 58%),
-      radial-gradient(ellipse 1200px 900px at 50% 115%, var(--canvas-mid), var(--canvas-deep) 55%, var(--canvas) 100%);
+      radial-gradient(ellipse 1500px 1000px at 50% 8%, var(--canvas-mid), var(--canvas) 72%);
     background-attachment:fixed;
     background-repeat:no-repeat;
     color:var(--ink-primary);
@@ -54,12 +52,9 @@
   body::before{
     content:"";
     position:fixed; inset:0; z-index:0; pointer-events:none;
-    opacity:0.05;
-    mix-blend-mode:screen;
-    background-image:
-      repeating-linear-gradient(118deg, rgba(16,185,129,0.55) 0px, rgba(16,185,129,0.55) 1px, transparent 1px, transparent 28px),
-      repeating-linear-gradient(28deg, rgba(217,119,6,0.4) 0px, rgba(217,119,6,0.4) 1px, transparent 1px, transparent 36px),
-      repeating-radial-gradient(circle at 50% 0%, rgba(16,185,129,0.3) 0px, transparent 1px, transparent 64px);
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cg fill='none' stroke-width='0.6'%3E%3Cg stroke='rgba(212,175,55,0.04)'%3E%3Ccircle cx='0' cy='0' r='30'/%3E%3Ccircle cx='0' cy='0' r='60'/%3E%3Ccircle cx='0' cy='0' r='90'/%3E%3Ccircle cx='0' cy='0' r='120'/%3E%3Ccircle cx='240' cy='0' r='30'/%3E%3Ccircle cx='240' cy='0' r='60'/%3E%3Ccircle cx='240' cy='0' r='90'/%3E%3Ccircle cx='240' cy='0' r='120'/%3E%3Ccircle cx='0' cy='240' r='30'/%3E%3Ccircle cx='0' cy='240' r='60'/%3E%3Ccircle cx='0' cy='240' r='90'/%3E%3Ccircle cx='0' cy='240' r='120'/%3E%3Ccircle cx='240' cy='240' r='30'/%3E%3Ccircle cx='240' cy='240' r='60'/%3E%3Ccircle cx='240' cy='240' r='90'/%3E%3Ccircle cx='240' cy='240' r='120'/%3E%3C/g%3E%3Cg stroke='rgba(16,185,129,0.05)'%3E%3Ccircle cx='120' cy='120' r='16'/%3E%3Ccircle cx='120' cy='120' r='34'/%3E%3Ccircle cx='120' cy='120' r='52'/%3E%3Ccircle cx='120' cy='120' r='70'/%3E%3Ccircle cx='120' cy='120' r='88'/%3E%3Ccircle cx='120' cy='120' r='106'/%3E%3C/g%3E%3Cg stroke='rgba(212,175,55,0.03)'%3E%3Cline x1='120' y1='0' x2='120' y2='240'/%3E%3Cline x1='0' y1='120' x2='240' y2='120'/%3E%3Cline x1='0' y1='0' x2='240' y2='240'/%3E%3Cline x1='240' y1='0' x2='0' y2='240'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    background-repeat:repeat;
+    background-size:240px 240px;
   }
   .cmdbar, .shell{ position:relative; z-index:1; }
   ::selection{ background:var(--emerald); color:var(--ink-on-emerald); }
@@ -74,7 +69,7 @@
   /* ===== Top command bar ===== */
   .cmdbar{
     position:sticky; top:0; z-index:50;
-    background:rgba(4,16,12,0.90);
+    background:rgba(6,9,12,0.92);
     backdrop-filter:blur(10px);
     border-bottom:1px solid var(--border);
     padding:10px 20px;
@@ -159,10 +154,10 @@
 
   .panel{
     position:relative;
-    background:linear-gradient(180deg,rgba(16,185,129,0.035),rgba(0,0,0,0) 120px),var(--panel);
+    background:var(--panel);
     border:1px solid var(--border); border-radius:var(--radius);
     padding:16px 16px 18px; margin-bottom:18px;
-    box-shadow:0 1px 0 rgba(217,119,6,0.05) inset;
+    box-shadow:0 1px 0 rgba(212,175,55,0.06) inset;
   }
   .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap; }
   .panel-title{ font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-primary); }
@@ -180,7 +175,7 @@
   }
   .wf-title{ font-size:12px; font-weight:600; color:var(--ink-primary); flex:1; }
   .wf-amount{ font-family:var(--mono); font-size:15px; font-weight:700; }
-  .wf-bar-track{ height:6px; border-radius:4px; background:#0A0E15; overflow:hidden; margin:8px 0 4px; border:1px solid var(--border-soft); }
+  .wf-bar-track{ height:6px; border-radius:4px; background:#050a08; overflow:hidden; margin:8px 0 4px; border:1px solid var(--border-soft); }
   .wf-bar-fill{ height:100%; border-radius:4px; transition:width .25s ease; }
   .wf-detail{ font-size:11px; color:var(--ink-secondary); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-top:2px; }
   .wf-controls{ margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
@@ -188,8 +183,6 @@
   .ctrl{ display:flex; flex-direction:column; gap:4px; }
   .ctrl label{ font-size:10px; color:var(--ink-muted); display:flex; justify-content:space-between; text-transform:uppercase; letter-spacing:0.03em; }
   .ctrl label span{ font-family:var(--mono); color:var(--ink-secondary); text-transform:none; letter-spacing:0; }
-  .wf-tooltip{ font-size:10px; color:var(--ink-muted); line-height:1.4; margin-top:1px; font-style:italic; }
-  .wf-tooltip::before{ content:"ⓘ "; color:var(--champagne); font-style:normal; }
   input[type=range]{
     -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px;
     background:var(--border); outline:none; cursor:pointer;
@@ -237,7 +230,7 @@
 
   /* ===== Mentor console ===== */
   .mentor-box{
-    background:#050E0A; border:1px solid var(--border); border-radius:var(--radius-sm);
+    background:#070c0a; border:1px solid var(--border); border-radius:var(--radius-sm);
     padding:14px; font-family:var(--mono); font-size:12px; color:var(--emerald); min-height:150px;
     white-space:pre-wrap; line-height:1.6;
   }
@@ -372,17 +365,17 @@
 
   var TIERS = [
     { id:1, usd:20000, name:"Foundation Vault", vehicle:"Volkswagen Virtus GT Plus 1.5 TSI DSG + Maruti XL6", fuel:"4x Full Tanks · IOCL XP95 (personal card)", residence:"Current Residence", vault:"Aggressive liquid vault formation", note:"Bank the surplus. Prove the recurring line first.",
-      cloudPct:0.05, ca:35000, vehicleLease:85000, fuelAllow:20000, drawPct:55, dlfLease:0, staffPool:40000, familyTransfer:100000, householdStaff:100000 },
+      cloudPct:0.05, ca:35000, vehicleLease:85000, fuelAllow:20000, drawPct:55, dlfLease:0, staffPool:40000, familyTransfer:100000 },
     { id:2, usd:40000, name:"Belaire Transition", vehicle:"Mercedes-Benz E 450 4MATIC / AMG GLC 43 Coupé", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Belaire", vault:"Formal treasury cadence begins", note:"Upgrade shelter, not identity.",
-      cloudPct:0.05, ca:55000, vehicleLease:220000, fuelAllow:55000, drawPct:50, dlfLease:350000, staffPool:90000, familyTransfer:150000, householdStaff:100000 },
+      cloudPct:0.05, ca:55000, vehicleLease:220000, fuelAllow:55000, drawPct:50, dlfLease:350000, staffPool:90000, familyTransfer:150000 },
     { id:3, usd:60000, name:"The Crest Standard", vehicle:"Mercedes E 450 LWB (executive) + Virtus GT (daily)", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Crest", vault:"Dual-vehicle operating cadence", note:"Two cars, one focus: enterprise contracts.",
-      cloudPct:0.045, ca:70000, vehicleLease:380000, fuelAllow:85000, drawPct:48, dlfLease:550000, staffPool:140000, familyTransfer:200000, householdStaff:100000 },
+      cloudPct:0.045, ca:70000, vehicleLease:380000, fuelAllow:85000, drawPct:48, dlfLease:550000, staffPool:140000, familyTransfer:200000 },
     { id:4, usd:80000, name:"The Mercedes Ceiling", vehicle:"Mercedes-Maybach S 580 4MATIC or AMG G 63", fuel:"Unlimited IOCL XP100/XP95 Fleet Card", residence:"DLF The Crest / The Magnolias", vault:"Ceiling tier — protect the moat", note:"This is the top of the sensible curve. Everything past it must be earned twice.",
-      cloudPct:0.04, ca:90000, vehicleLease:650000, fuelAllow:130000, drawPct:45, dlfLease:750000, staffPool:190000, familyTransfer:250000, householdStaff:100000 },
+      cloudPct:0.04, ca:90000, vehicleLease:650000, fuelAllow:130000, drawPct:45, dlfLease:750000, staffPool:190000, familyTransfer:250000 },
     { id:5, usd:100000, name:"Exotic Tier Upgrade", vehicle:"Porsche 911 Turbo S (992.2 AWD Flat-6) + Maybach S 580 Chauffeur", fuel:"Unlimited IOCL XP100", residence:"DLF The Magnolias", vault:"Exotic assets, not exotic decisions", note:"The Porsche is a reward for contracts already signed — never collateral for ones you hope to sign.",
-      cloudPct:0.035, ca:110000, vehicleLease:950000, fuelAllow:170000, drawPct:42, dlfLease:900000, staffPool:260000, familyTransfer:300000, householdStaff:100000 },
+      cloudPct:0.035, ca:110000, vehicleLease:950000, fuelAllow:170000, drawPct:42, dlfLease:900000, staffPool:260000, familyTransfer:300000 },
     { id:6, usd:120000, name:"Sovereign Tier", vehicle:"Bentley Continental GT Speed / Flying Spur W12 + Flagship Garage", fuel:"White-Glove XP100 Card", residence:"DLF The Camellias", vault:"Sovereign compound — full compounding discipline", note:"At this altitude the only remaining risk is complacency.",
-      cloudPct:0.03, ca:140000, vehicleLease:1450000, fuelAllow:220000, drawPct:40, dlfLease:1400000, staffPool:380000, familyTransfer:400000, householdStaff:100000 }
+      cloudPct:0.03, ca:140000, vehicleLease:1450000, fuelAllow:220000, drawPct:40, dlfLease:1400000, staffPool:380000, familyTransfer:400000 }
   ];
 
   var PE_BANDS = [
@@ -428,7 +421,7 @@
     tierIdx: 0,
     fx: 90.00,
     cloudPct: null, ca: null, vehicleLease: null, fuelAllow: null,
-    drawPct: null, dlfLease: null, staffPool: null, familyTransfer: null, householdStaff: null,
+    drawPct: null, dlfLease: null, staffPool: null, familyTransfer: null,
     peBand: 'fair',
     investPct: 50
   };
@@ -482,7 +475,6 @@
     var dlfLease = state.dlfLease !== null ? state.dlfLease : t.dlfLease;
     var staffPool = state.staffPool !== null ? state.staffPool : t.staffPool;
     var familyTransfer = state.familyTransfer !== null ? state.familyTransfer : t.familyTransfer;
-    var householdStaff = state.householdStaff !== null ? state.householdStaff : t.householdStaff;
 
     var cloudInfra = grossINR * cloudPct;
     var deductions = cloudInfra + ca + vehicleLease + fuelAllow;
@@ -498,7 +490,7 @@
     var monthlyTDS = annualTax / 12;
     var inHandCash = founderDraw - monthlyTDS;
 
-    var fixedAllocations = dlfLease + staffPool + familyTransfer + householdStaff;
+    var fixedAllocations = dlfLease + staffPool + familyTransfer;
     var guiltFree = inHandCash - fixedAllocations;
 
     var totalBurn = deductions + fixedAllocations + monthlyTDS + corpTax;
@@ -509,7 +501,7 @@
       pretaxProfit:pretaxProfit, founderDraw:founderDraw, drawPct:drawPct,
       retainedPortion:retainedPortion, corpTax:corpTax, retainedEarnings:retainedEarnings,
       monthlyTDS:monthlyTDS, inHandCash:inHandCash,
-      dlfLease:dlfLease, staffPool:staffPool, familyTransfer:familyTransfer, householdStaff:householdStaff, fixedAllocations:fixedAllocations,
+      dlfLease:dlfLease, staffPool:staffPool, familyTransfer:familyTransfer, fixedAllocations:fixedAllocations,
       guiltFree:guiltFree, totalBurn:totalBurn
     };
   }
@@ -532,7 +524,7 @@
       btn.addEventListener('click', function(){
         state.tierIdx = parseInt(btn.getAttribute('data-idx'),10);
         state.cloudPct = state.ca = state.vehicleLease = state.fuelAllow = null;
-        state.drawPct = state.dlfLease = state.staffPool = state.familyTransfer = state.householdStaff = null;
+        state.drawPct = state.dlfLease = state.staffPool = state.familyTransfer = null;
         renderAll();
       });
     });
@@ -590,16 +582,11 @@
       '<div class="wf-title">Fixed Monthly Allocations</div>' +
       '<div class="wf-amount hl-crimson">-'+fmtINR(w.fixedAllocations)+'</div></div>' +
       '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.fixedAllocations)+'%;background:var(--crimson);"></div></div>' +
-      '<div class="wf-detail"><span>'+ (w.t.residence) +': '+fmtINR(w.dlfLease)+'</span><span>Staff pool '+fmtINR(w.staffPool)+'</span><span>Family transfers '+fmtINR(w.familyTransfer)+'</span><span>Household staff &amp; logistics '+fmtINR(w.householdStaff)+'</span></div>' +
+      '<div class="wf-detail"><span>'+ (w.t.residence) +': '+fmtINR(w.dlfLease)+'</span><span>Staff pool '+fmtINR(w.staffPool)+'</span><span>Family transfers '+fmtINR(w.familyTransfer)+'</span></div>' +
       '<div class="wf-controls">' +
         slider('dlfLease','Residence Lease', state.dlfLease!==null?state.dlfLease:w.t.dlfLease, 0, 2000000, 10000, fmtINR, 'dlfLease') +
         slider('staffPool','Chef / Driver Staff Pool', state.staffPool!==null?state.staffPool:w.t.staffPool, 0, 500000, 5000, fmtINR, 'staffPool') +
         slider('familyTransfer','Family Liquidity Transfers', state.familyTransfer!==null?state.familyTransfer:w.t.familyTransfer, 0, 600000, 5000, fmtINR, 'familyTransfer') +
-        '<div class="ctrl" style="grid-column:1 / -1;">' +
-          '<label title="Funded via Personal Founder Draw. 100% compliant personal household overhead (Zero corporate TDS/PF overhead).">Household Staff &amp; Private Logistics <span id="householdStaffVal">'+fmtINR(state.householdStaff!==null?state.householdStaff:w.t.householdStaff)+'</span></label>' +
-          '<input type="range" id="householdStaff" data-key="householdStaff" min="0" max="300000" step="5000" value="'+(state.householdStaff!==null?state.householdStaff:w.t.householdStaff)+'">' +
-          '<div class="wf-tooltip">Funded via Personal Founder Draw · Private Chauffeur + Full-time Housekeeping/Cook · 100% compliant personal household overhead (Zero corporate TDS/PF overhead).</div>' +
-        '</div>' +
       '</div></div>';
 
     // Step 6
