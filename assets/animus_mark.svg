@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="animusMarkTitle">
+  <title id="animusMarkTitle">Animus Core mark</title>
+  <!--
+    Clean geometric redraw of the Animus "A" chevron emblem: two symmetric
+    triangular legs converging to a single sharp apex, plus a smaller
+    floating chevron accent centered in the gap. Coordinates are exact
+    (mirrored left/right about x=100), not traced from the source raster.
+  -->
+  <g fill="#33FAFA" shape-rendering="geometricPrecision">
+    <path d="M 100 18 L 18 182 L 68 182 Z"/>
+    <path d="M 100 18 L 132 182 L 182 182 Z"/>
+    <path d="M 100 106 L 119 168 L 81 168 Z"/>
+  </g>
+</svg>
