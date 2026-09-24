@@ -188,12 +188,12 @@ double calibrate_cycles_per_ns() {
 }
 
 struct LatencyStats {
-    uint64_t p50, p99, p999;
+    uint64_t p50, p90, p99, p999, max;
     size_t sample_count;
 };
 
 LatencyStats compute_percentiles(std::vector<uint64_t>& samples) {
-    if (samples.empty()) return LatencyStats{0, 0, 0, 0};
+    if (samples.empty()) return LatencyStats{0, 0, 0, 0, 0, 0};
     std::sort(samples.begin(), samples.end());
     const size_t n = samples.size();
     auto at = [&](double p) -> uint64_t {
@@ -201,7 +201,7 @@ LatencyStats compute_percentiles(std::vector<uint64_t>& samples) {
         if (idx >= n) idx = n - 1;
         return samples[idx];
     };
-    return LatencyStats{at(0.50), at(0.99), at(0.999), n};
+    return LatencyStats{at(0.50), at(0.90), at(0.99), at(0.999), samples[n - 1], n};
 }
 
 void print_ns_row(const char* label, uint64_t cycles, double cycles_per_ns) {
@@ -502,12 +502,16 @@ int main(int argc, char** argv) {
     std::printf("  sequence intact      : %s\n", spsc.sequence_intact ? "yes (every event drained exactly once, in order)" : "NO -- loss or reorder detected");
     std::printf("  push() latency (n=%zu samples):\n", spsc.push_latency.sample_count);
     print_ns_row("P50", spsc.push_latency.p50, cycles_per_ns);
+    print_ns_row("P90", spsc.push_latency.p90, cycles_per_ns);
     print_ns_row("P99", spsc.push_latency.p99, cycles_per_ns);
     print_ns_row("P99.9", spsc.push_latency.p999, cycles_per_ns);
+    print_ns_row("Max", spsc.push_latency.max, cycles_per_ns);
     std::printf("  tick-to-telemetry latency (creation -> consumer observed, n=%zu samples):\n", spsc.tick_to_telemetry.sample_count);
     print_ns_row("P50", spsc.tick_to_telemetry.p50, cycles_per_ns);
+    print_ns_row("P90", spsc.tick_to_telemetry.p90, cycles_per_ns);
     print_ns_row("P99", spsc.tick_to_telemetry.p99, cycles_per_ns);
     print_ns_row("P99.9", spsc.tick_to_telemetry.p999, cycles_per_ns);
+    print_ns_row("Max", spsc.tick_to_telemetry.max, cycles_per_ns);
     std::printf("  heap allocations during timed region: %s\n\n",
                 spsc_allocs == 0 ? "0 (PASS)" : "FAIL -- see count above");
 
@@ -524,8 +528,10 @@ int main(int argc, char** argv) {
     std::printf("  MPMC pushes/sec      : %.0f\n", pushes_per_sec);
     std::printf("  push() latency under contention (n=%zu samples):\n", mpmc.push_latency.sample_count);
     print_ns_row("P50", mpmc.push_latency.p50, cycles_per_ns);
+    print_ns_row("P90", mpmc.push_latency.p90, cycles_per_ns);
     print_ns_row("P99", mpmc.push_latency.p99, cycles_per_ns);
     print_ns_row("P99.9", mpmc.push_latency.p999, cycles_per_ns);
+    print_ns_row("Max", mpmc.push_latency.max, cycles_per_ns);
     std::printf("  heap allocations during timed region: %s\n\n",
                 mpmc_allocs == 0 ? "0 (PASS)" : "FAIL -- see count above");
 

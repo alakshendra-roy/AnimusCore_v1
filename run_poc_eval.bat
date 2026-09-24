@@ -68,7 +68,7 @@ if errorlevel 1 (
 
 :have_cl
 echo Using compiler: cl.exe
-cl.exe /O2 /std:c++17 /EHsc /W3 /nologo "%SRC%" /Fe:"%OUT%" /Fo:"%SCRIPT_DIR%poc_eval\"
+cl.exe /O2 /std:c++17 /EHsc /W3 /nologo "%SRC%" /Fe:"%OUT%" /Fo:"%SCRIPT_DIR%poc_eval\\"
 if errorlevel 1 exit /b 1
 
 :run

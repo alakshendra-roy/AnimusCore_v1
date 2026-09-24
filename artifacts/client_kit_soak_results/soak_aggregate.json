@@ -1,0 +1,21 @@
+{
+    "TotalRuns":  153,
+    "WallClockMinutes":  62.1,
+    "RunDurationSeconds":  20,
+    "ProducerThreads":  8,
+    "PinBaseCore":  4,
+    "CPU":  "Intel(R) Core(TM) i7-14650HX",
+    "LogicalCores":  "24",
+    "TscGHz":  "2.4192",
+    "SpscPushP50MedianNs":  21.08,
+    "SpscPushP90MedianNs":  24.39,
+    "SpscPushP99MedianNs":  27.7,
+    "SpscPushMaxWorstNs":  30030989.93,
+    "TickP50MedianNs":  30.59,
+    "MpmcPpsMedian":  7471133,
+    "MpmcPpsMin":  5139660,
+    "MpmcPpsMax":  8563594,
+    "HeapAllocationsTotal":  0,
+    "SequenceIntactRuns":  "153 / 153",
+    "OverallPassRuns":  "0 / 153"
+}
