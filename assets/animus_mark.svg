@@ -1,12 +1,23 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-labelledby="animusMarkTitle">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="animusMarkTitle">
   <title id="animusMarkTitle">Animus Core mark</title>
   <!--
-    Clean geometric redraw of the Animus "A" chevron emblem: two symmetric
-    triangular legs converging to a single sharp apex, plus a smaller
-    floating chevron accent centered in the gap. Coordinates are exact
-    (mirrored left/right about x=100), not traced from the source raster.
+    Canonical Animus Core mark. All geometry is exact (mirrored about
+    x=256), computed from regular-hexagon trigonometry and hand-set
+    coordinates, not traced or AI-generated paths.
+
+    Container: a vertical-sided regular hexagon (flat left/right edges,
+    pointed top/bottom), two concentric strokes for a machined-bezel look.
+    Mark: the chevron "A", two converging legs plus a floating inner
+    chevron, centered inside, given a slight forward skew for motion.
   -->
-  <g fill="#33FAFA" shape-rendering="geometricPrecision">
+  <rect x="0" y="0" width="512" height="512" fill="#09090b"/>
+
+  <g fill="none" stroke-linejoin="miter" shape-rendering="geometricPrecision">
+    <polygon points="256,36 446.5,146 446.5,366 256,476 65.5,366 65.5,146" stroke="#EF4444" stroke-width="8"/>
+    <polygon points="256,56 429.2,156 429.2,356 256,456 82.8,356 82.8,156" stroke="#DC2626" stroke-width="4"/>
+  </g>
+
+  <g fill="#00F0FF" shape-rendering="geometricPrecision" transform="translate(256,256) scale(1.5) skewX(-6) translate(-100,-100)">
     <path d="M 100 18 L 18 182 L 68 182 Z"/>
     <path d="M 100 18 L 132 182 L 182 182 Z"/>
     <path d="M 100 106 L 119 168 L 81 168 Z"/>

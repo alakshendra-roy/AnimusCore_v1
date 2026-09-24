@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="animusLogoTitle">
+  <title id="animusLogoTitle">Animus Core</title>
+  <!--
+    Canonical enterprise brand lockup. Square canvas (1024x1024) so a
+    2x raster render (2048x2048) is undistorted, no letterboxing needed.
+    Mark occupies its native 512x512 box, offset to (256,84); wordmark
+    and tagline are centered beneath it with generous top/bottom clear
+    space, per standard corporate lockup safe-area practice.
+  -->
+  <rect x="0" y="0" width="1024" height="1024" fill="#09090b"/>
+
+  <g transform="translate(256,154)">
+    <g fill="none" stroke-linejoin="miter" shape-rendering="geometricPrecision">
+      <polygon points="256,36 446.5,146 446.5,366 256,476 65.5,366 65.5,146" stroke="#EF4444" stroke-width="8"/>
+      <polygon points="256,56 429.2,156 429.2,356 256,456 82.8,356 82.8,156" stroke="#DC2626" stroke-width="4"/>
+    </g>
+    <g fill="#00F0FF" shape-rendering="geometricPrecision" transform="translate(256,256) scale(1.5) skewX(-6) translate(-100,-100)">
+      <path d="M 100 18 L 18 182 L 68 182 Z"/>
+      <path d="M 100 18 L 132 182 L 182 182 Z"/>
+      <path d="M 100 106 L 119 168 L 81 168 Z"/>
+    </g>
+  </g>
+
+  <text x="512" y="770" text-anchor="middle"
+        font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-weight="700"
+        font-size="100" letter-spacing="26" fill="#FFFFFF">ANIMUS</text>
+
+  <text x="512" y="826" text-anchor="middle"
+        font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-weight="500"
+        font-size="26" letter-spacing="7" fill="#94A3B8">DETERMINISTIC TELEMETRY • BARE-METAL C++</text>
+</svg>
