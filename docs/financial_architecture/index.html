@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Animus Capital Command</title>
+<style>
+  :root{
+    --canvas:#07090E;
+    --panel:#0F141C;
+    --panel-raised:#131A24;
+    --border:#1E293B;
+    --border-soft:#161E2B;
+    --ink-primary:#E6EDF3;
+    --ink-secondary:#93A2B8;
+    --ink-muted:#5B6B82;
+    --emerald:#00E676;
+    --emerald-dim:#0A3A26;
+    --gold:#F59E0B;
+    --gold-dim:#3A2A0A;
+    --crimson:#EF4444;
+    --crimson-dim:#3A1414;
+    --azure:#3B82F6;
+    --azure-dim:#0F2340;
+    --mono: 'JetBrains Mono','SFMono-Regular',Consolas,'Liberation Mono',Menlo,monospace;
+    --sans: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --radius:10px;
+    --radius-sm:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--canvas);
+    color:var(--ink-primary);
+    font-family:var(--sans);
+    font-size:14px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:60px;
+  }
+  ::selection{ background:var(--emerald); color:#031A0F; }
+  .mono{ font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  a{ color:var(--azure); }
+
+  /* ===== Scrollbar ===== */
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-track{ background:var(--canvas); }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:6px; }
+
+  /* ===== Top command bar ===== */
+  .cmdbar{
+    position:sticky; top:0; z-index:50;
+    background:rgba(7,9,14,0.94);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--border);
+    padding:10px 20px;
+  }
+  .cmdbar-inner{
+    max-width:1440px; margin:0 auto;
+    display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; margin-right:auto; }
+  .brand-mark{
+    width:30px; height:30px; border-radius:7px;
+    background:linear-gradient(135deg,var(--emerald),#00A855);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:800; color:#031A0F; font-size:14px; font-family:var(--mono);
+    flex:none;
+  }
+  .brand-text .t1{ font-weight:700; font-size:13.5px; letter-spacing:0.02em; }
+  .brand-text .t2{ font-size:10.5px; color:var(--ink-muted); letter-spacing:0.08em; text-transform:uppercase; }
+  .status-chip{
+    display:flex; align-items:center; gap:6px;
+    font-size:10.5px; color:var(--emerald); letter-spacing:0.06em; text-transform:uppercase;
+    padding:4px 9px; border:1px solid var(--emerald-dim); border-radius:20px; background:rgba(0,230,118,0.06);
+    white-space:nowrap;
+  }
+  .status-dot{ width:6px; height:6px; border-radius:50%; background:var(--emerald); box-shadow:0 0 6px var(--emerald); }
+
+  .fx-widget{
+    display:flex; align-items:center; gap:10px;
+    background:var(--panel); border:1px solid var(--border); border-radius:20px;
+    padding:6px 14px;
+  }
+  .fx-widget label{ font-size:10.5px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:0.06em; }
+  .fx-widget input[type=range]{ width:110px; }
+  .fx-val{ font-family:var(--mono); font-size:12.5px; color:var(--gold); min-width:76px; text-align:right; }
+
+  .headline-strip{
+    display:flex; gap:22px; margin-top:10px; flex-wrap:wrap;
+    max-width:1440px; margin-left:auto; margin-right:auto;
+    padding:0 0;
+  }
+  .headline-item{ display:flex; flex-direction:column; gap:1px; }
+  .headline-item .hl-label{ font-size:9.5px; text-transform:uppercase; letter-spacing:0.08em; color:var(--ink-muted); }
+  .headline-item .hl-val{ font-family:var(--mono); font-size:15px; font-weight:700; }
+  .hl-emerald{ color:var(--emerald); }
+  .hl-gold{ color:var(--gold); }
+  .hl-crimson{ color:var(--crimson); }
+
+  /* ===== Layout ===== */
+  .shell{ max-width:1440px; margin:0 auto; padding:20px; }
+  .disclaimer{
+    background:var(--panel); border:1px solid var(--border-soft); border-left:3px solid var(--gold);
+    border-radius:var(--radius-sm); padding:10px 14px; font-size:11.5px; color:var(--ink-secondary);
+    margin-bottom:18px;
+  }
+  .disclaimer b{ color:var(--gold); }
+
+  /* ===== Tier tabs ===== */
+  .tier-tabs{
+    display:grid; grid-template-columns:repeat(6,1fr); gap:8px; margin-bottom:18px;
+  }
+  .tier-tab{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:11px 10px; cursor:pointer; text-align:left; color:var(--ink-secondary);
+    transition:border-color .15s, background .15s;
+    font-family:var(--sans);
+  }
+  .tier-tab:hover{ border-color:#334155; }
+  .tier-tab.active{
+    background:linear-gradient(180deg,rgba(0,230,118,0.08),rgba(0,230,118,0.02));
+    border-color:var(--emerald);
+  }
+  .tier-tab .tt-num{ font-size:9.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--ink-muted); }
+  .tier-tab.active .tt-num{ color:var(--emerald); }
+  .tier-tab .tt-usd{ font-family:var(--mono); font-size:15px; font-weight:700; color:var(--ink-primary); margin-top:3px; }
+  .tier-tab .tt-name{ font-size:10.5px; margin-top:2px; color:var(--ink-muted); }
+
+  .grid-main{ display:grid; grid-template-columns:1.55fr 1fr; gap:18px; align-items:start; }
+  @media (max-width:980px){ .grid-main{ grid-template-columns:1fr; } .tier-tabs{ grid-template-columns:repeat(3,1fr);} }
+  @media (max-width:560px){ .tier-tabs{ grid-template-columns:repeat(2,1fr);} }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--border); border-radius:var(--radius);
+    padding:16px 16px 18px; margin-bottom:18px;
+  }
+  .panel-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; flex-wrap:wrap; }
+  .panel-title{ font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-primary); }
+  .panel-sub{ font-size:10.5px; color:var(--ink-muted); margin-top:2px; }
+
+  /* ===== Waterfall steps ===== */
+  .wf-step{
+    border:1px solid var(--border-soft); border-radius:var(--radius-sm); background:var(--panel-raised);
+    padding:12px 14px; margin-bottom:10px;
+  }
+  .wf-step-head{ display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .wf-num{
+    width:22px; height:22px; border-radius:6px; background:var(--border); color:var(--ink-secondary);
+    display:flex; align-items:center; justify-content:center; font-family:var(--mono); font-size:11px; font-weight:700; flex:none;
+  }
+  .wf-title{ font-size:12px; font-weight:600; color:var(--ink-primary); flex:1; }
+  .wf-amount{ font-family:var(--mono); font-size:15px; font-weight:700; }
+  .wf-bar-track{ height:6px; border-radius:4px; background:#0A0E15; overflow:hidden; margin:8px 0 4px; border:1px solid var(--border-soft); }
+  .wf-bar-fill{ height:100%; border-radius:4px; transition:width .25s ease; }
+  .wf-detail{ font-size:11px; color:var(--ink-secondary); display:flex; justify-content:space-between; gap:8px; flex-wrap:wrap; margin-top:2px; }
+  .wf-controls{ margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:10px 14px; }
+  @media (max-width:640px){ .wf-controls{ grid-template-columns:1fr; } }
+  .ctrl{ display:flex; flex-direction:column; gap:4px; }
+  .ctrl label{ font-size:10px; color:var(--ink-muted); display:flex; justify-content:space-between; text-transform:uppercase; letter-spacing:0.03em; }
+  .ctrl label span{ font-family:var(--mono); color:var(--ink-secondary); text-transform:none; letter-spacing:0; }
+  input[type=range]{
+    -webkit-appearance:none; appearance:none; width:100%; height:4px; border-radius:2px;
+    background:var(--border); outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:var(--emerald); border:2px solid #031A0F; cursor:pointer; box-shadow:0 0 0 1px var(--emerald);
+  }
+  input[type=range]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--emerald); border:2px solid #031A0F; cursor:pointer;
+  }
+
+  .tag{ display:inline-flex; align-items:center; gap:5px; font-size:9.5px; text-transform:uppercase; letter-spacing:0.06em; padding:2px 8px; border-radius:20px; font-weight:700; }
+  .tag-emerald{ background:rgba(0,230,118,0.1); color:var(--emerald); border:1px solid var(--emerald-dim); }
+  .tag-gold{ background:rgba(245,158,11,0.1); color:var(--gold); border:1px solid var(--gold-dim); }
+  .tag-crimson{ background:rgba(239,68,68,0.1); color:var(--crimson); border:1px solid var(--crimson-dim); }
+  .tag-azure{ background:rgba(59,130,246,0.1); color:var(--azure); border:1px solid var(--azure-dim); }
+
+  /* ===== Lifestyle profile ===== */
+  .lifestyle-grid{ display:grid; grid-template-columns:1fr; gap:10px; }
+  .life-row{ display:flex; gap:12px; padding:10px; border:1px solid var(--border-soft); border-radius:var(--radius-sm); background:var(--panel-raised); }
+  .life-icon{ width:34px; height:34px; border-radius:8px; background:var(--border); display:flex; align-items:center; justify-content:center; font-size:15px; flex:none; }
+  .life-body .life-label{ font-size:9.5px; text-transform:uppercase; color:var(--ink-muted); letter-spacing:0.06em; }
+  .life-body .life-val{ font-size:12.5px; color:var(--ink-primary); margin-top:2px; }
+
+  /* ===== Allocation matrix ===== */
+  .pe-toggle{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-bottom:12px; }
+  .pe-btn{
+    background:var(--panel-raised); border:1px solid var(--border); color:var(--ink-secondary);
+    border-radius:var(--radius-sm); padding:8px 6px; font-size:10.5px; cursor:pointer; text-align:center; line-height:1.35;
+  }
+  .pe-btn b{ display:block; font-size:12px; margin-bottom:1px; }
+  .pe-btn.active{ border-color:var(--azure); color:var(--ink-primary); background:rgba(59,130,246,0.08); }
+  .alloc-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed var(--border-soft); }
+  .alloc-row:last-child{ border-bottom:none; }
+  .alloc-swatch{ width:10px; height:10px; border-radius:3px; flex:none; }
+  .alloc-name{ flex:1; font-size:12px; }
+  .alloc-name small{ display:block; color:var(--ink-muted); font-size:10px; margin-top:1px; }
+  .alloc-pct{ font-family:var(--mono); font-size:11.5px; color:var(--ink-muted); width:38px; text-align:right; }
+  .alloc-amt{ font-family:var(--mono); font-size:13px; font-weight:700; width:118px; text-align:right; }
+  .lrs-warning{ margin-top:10px; font-size:10.5px; color:var(--crimson); background:rgba(239,68,68,0.08); border:1px solid var(--crimson-dim); border-radius:var(--radius-sm); padding:8px 10px; display:none; }
+  .lrs-warning.show{ display:block; }
+
+  /* ===== Mentor console ===== */
+  .mentor-box{
+    background:#0A0D13; border:1px solid var(--border); border-radius:var(--radius-sm);
+    padding:14px; font-family:var(--mono); font-size:12px; color:var(--emerald); min-height:150px;
+    white-space:pre-wrap; line-height:1.6;
+  }
+  .mentor-box .m-head{ color:var(--gold); font-weight:700; display:block; margin-bottom:8px; }
+  .mentor-box .m-empty{ color:var(--ink-muted); font-family:var(--sans); }
+  .btn{
+    border:1px solid var(--border); background:var(--panel-raised); color:var(--ink-primary);
+    padding:9px 14px; border-radius:var(--radius-sm); font-size:11.5px; font-weight:600; cursor:pointer;
+    letter-spacing:0.02em; transition:border-color .15s, background .15s;
+  }
+  .btn:hover{ border-color:#334155; }
+  .btn-primary{ background:linear-gradient(180deg,var(--emerald),#00B85E); border-color:transparent; color:#031A0F; }
+  .btn-primary:hover{ filter:brightness(1.06); }
+  .btn-gold{ background:linear-gradient(180deg,var(--gold),#C9790A); border-color:transparent; color:#2A1600; }
+  .btn-row{ display:flex; gap:10px; margin-top:12px; flex-wrap:wrap; }
+
+  .footer-note{ text-align:center; font-size:10.5px; color:var(--ink-muted); margin-top:20px; }
+
+  /* ===== Print (Export Treasury Dossier) ===== */
+  @media print{
+    body{ background:#fff; color:#111; padding:0; }
+    .cmdbar, .tier-tabs, .no-print, input[type=range]{ display:none !important; }
+    .panel{ border:1px solid #ccc; background:#fff; break-inside:avoid; }
+    .wf-step{ background:#f7f7f7; border-color:#ddd; }
+    .mentor-box{ background:#f7f7f7; color:#111; border-color:#ccc; }
+    .shell{ padding:0; max-width:100%; }
+    a{ color:#111; }
+    .headline-strip{ display:none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cmdbar">
+  <div class="cmdbar-inner">
+    <div class="brand">
+      <div class="brand-mark">AC</div>
+      <div class="brand-text">
+        <div class="t1">ANIMUS CAPITAL COMMAND</div>
+        <div class="t2">Founder Treasury &amp; Allocation Terminal</div>
+      </div>
+    </div>
+    <div class="status-chip"><span class="status-dot"></span>Model Live</div>
+    <div class="fx-widget">
+      <label>USD/INR</label>
+      <input type="range" id="fxRate" min="88.5" max="95.8" step="0.05" value="90.00">
+      <span class="fx-val mono" id="fxRateVal">₹90.00</span>
+    </div>
+  </div>
+  <div class="cmdbar-inner headline-strip">
+    <div class="headline-item"><span class="hl-label">Gross Remittance</span><span class="hl-val mono" id="hlGross">—</span></div>
+    <div class="headline-item"><span class="hl-label">Treasury Retained</span><span class="hl-val mono hl-gold" id="hlTreasury">—</span></div>
+    <div class="headline-item"><span class="hl-label">In-Hand Personal Cash</span><span class="hl-val mono hl-emerald" id="hlInHand">—</span></div>
+    <div class="headline-item"><span class="hl-label">Guilt-Free Pool</span><span class="hl-val mono hl-emerald" id="hlGuiltFree">—</span></div>
+    <div class="headline-item"><span class="hl-label">Total Burn</span><span class="hl-val mono hl-crimson" id="hlBurn">—</span></div>
+  </div>
+</div>
+
+<div class="shell">
+
+  <div class="disclaimer">
+    <b>Modeling tool — illustrative only.</b> All tax, GST/LUT, TDS, Sec 115BAA, and allocation figures are simplified planning approximations for internal founder use. Not tax, legal, or investment advice. Verify structuring with your CA and legal counsel before executing any draw, lease, or remittance decision.
+  </div>
+
+  <div class="tier-tabs" id="tierTabs"></div>
+
+  <div class="grid-main">
+    <!-- LEFT: Waterfall -->
+    <div>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Six-Tier Waterfall Engine</div>
+            <div class="panel-sub">Gross foreign remittance → guilt-free discretionary pool, computed live</div>
+          </div>
+          <div class="tag tag-azure" id="activeTierBadge">TIER 1</div>
+        </div>
+        <div id="waterfall"></div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Lifestyle, Allocation, Mentor -->
+    <div>
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Tier Lifestyle Profile</div>
+            <div class="panel-sub">Fleet, fuel, and residence configuration</div>
+          </div>
+        </div>
+        <div class="lifestyle-grid" id="lifestyleProfile"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Capital Allocation Matrix</div>
+            <div class="panel-sub">Where to deploy this month</div>
+          </div>
+        </div>
+        <div class="pe-toggle" id="peToggle"></div>
+        <div id="allocRows"></div>
+        <div class="ctrl" style="margin-top:10px;">
+          <label>Personal Surplus Reinvested <span id="investPctVal">50%</span></label>
+          <input type="range" id="investPct" min="0" max="100" step="5" value="50">
+        </div>
+        <div class="lrs-warning" id="lrsWarning">⚠ Hard-USD leg approaches/exceeds the ~$20,833/mo equivalent of the $250,000/year RBI LRS individual remittance limit. Review pacing with your CA.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">High-Conviction Founder &amp; Mentor Dispatch</div>
+            <div class="panel-sub">Tactical discipline for the current tier</div>
+          </div>
+        </div>
+        <div class="mentor-box" id="mentorBox"><span class="m-empty">Press "Generate Mentor Directive" for tier-calibrated guidance.</span></div>
+        <div class="btn-row no-print">
+          <button class="btn btn-gold" id="mentorBtn">Generate Mentor Directive</button>
+          <button class="btn btn-primary" id="exportBtn">Export Treasury Dossier</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-note">Animus Capital Command · Internal founder planning terminal · Zero network dependencies · All figures illustrative</div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var TIERS = [
+    { id:1, usd:20000, name:"Foundation Vault", vehicle:"Volkswagen Virtus GT Plus 1.5 TSI DSG + Maruti XL6", fuel:"4x Full Tanks · IOCL XP95 (personal card)", residence:"Current Residence", vault:"Aggressive liquid vault formation", note:"Bank the surplus. Prove the recurring line first.",
+      cloudPct:0.05, ca:35000, vehicleLease:85000, fuelAllow:20000, drawPct:55, dlfLease:0, staffPool:40000, familyTransfer:100000 },
+    { id:2, usd:40000, name:"Belaire Transition", vehicle:"Mercedes-Benz E 450 4MATIC / AMG GLC 43 Coupé", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Belaire", vault:"Formal treasury cadence begins", note:"Upgrade shelter, not identity.",
+      cloudPct:0.05, ca:55000, vehicleLease:220000, fuelAllow:55000, drawPct:50, dlfLease:350000, staffPool:90000, familyTransfer:150000 },
+    { id:3, usd:60000, name:"The Crest Standard", vehicle:"Mercedes E 450 LWB (executive) + Virtus GT (daily)", fuel:"IOCL XP95 Fleet Card · Unlimited", residence:"DLF The Crest", vault:"Dual-vehicle operating cadence", note:"Two cars, one focus: enterprise contracts.",
+      cloudPct:0.045, ca:70000, vehicleLease:380000, fuelAllow:85000, drawPct:48, dlfLease:550000, staffPool:140000, familyTransfer:200000 },
+    { id:4, usd:80000, name:"The Mercedes Ceiling", vehicle:"Mercedes-Maybach S 580 4MATIC or AMG G 63", fuel:"Unlimited IOCL XP100/XP95 Fleet Card", residence:"DLF The Crest / The Magnolias", vault:"Ceiling tier — protect the moat", note:"This is the top of the sensible curve. Everything past it must be earned twice.",
+      cloudPct:0.04, ca:90000, vehicleLease:650000, fuelAllow:130000, drawPct:45, dlfLease:750000, staffPool:190000, familyTransfer:250000 },
+    { id:5, usd:100000, name:"Exotic Tier Upgrade", vehicle:"Porsche 911 Turbo S (992.2 AWD Flat-6) + Maybach S 580 Chauffeur", fuel:"Unlimited IOCL XP100", residence:"DLF The Magnolias", vault:"Exotic assets, not exotic decisions", note:"The Porsche is a reward for contracts already signed — never collateral for ones you hope to sign.",
+      cloudPct:0.035, ca:110000, vehicleLease:950000, fuelAllow:170000, drawPct:42, dlfLease:900000, staffPool:260000, familyTransfer:300000 },
+    { id:6, usd:120000, name:"Sovereign Tier", vehicle:"Bentley Continental GT Speed / Flying Spur W12 + Flagship Garage", fuel:"White-Glove XP100 Card", residence:"DLF The Camellias", vault:"Sovereign compound — full compounding discipline", note:"At this altitude the only remaining risk is complacency.",
+      cloudPct:0.03, ca:140000, vehicleLease:1450000, fuelAllow:220000, drawPct:40, dlfLease:1400000, staffPool:380000, familyTransfer:400000 }
+  ];
+
+  var PE_BANDS = [
+    { id:'under', label:'< 20', sub:'Undervalued / Aggressive Buy', equity:60, hedge:20, usd:20 },
+    { id:'fair', label:'20–23', sub:'Fair Value', equity:40, hedge:30, usd:30 },
+    { id:'frothy', label:'> 24', sub:'Frothy / Hedge', equity:15, hedge:45, usd:40 }
+  ];
+
+  var MENTOR = [
+    { headline:"EXECUTE. PROVE THE LINE.", bullets:[
+        "This is validation capital, not lifestyle capital. Every rupee above baseline burn goes to the vault until three consecutive months confirm the revenue line is real.",
+        "No consumer debt, no EMIs, no leased upgrades beyond what's listed. The Virtus stays the daily driver until Tier 2 is earned, not financed.",
+        "Ship the next enterprise deal before you touch the discretionary pool. Discipline now compounds into optionality later.",
+        "Keep the C++ core moat sharp — this tier is too early to outsource the SDK's differentiation." ]},
+    { headline:"STABILIZE. DON'T CONFUSE COMFORT FOR PROGRESS.", bullets:[
+        "The Belaire move upgrades shelter and signaling to enterprise buyers — it is not a reward lap. Treat it as infrastructure.",
+        "Formalize the CA retainer and treasury cadence now, while the numbers are still simple enough to audit yourself.",
+        "Resist adding headcount before the second recurring enterprise logo is signed. Contracts fund people, not the reverse.",
+        "Guilt-free spend is real — use it, don't let it silently inflate into a new fixed cost." ]},
+    { headline:"DUAL-TRACK DISCIPLINE.", bullets:[
+        "Two vehicles, one calendar: the LWB is for the client meeting, the Virtus is for the shipping day. Don't let the fleet dictate the schedule.",
+        "The Crest is the anchor now — negotiate the lease like the enterprise contract it effectively is.",
+        "Push OEM-redistribution and Enterprise-tier conversations aggressively; this is the inflection window before lifestyle costs compound further.",
+        "Every discretionary rupee should still pass a five-second gut check. If it doesn't, it goes to the vault instead." ]},
+    { headline:"CEILING TIER — PROTECT THE MOAT.", bullets:[
+        "The Maybach or the G 63 is the last upgrade that should feel automatic. Past this tier, every asset purchase gets a 24-hour cooling period, no exceptions.",
+        "This is peak distraction risk. The core SDK roadmap outranks every garage, condo, or watch decision from here forward.",
+        "Treasury retention matters more than draw size now — compounding inside the OPC beats compounding a car collection.",
+        "If a decision doesn't protect or extend the enterprise contract pipeline, it waits." ]},
+    { headline:"EXOTIC ASSETS ARE LAG INDICATORS, NOT INPUTS.", bullets:[
+        "The 911 Turbo S is a receipt for contracts already won — never treat it as collateral, inspiration, or a case for the next one.",
+        "Chauffeur the Maybach, drive the Porsche, and let neither near a product decision.",
+        "At $100k/mo the temptation is to relax the moat. Do the opposite — this is when competitors start copying the surface, so defend the depth.",
+        "Increase the hard-USD leg deliberately; sovereign optionality outside INR is now a strategic hedge, not a luxury." ]},
+    { headline:"SOVEREIGN TIER — THE ONLY RISK LEFT IS COMPLACENCY.", bullets:[
+        "The Camellias and the flagship garage are terminal rewards, not a new baseline to keep chasing upward. Anchor here; don't let the number keep needing to grow.",
+        "Global Strategic-tier contracts are the only category of decision that should still move the needle emotionally.",
+        "Institutionalize everything: the CA retainer becomes a finance function, the treasury cadence becomes a board process.",
+        "Complacency, not competition, is the terminal threat at this altitude. Keep executing like it's Tier 1." ]}
+  ];
+
+  var state = {
+    tierIdx: 0,
+    fx: 90.00,
+    cloudPct: null, ca: null, vehicleLease: null, fuelAllow: null,
+    drawPct: null, dlfLease: null, staffPool: null, familyTransfer: null,
+    peBand: 'fair',
+    investPct: 50
+  };
+
+  function fmtINR(n){
+    n = Math.round(n);
+    var neg = n < 0; n = Math.abs(n);
+    var s = n.toString();
+    var last3 = s.substring(s.length-3);
+    var rest = s.substring(0, s.length-3);
+    if(rest !== '') last3 = ',' + last3;
+    var formatted = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + last3;
+    return (neg?'-':'') + '₹' + formatted;
+  }
+  function fmtUSD(n){
+    return '$' + Math.round(n).toLocaleString('en-US');
+  }
+  function fmtLakh(n){
+    return (n/100000).toFixed(2) + 'L';
+  }
+
+  function personalAnnualTax(annualIncome){
+    if(annualIncome <= 1200000) return 0; // Sec 87A rebate, new regime, illustrative
+    var bounds = [400000,800000,1200000,1600000,2000000,2400000];
+    var rates  = [0,0.05,0.10,0.15,0.20,0.25,0.30];
+    var lower = 0, tax = 0;
+    for(var i=0;i<rates.length;i++){
+      var upper = (bounds[i]!==undefined) ? bounds[i] : Infinity;
+      if(annualIncome > lower){
+        tax += (Math.min(annualIncome, upper) - lower) * rates[i];
+      }
+      lower = upper;
+      if(annualIncome <= upper) break;
+    }
+    return tax * 1.04; // 4% health & education cess
+  }
+
+  function getTier(){ return TIERS[state.tierIdx]; }
+
+  function computeWaterfall(){
+    var t = getTier();
+    var fx = state.fx;
+    var grossUSD = t.usd;
+    var grossINR = grossUSD * fx;
+
+    var cloudPct = state.cloudPct !== null ? state.cloudPct : t.cloudPct;
+    var ca = state.ca !== null ? state.ca : t.ca;
+    var vehicleLease = state.vehicleLease !== null ? state.vehicleLease : t.vehicleLease;
+    var fuelAllow = state.fuelAllow !== null ? state.fuelAllow : t.fuelAllow;
+    var drawPct = state.drawPct !== null ? state.drawPct : t.drawPct;
+    var dlfLease = state.dlfLease !== null ? state.dlfLease : t.dlfLease;
+    var staffPool = state.staffPool !== null ? state.staffPool : t.staffPool;
+    var familyTransfer = state.familyTransfer !== null ? state.familyTransfer : t.familyTransfer;
+
+    var cloudInfra = grossINR * cloudPct;
+    var deductions = cloudInfra + ca + vehicleLease + fuelAllow;
+    var pretaxProfit = Math.max(0, grossINR - deductions);
+
+    var founderDraw = pretaxProfit * (drawPct/100);
+    var retainedPortion = pretaxProfit - founderDraw;
+    var corpTax = retainedPortion * 0.22; // Sec 115BAA, illustrative flat
+    var retainedEarnings = retainedPortion - corpTax;
+
+    var annualDraw = founderDraw * 12;
+    var annualTax = personalAnnualTax(annualDraw);
+    var monthlyTDS = annualTax / 12;
+    var inHandCash = founderDraw - monthlyTDS;
+
+    var fixedAllocations = dlfLease + staffPool + familyTransfer;
+    var guiltFree = inHandCash - fixedAllocations;
+
+    var totalBurn = deductions + fixedAllocations + monthlyTDS + corpTax;
+
+    return {
+      t:t, fx:fx, grossUSD:grossUSD, grossINR:grossINR,
+      cloudInfra:cloudInfra, ca:ca, vehicleLease:vehicleLease, fuelAllow:fuelAllow, deductions:deductions,
+      pretaxProfit:pretaxProfit, founderDraw:founderDraw, drawPct:drawPct,
+      retainedPortion:retainedPortion, corpTax:corpTax, retainedEarnings:retainedEarnings,
+      monthlyTDS:monthlyTDS, inHandCash:inHandCash,
+      dlfLease:dlfLease, staffPool:staffPool, familyTransfer:familyTransfer, fixedAllocations:fixedAllocations,
+      guiltFree:guiltFree, totalBurn:totalBurn
+    };
+  }
+
+  function slider(id, label, val, min, max, step, fmt, key){
+    return '<div class="ctrl"><label>'+label+' <span id="'+id+'Val">'+fmt(val)+'</span></label>' +
+      '<input type="range" id="'+id+'" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+val+'"></div>';
+  }
+
+  function renderTierTabs(){
+    var el = document.getElementById('tierTabs');
+    el.innerHTML = TIERS.map(function(t,i){
+      return '<button class="tier-tab'+(i===state.tierIdx?' active':'')+'" data-idx="'+i+'">'+
+        '<div class="tt-num">TIER '+t.id+'</div>' +
+        '<div class="tt-usd">'+fmtUSD(t.usd)+'/mo</div>' +
+        '<div class="tt-name">'+t.name+'</div>' +
+        '</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.tier-tab'), function(btn){
+      btn.addEventListener('click', function(){
+        state.tierIdx = parseInt(btn.getAttribute('data-idx'),10);
+        state.cloudPct = state.ca = state.vehicleLease = state.fuelAllow = null;
+        state.drawPct = state.dlfLease = state.staffPool = state.familyTransfer = null;
+        renderAll();
+      });
+    });
+  }
+
+  function renderWaterfall(){
+    var w = computeWaterfall();
+    var el = document.getElementById('waterfall');
+    document.getElementById('activeTierBadge').textContent = 'TIER ' + w.t.id + ' · ' + fmtUSD(w.t.usd) + '/mo';
+
+    var maxBar = w.grossINR;
+    function barPct(v){ return Math.max(2, Math.min(100, (v/maxBar)*100)); }
+
+    var html = '';
+
+    // Step 1
+    html += '<div class="wf-step"><div class="wf-step-head"><div class="wf-num">1</div>' +
+      '<div class="wf-title">Gross Foreign Remittance <span class="tag tag-emerald" style="margin-left:6px;">0% GST · LUT export</span></div>' +
+      '<div class="wf-amount hl-emerald">'+fmtINR(w.grossINR)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.grossINR)+'%;background:var(--emerald);"></div></div>' +
+      '<div class="wf-detail"><span>'+fmtUSD(w.grossUSD)+'/mo @ ₹'+w.fx.toFixed(2)+'</span><span>'+fmtLakh(w.grossINR)+'</span></div></div>';
+
+    // Step 2
+    html += '<div class="wf-step"><div class="wf-step-head"><div class="wf-num">2</div>' +
+      '<div class="wf-title">Corporate Deductions <span class="tag tag-crimson" style="margin-left:6px;">100% pre-tax</span></div>' +
+      '<div class="wf-amount hl-crimson">-'+fmtINR(w.deductions)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.deductions)+'%;background:var(--crimson);"></div></div>' +
+      '<div class="wf-detail"><span>Cloud '+fmtINR(w.cloudInfra)+'</span><span>CA '+fmtINR(w.ca)+'</span><span>Vehicle '+fmtINR(w.vehicleLease)+'</span><span>Fuel '+fmtINR(w.fuelAllow)+'</span></div>' +
+      '<div class="wf-controls">' +
+        slider('cloudPct','Cloud Infra (% of gross)', (state.cloudPct!==null?state.cloudPct:w.t.cloudPct)*100, 1, 10, 0.5, function(v){return v.toFixed(1)+'%';}, 'cloudPct') +
+        slider('ca','CA / Compliance Retainer', state.ca!==null?state.ca:w.t.ca, 15000, 250000, 5000, fmtINR, 'ca') +
+        slider('vehicleLease','Vehicle Lease (fleet)', state.vehicleLease!==null?state.vehicleLease:w.t.vehicleLease, 40000, 2000000, 10000, fmtINR, 'vehicleLease') +
+        slider('fuelAllow','Fuel Allowance', state.fuelAllow!==null?state.fuelAllow:w.t.fuelAllow, 10000, 300000, 5000, fmtINR, 'fuelAllow') +
+      '</div></div>';
+
+    // Step 3
+    html += '<div class="wf-step"><div class="wf-step-head"><div class="wf-num">3</div>' +
+      '<div class="wf-title">Corporate Treasury Retention <span class="tag tag-gold" style="margin-left:6px;">Sec 115BAA · 22%</span></div>' +
+      '<div class="wf-amount hl-gold">'+fmtINR(w.retainedEarnings)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.retainedEarnings)+'%;background:var(--gold);"></div></div>' +
+      '<div class="wf-detail"><span>Pre-tax profit '+fmtINR(w.pretaxProfit)+'</span><span>Retained portion '+fmtINR(w.retainedPortion)+'</span><span>Corp tax -'+fmtINR(w.corpTax)+'</span></div></div>';
+
+    // Step 4
+    html += '<div class="wf-step"><div class="wf-step-head"><div class="wf-num">4</div>' +
+      '<div class="wf-title">Founder Remuneration Draw → Personal TDS → In-Hand Cash</div>' +
+      '<div class="wf-amount hl-emerald">'+fmtINR(w.inHandCash)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.inHandCash)+'%;background:var(--emerald);"></div></div>' +
+      '<div class="wf-detail"><span>Draw '+fmtINR(w.founderDraw)+'</span><span>Personal TDS -'+fmtINR(w.monthlyTDS)+'</span><span>In-hand '+fmtINR(w.inHandCash)+'</span></div>' +
+      '<div class="wf-controls">' +
+        slider('drawPct','Founder Draw (% of pre-tax profit)', state.drawPct!==null?state.drawPct:w.t.drawPct, 10, 90, 1, function(v){return v.toFixed(0)+'%';}, 'drawPct') +
+      '</div></div>';
+
+    // Step 5
+    html += '<div class="wf-step"><div class="wf-step-head"><div class="wf-num">5</div>' +
+      '<div class="wf-title">Fixed Monthly Allocations</div>' +
+      '<div class="wf-amount hl-crimson">-'+fmtINR(w.fixedAllocations)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(w.fixedAllocations)+'%;background:var(--crimson);"></div></div>' +
+      '<div class="wf-detail"><span>'+ (w.t.residence) +': '+fmtINR(w.dlfLease)+'</span><span>Staff pool '+fmtINR(w.staffPool)+'</span><span>Family transfers '+fmtINR(w.familyTransfer)+'</span></div>' +
+      '<div class="wf-controls">' +
+        slider('dlfLease','Residence Lease', state.dlfLease!==null?state.dlfLease:w.t.dlfLease, 0, 2000000, 10000, fmtINR, 'dlfLease') +
+        slider('staffPool','Chef / Driver Staff Pool', state.staffPool!==null?state.staffPool:w.t.staffPool, 0, 500000, 5000, fmtINR, 'staffPool') +
+        slider('familyTransfer','Family Liquidity Transfers', state.familyTransfer!==null?state.familyTransfer:w.t.familyTransfer, 0, 600000, 5000, fmtINR, 'familyTransfer') +
+      '</div></div>';
+
+    // Step 6
+    var guiltFreeColor = w.guiltFree >= 0 ? 'var(--emerald)' : 'var(--crimson)';
+    html += '<div class="wf-step" style="border-color:'+(w.guiltFree>=0?'var(--emerald-dim)':'var(--crimson-dim)')+';">' +
+      '<div class="wf-step-head"><div class="wf-num" style="background:'+guiltFreeColor+';color:#031A0F;">6</div>' +
+      '<div class="wf-title">100% Guilt-Free Discretionary Pool</div>' +
+      '<div class="wf-amount" style="color:'+guiltFreeColor+';">'+fmtINR(w.guiltFree)+'</div></div>' +
+      '<div class="wf-bar-track"><div class="wf-bar-fill" style="width:'+barPct(Math.abs(w.guiltFree))+'%;background:'+guiltFreeColor+';"></div></div>' +
+      '<div class="wf-detail"><span>Pre-cleared surplus for dining, tech, travel, gear — spend without hesitation.</span></div>' +
+      (w.guiltFree < 0 ? '<div class="wf-detail" style="color:var(--crimson); margin-top:6px;">⚠ Fixed allocations exceed in-hand cash at this tier — reduce lease/staff sliders or increase draw %.</div>' : '') +
+      '</div>';
+
+    el.innerHTML = html;
+
+    Array.prototype.forEach.call(el.querySelectorAll('input[type=range]'), function(inp){
+      inp.addEventListener('input', function(){
+        var key = inp.getAttribute('data-key');
+        var v = parseFloat(inp.value);
+        if(key === 'cloudPct') v = v/100;
+        state[key] = v;
+        renderAll();
+      });
+    });
+
+    document.getElementById('hlGross').textContent = fmtINR(w.grossINR);
+    document.getElementById('hlTreasury').textContent = fmtINR(w.retainedEarnings);
+    document.getElementById('hlInHand').textContent = fmtINR(w.inHandCash);
+    document.getElementById('hlGuiltFree').textContent = fmtINR(w.guiltFree);
+    document.getElementById('hlBurn').textContent = fmtINR(w.totalBurn);
+
+    return w;
+  }
+
+  function renderLifestyle(){
+    var t = getTier();
+    var el = document.getElementById('lifestyleProfile');
+    var rows = [
+      { icon:'🚗', label:'Fleet', val:t.vehicle },
+      { icon:'⛽', label:'Fuel Card', val:t.fuel },
+      { icon:'🏙️', label:'Residence', val:t.residence },
+      { icon:'🏦', label:'Vault Posture', val:t.vault }
+    ];
+    el.innerHTML = rows.map(function(r){
+      return '<div class="life-row"><div class="life-icon">'+r.icon+'</div><div class="life-body">' +
+        '<div class="life-label">'+r.label+'</div><div class="life-val">'+r.val+'</div></div></div>';
+    }).join('');
+  }
+
+  function renderPeToggle(){
+    var el = document.getElementById('peToggle');
+    el.innerHTML = PE_BANDS.map(function(b){
+      return '<button class="pe-btn'+(state.peBand===b.id?' active':'')+'" data-id="'+b.id+'"><b>'+b.label+'</b>'+b.sub+'</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.pe-btn'), function(btn){
+      btn.addEventListener('click', function(){
+        state.peBand = btn.getAttribute('data-id');
+        renderAll();
+      });
+    });
+  }
+
+  function renderAllocation(w){
+    var band = PE_BANDS.filter(function(b){ return b.id === state.peBand; })[0];
+    var investable = w.retainedEarnings + Math.max(0, w.guiltFree) * (state.investPct/100);
+
+    var buckets = [
+      { name:'Undervalued / Accumulate', sub:'Nifty 50 · Nifty Next 50 index funds', pct:band.equity, color:'var(--emerald)' },
+      { name:'High-Yield / Hedged', sub:'Sovereign Gold Bonds · bullion vault · overnight liquid debt', pct:band.hedge, color:'var(--gold)' },
+      { name:'Hard USD Capital', sub:'S&P 500 / Nasdaq 100 feeder ETFs · RBI LRS route', pct:band.usd, color:'var(--azure)' }
+    ];
+
+    var el = document.getElementById('allocRows');
+    el.innerHTML = buckets.map(function(b){
+      var amt = investable * (b.pct/100);
+      var extra = '';
+      if(b.name.indexOf('Hard USD') === 0 || b.name.indexOf('Hard USD')>-1){
+        extra = ' <small style="color:var(--ink-muted);">≈ '+fmtUSD(amt/w.fx)+'</small>';
+      }
+      return '<div class="alloc-row"><div class="alloc-swatch" style="background:'+b.color+';"></div>' +
+        '<div class="alloc-name">'+b.name+extra+'<small>'+b.sub+'</small></div>' +
+        '<div class="alloc-pct">'+b.pct+'%</div>' +
+        '<div class="alloc-amt">'+fmtINR(amt)+'</div></div>';
+    }).join('');
+
+    var usdBucketMonthly = investable * (band.usd/100) / w.fx;
+    var lrsMonthlyCap = 250000/12;
+    var warn = document.getElementById('lrsWarning');
+    if(usdBucketMonthly > lrsMonthlyCap * 0.8){ warn.classList.add('show'); } else { warn.classList.remove('show'); }
+  }
+
+  function renderMentorTargetOnly(){
+    // Clears stale directive text when switching tiers so it isn't mistaken for current-tier guidance.
+    var box = document.getElementById('mentorBox');
+    if(box.getAttribute('data-tier') !== String(getTier().id)){
+      box.innerHTML = '<span class="m-empty">Press "Generate Mentor Directive" for tier-calibrated guidance.</span>';
+      box.removeAttribute('data-tier');
+    }
+  }
+
+  function generateDirective(){
+    var t = getTier();
+    var m = MENTOR[state.tierIdx];
+    var box = document.getElementById('mentorBox');
+    var html = '<span class="m-head">// TIER '+t.id+' DIRECTIVE — '+m.headline+'</span>';
+    html += m.bullets.map(function(b,i){ return (i+1)+'. '+b; }).join('\n\n');
+    box.innerHTML = html.replace(/\n/g,'<br>');
+    box.setAttribute('data-tier', String(t.id));
+  }
+
+  function renderAll(){
+    renderTierTabs();
+    renderLifestyle();
+    renderPeToggle();
+    var w = renderWaterfall();
+    renderAllocation(w);
+    renderMentorTargetOnly();
+  }
+
+  document.getElementById('fxRate').addEventListener('input', function(e){
+    state.fx = parseFloat(e.target.value);
+    document.getElementById('fxRateVal').textContent = '₹' + state.fx.toFixed(2);
+    var w = renderWaterfall();
+    renderAllocation(w);
+  });
+  document.getElementById('fxRateVal').textContent = '₹' + state.fx.toFixed(2);
+
+  document.getElementById('investPct').addEventListener('input', function(e){
+    state.investPct = parseFloat(e.target.value);
+    document.getElementById('investPctVal').textContent = state.investPct + '%';
+    var w = computeWaterfall();
+    renderAllocation(w);
+  });
+
+  document.getElementById('mentorBtn').addEventListener('click', generateDirective);
+  document.getElementById('exportBtn').addEventListener('click', function(){ window.print(); });
+
+  renderAll();
+})();
+</script>
+</body>
+</html>
