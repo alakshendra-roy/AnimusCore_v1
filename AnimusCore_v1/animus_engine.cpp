@@ -32,9 +32,11 @@
 #include <windows.h>
 #include <iphlpapi.h> // animus_verify_license's MAC-address fingerprint component
 #include <bcrypt.h>   // animus_verify_license's RSA signature verification + SHA-256
+#if defined(_MSC_VER)
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "ws2_32.lib")
+#endif
 #endif
 
 // The actual pin/priority mechanics (SetThreadAffinityMask/pthread_setaffinity_np,
