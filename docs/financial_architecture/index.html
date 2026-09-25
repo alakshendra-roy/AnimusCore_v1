@@ -356,6 +356,38 @@
     </div>
   </div>
 
+  <div class="panel" id="fiveYearPanel">
+    <div class="panel-head">
+      <div>
+        <div class="panel-title">Five-Year Capital Trajectory</div>
+        <div class="panel-sub">Forecast layer extrapolating the monthly waterfall forward — not part of the core engine above</div>
+      </div>
+      <div class="tag tag-gold">FORECAST LAYER</div>
+    </div>
+    <div class="disclaimer" style="margin-bottom:14px;">
+      <b>This section extrapolates, it does not measure.</b> Tier-per-year schedule, portfolio return rate, reinvestment %, and enterprise deal counts below are explicit assumptions you control — none are derived from actual results. FX, Sec 115BAA corp tax, and personal-tax slab logic reuse the engine above.
+    </div>
+
+    <div class="wf-controls" style="grid-template-columns:repeat(5,1fr); margin-bottom:16px;" id="fyTierSelectors"></div>
+
+    <div class="wf-controls" style="margin-bottom:16px;">
+      <div class="ctrl"><label>Portfolio Annual Return <span id="fyReturnVal">12%</span></label>
+        <input type="range" id="fyReturn" min="4" max="18" step="0.5" value="12"></div>
+      <div class="ctrl"><label>Personal Surplus Reinvested <span id="fyInvestPctVal">50%</span></label>
+        <input type="range" id="fyInvestPct" min="0" max="100" step="5" value="50"></div>
+    </div>
+
+    <div class="panel-sub" style="margin-bottom:8px; text-transform:uppercase; letter-spacing:0.06em; font-size:10.5px; color:var(--ink-muted);">Additional Enterprise Cashflows — total deal count across the 5-year term (assumed to close evenly across Years 3–5)</div>
+    <div class="wf-controls" style="grid-template-columns:repeat(4,1fr); margin-bottom:16px;" id="fyDealInputs"></div>
+
+    <div id="fyYearTable" style="overflow-x:auto;"></div>
+
+    <div class="panel-head" style="margin-top:18px;">
+      <div class="panel-title">Grand Total — End of Year 5</div>
+    </div>
+    <div class="lifestyle-grid" id="fyGrandTotal"></div>
+  </div>
+
   <div class="footer-note">Animus Capital Command · Internal founder planning terminal · Zero network dependencies · All figures illustrative</div>
 </div>
 
@@ -725,6 +757,175 @@
   document.getElementById('exportBtn').addEventListener('click', function(){ window.print(); });
 
   renderAll();
+
+  // ===== Five-Year Capital Trajectory (forecast layer) =====
+  var DEAL_TYPES = [
+    { id:'desk', label:'Desk License', usd:45000 },
+    { id:'ent', label:'Enterprise SLA', usd:240000 },
+    { id:'oem', label:'OEM-Redistribution', usd:150000 },
+    { id:'gs', label:'Global Strategic', usd:550000 }
+  ];
+
+  var fyState = {
+    tierIdx: [0,1,2,3,5], // Tier1 -> Tier2 -> Tier3 -> Tier4 -> Tier6
+    returnRate: 12,
+    investPct: 50,
+    deals: { desk:2, ent:1, oem:1, gs:0 }
+  };
+
+  function renderFyTierSelectors(){
+    var el = document.getElementById('fyTierSelectors');
+    el.innerHTML = fyState.tierIdx.map(function(idx, yi){
+      var opts = TIERS.map(function(t,i){
+        return '<option value="'+i+'"'+(i===idx?' selected':'')+'>Tier '+t.id+' ('+fmtUSD(t.usd)+'/mo)</option>';
+      }).join('');
+      return '<div class="ctrl"><label>Year '+(yi+1)+'</label>' +
+        '<select data-yidx="'+yi+'" class="fy-tier-select" style="background:var(--panel-raised);color:var(--ink-primary);border:1px solid var(--border);border-radius:6px;padding:6px;font-family:var(--sans);font-size:11.5px;">'+opts+'</select></div>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.fy-tier-select'), function(sel){
+      sel.addEventListener('change', function(){
+        fyState.tierIdx[parseInt(sel.getAttribute('data-yidx'),10)] = parseInt(sel.value,10);
+        renderFiveYear();
+      });
+    });
+  }
+
+  function renderFyDealInputs(){
+    var el = document.getElementById('fyDealInputs');
+    el.innerHTML = DEAL_TYPES.map(function(d){
+      return '<div class="ctrl"><label>'+d.label+' <span class="mono" style="color:var(--ink-muted);text-transform:none;">('+fmtUSD(d.usd)+' avg)</span></label>' +
+        '<input type="number" min="0" step="1" value="'+fyState.deals[d.id]+'" data-deal="'+d.id+'" style="background:var(--panel-raised);color:var(--ink-primary);border:1px solid var(--border);border-radius:6px;padding:6px;font-family:var(--mono);font-size:12px;"></div>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('input[data-deal]'), function(inp){
+      inp.addEventListener('input', function(){
+        fyState.deals[inp.getAttribute('data-deal')] = parseFloat(inp.value) || 0;
+        renderFiveYear();
+      });
+    });
+  }
+
+  function computeFiveYear(){
+    var fx = state.fx;
+    var monthlyR = (fyState.returnRate/100)/12;
+    var invPct = fyState.investPct/100;
+
+    var totalDealUSD = DEAL_TYPES.reduce(function(sum,d){ return sum + fyState.deals[d.id]*d.usd; }, 0);
+    var totalDealINR = totalDealUSD * fx;
+    var dealINRPerYear = totalDealINR/3; // lands in Years 3-5
+
+    var years = [];
+    var portfolioBalance = 0;
+    var cum = { gross:0, corpTax:0, treasury:0, founderDraw:0, personalTax:0, inHand:0, guiltFree:0, dealRevenue:0 };
+
+    for(var y=0; y<5; y++){
+      var t = TIERS[fyState.tierIdx[y]];
+      var grossINR = t.usd*fx;
+      var cloudInfra = grossINR*t.cloudPct;
+      var deductions = cloudInfra + t.ca + t.vehicleLease + t.fuelAllow;
+      var pretaxProfit = Math.max(0, grossINR-deductions);
+      var founderDrawM = pretaxProfit*(t.drawPct/100);
+      var retainedPortion = pretaxProfit-founderDrawM;
+      var corpTaxM = retainedPortion*0.22;
+      var retainedEarningsM = retainedPortion-corpTaxM;
+      var annualDraw = founderDrawM*12;
+      var annualTax = personalAnnualTax(annualDraw);
+      var monthlyTDS = annualTax/12;
+      var inHandCashM = founderDrawM-monthlyTDS;
+      var fixedAllocations = t.dlfLease+t.staffPool+t.familyTransfer;
+      var guiltFreeM = inHandCashM-fixedAllocations;
+      var reinvestMonthly = Math.max(0,guiltFreeM)*invPct;
+
+      var dealRevenueThisYear = (y>=2) ? dealINRPerYear : 0;
+      var dealCorpTax = dealRevenueThisYear*0.22;
+      var dealTreasuryThisYear = dealRevenueThisYear - dealCorpTax;
+
+      for(var m=0;m<12;m++){
+        portfolioBalance = portfolioBalance*(1+monthlyR) + reinvestMonthly;
+      }
+
+      var yearTreasury = (retainedEarningsM*12) + dealTreasuryThisYear;
+      var yearCorpTax = (corpTaxM*12) + dealCorpTax;
+
+      cum.gross += grossINR*12;
+      cum.corpTax += yearCorpTax;
+      cum.treasury += yearTreasury;
+      cum.founderDraw += annualDraw;
+      cum.personalTax += annualTax;
+      cum.inHand += inHandCashM*12;
+      cum.guiltFree += guiltFreeM*12;
+      cum.dealRevenue += dealRevenueThisYear;
+
+      years.push({
+        year:y+1, tier:t, grossINR:grossINR*12, treasury:yearTreasury,
+        founderDraw:annualDraw, inHand:inHandCashM*12,
+        dealRevenue:dealRevenueThisYear, portfolioEnd:portfolioBalance
+      });
+    }
+
+    return { years:years, cum:cum, portfolioBalance:portfolioBalance, grandTotal: cum.treasury + portfolioBalance, totalDealUSD:totalDealUSD };
+  }
+
+  function renderFiveYear(){
+    var r = computeFiveYear();
+
+    var tbl = '<table style="width:100%;border-collapse:collapse;font-size:11.5px;min-width:700px;">';
+    tbl += '<tr style="color:var(--ink-muted);text-transform:uppercase;font-size:9.5px;letter-spacing:0.05em;">' +
+      '<td style="padding:6px 4px;">Year</td><td>Tier</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">Gross Revenue</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">Treasury Retained</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">Founder Draw</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">In-Hand Cash</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">Enterprise Deals</td>' +
+      '<td class="mono" style="text-align:right;padding:6px 4px;">Portfolio EOY</td></tr>';
+    r.years.forEach(function(yr){
+      tbl += '<tr style="border-top:1px dashed var(--border-soft);">' +
+        '<td style="padding:6px 4px;">Y'+yr.year+'</td><td>Tier '+yr.tier.id+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;">'+fmtINR(yr.grossINR)+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;color:var(--gold);">'+fmtINR(yr.treasury)+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;">'+fmtINR(yr.founderDraw)+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;color:var(--emerald);">'+fmtINR(yr.inHand)+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;">'+(yr.dealRevenue>0?fmtINR(yr.dealRevenue):'—')+'</td>' +
+        '<td class="mono" style="text-align:right;padding:6px 4px;color:var(--azure);">'+fmtINR(yr.portfolioEnd)+'</td>' +
+      '</tr>';
+    });
+    tbl += '</table>';
+    document.getElementById('fyYearTable').innerHTML = tbl;
+
+    var tiles = [
+      { label:'Cumulative Gross Business Revenue', val:r.cum.gross, color:'' },
+      { label:'Cumulative Corporate Tax (Sec 115BAA, incl. enterprise deals)', val:r.cum.corpTax, color:'var(--crimson)' },
+      { label:'Cumulative Retained Corporate Treasury (incl. enterprise deals)', val:r.cum.treasury, color:'var(--gold)' },
+      { label:'Cumulative Founder Draw (gross, pre personal-tax)', val:r.cum.founderDraw, color:'' },
+      { label:'Cumulative Personal Income Tax Paid', val:r.cum.personalTax, color:'var(--crimson)' },
+      { label:'Cumulative In-Hand Personal Cash (post-TDS)', val:r.cum.inHand, color:'var(--emerald)' },
+      { label:'Additional Enterprise Cashflow — gross (Y3–Y5, '+r.totalDealUSD.toLocaleString('en-US')+' USD assumed)', val:r.cum.dealRevenue, color:'var(--champagne)' },
+      { label:'Compounding Personal Portfolio Value (EOY5)', val:r.portfolioBalance, color:'var(--azure)' },
+      { label:'GRAND TOTAL (Retained Treasury + Personal Portfolio)', val:r.grandTotal, color:'var(--emerald)' }
+    ];
+    document.getElementById('fyGrandTotal').innerHTML = tiles.map(function(x){
+      return '<div class="life-row"><div class="life-body" style="width:100%;">' +
+        '<div class="life-label">'+x.label+'</div>' +
+        '<div class="life-val mono" style="font-size:15px;font-weight:700;'+(x.color?'color:'+x.color+';':'')+'">'+fmtINR(x.val)+'</div></div></div>';
+    }).join('');
+  }
+
+  document.getElementById('fyReturn').addEventListener('input', function(e){
+    fyState.returnRate = parseFloat(e.target.value);
+    document.getElementById('fyReturnVal').textContent = fyState.returnRate + '%';
+    renderFiveYear();
+  });
+  document.getElementById('fyInvestPct').addEventListener('input', function(e){
+    fyState.investPct = parseFloat(e.target.value);
+    document.getElementById('fyInvestPctVal').textContent = fyState.investPct + '%';
+    renderFiveYear();
+  });
+
+  var _origFxHandler = document.getElementById('fxRate');
+  _origFxHandler.addEventListener('input', function(){ renderFiveYear(); });
+
+  renderFyTierSelectors();
+  renderFyDealInputs();
+  renderFiveYear();
 })();
 </script>
 </body>
