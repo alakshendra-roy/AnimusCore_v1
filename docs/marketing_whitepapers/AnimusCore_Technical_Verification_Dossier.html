@@ -369,7 +369,7 @@ inline std::uint64_t rdtsc_serialized() noexcept {
 <p>Every figure below is either <strong>(a) a fresh run executed live while writing this document</strong> — compiled and run from this exact repository checkout, on the hardware named at the top of this document — or <strong>(b) a previously-logged run already checked into this repository</strong>, cited by file path. Each subsection states which. No number in this section was estimated, interpolated, or carried over from marketing copy.</p>
 <h3 id="31-tier-1-short-bursts-seconds-minutes">3.1 Tier 1 — Short Bursts: Seconds &amp; Minutes</h3>
 <h4 id="311-fast-path-push-latency-testseval_harnesscpp-fresh-run-this-session">3.1.1 Fast-path push latency — <code>tests/eval_harness.cpp</code> (fresh run, this session)</h4>
-<p>This harness times <code>ShmRing&lt;ExecutionEvent&gt;::try_push()</code> — the actual lock-free ring write a producer calls on its hot path — with <code>lfence</code>-serialized RDTSC, 100,000 warm-up iterations followed by 1,000,000 timed iterations, with <code>operator new</code>/<code>operator delete</code> globally instrumented to prove zero heap allocation rather than assume it. Compiled fresh for this document: <code>g++ -std=c++17 -O2 -pthread tests/eval_harness.cpp -o eval_harness.exe</code>.</p>
+<p>This harness times <code>ShmRing&lt;ExecutionEvent&gt;::try_push()</code> — the actual lock-free ring write a producer calls on its hot path — with <code>lfence</code>-serialized RDTSC, 100,000 warm-up iterations followed by 1,000,000 timed iterations, with <code>operator new</code>/<code>operator delete</code> globally instrumented to prove zero heap allocation rather than assume it. Compiled fresh for this document with the same locked-baseline flags as <code>dist/AnimusCore_Eval_Sandbox/README_BENCHMARK.txt</code>: <code>g++ -std=c++17 -O3 -march=native -DNDEBUG -I include tests/eval_harness.cpp -o eval_harness.exe -lws2_32 -lbcrypt -liphlpapi</code>.</p>
 <pre><code>Animus Engine -- Telemetry Bridge External Evaluation Harness
 ================================================================
 Target:                  ShmRing&lt;ExecutionEvent&gt;::try_push() [include/animus/shm_ipc.hpp]
@@ -725,7 +725,7 @@ SOAK_FINAL {&quot;total_elapsed_s&quot;:9529.1,&quot;total_produced&quot;:516235
 <tbody>
 <tr>
 <td>§3.1.1 fast-path cycle latency</td>
-<td><code>g++ -std=c++17 -O2 -pthread tests/eval_harness.cpp -o eval_harness.exe &amp;&amp; ./eval_harness.exe</code></td>
+<td><code>g++ -std=c++17 -O3 -march=native -DNDEBUG -I include tests/eval_harness.cpp -o eval_harness.exe -lws2_32 -lbcrypt -liphlpapi &amp;&amp; ./eval_harness.exe</code> (matches <code>dist/AnimusCore_Eval_Sandbox/README_BENCHMARK.txt</code>'s locked baseline)</td>
 </tr>
 <tr>
 <td>§3.1.2 ingestion sustained/burst</td>

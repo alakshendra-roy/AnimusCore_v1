@@ -139,6 +139,11 @@ eval_keys/
 # not a source artifact, so never worth tracking.
 /animus-eval-kit-v*.tar.gz
 
+# Same package_kit.sh output, written to eval_kit/dist/ instead of the repo
+# root -- catches the ELF binary and .whl files inside that the *.tar.gz
+# rule below doesn't, so they can't land in a `git add -A` by accident.
+eval_kit/dist/
+
 # All release/distribution tarballs are build outputs (e.g.
 # animus-sandbox-eval-v*.tar.gz) -- regenerable from source, never a
 # tracked deliverable.

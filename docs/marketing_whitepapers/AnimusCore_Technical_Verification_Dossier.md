@@ -194,7 +194,7 @@ Every figure below is either **(a) a fresh run executed live while writing this 
 
 #### 3.1.1 Fast-path push latency — `tests/eval_harness.cpp` (fresh run, this session)
 
-This harness times `ShmRing<ExecutionEvent>::try_push()` — the actual lock-free ring write a producer calls on its hot path — with `lfence`-serialized RDTSC, 100,000 warm-up iterations followed by 1,000,000 timed iterations, with `operator new`/`operator delete` globally instrumented to prove zero heap allocation rather than assume it. Compiled fresh for this document: `g++ -std=c++17 -O2 -pthread tests/eval_harness.cpp -o eval_harness.exe`.
+This harness times `ShmRing<ExecutionEvent>::try_push()` — the actual lock-free ring write a producer calls on its hot path — with `lfence`-serialized RDTSC, 100,000 warm-up iterations followed by 1,000,000 timed iterations, with `operator new`/`operator delete` globally instrumented to prove zero heap allocation rather than assume it. Compiled fresh for this document with the same locked-baseline flags as `dist/AnimusCore_Eval_Sandbox/README_BENCHMARK.txt`: `g++ -std=c++17 -O3 -march=native -DNDEBUG -I include tests/eval_harness.cpp -o eval_harness.exe -lws2_32 -lbcrypt -liphlpapi`.
 
 ```
 Animus Engine -- Telemetry Bridge External Evaluation Harness
@@ -373,7 +373,7 @@ Every figure in Part III should be treated as a claim until reproduced on your o
 
 | Figure(s) | Command |
 |---|---|
-| §3.1.1 fast-path cycle latency | `g++ -std=c++17 -O2 -pthread tests/eval_harness.cpp -o eval_harness.exe && ./eval_harness.exe` |
+| §3.1.1 fast-path cycle latency | `g++ -std=c++17 -O3 -march=native -DNDEBUG -I include tests/eval_harness.cpp -o eval_harness.exe -lws2_32 -lbcrypt -liphlpapi && ./eval_harness.exe` (matches `dist/AnimusCore_Eval_Sandbox/README_BENCHMARK.txt`'s locked baseline) |
 | §3.1.2 ingestion sustained/burst | `cmake --build build --target animus_bench --config Release` then run with `--rate 10000000 --duration 5s` / `--burst --duration 5s` |
 | §3.1.3 tick-to-trade & cache locality | `python benchmarks/generate_benchmark_report.py` |
 | §3.2 sustained producer+consumer | `animus_sandbox/` — `make && ./benchmark_harness` (see `AnimusCore_Technical_WhitePaper.md` §7) |
