@@ -256,3 +256,8 @@ X_POST.txt
 # contains an unfilled "[YOUR COMPANY NAME]" license placeholder, not
 # ready to be a tracked artifact yet.
 /AnimusCore_v1/Claude Files.zip
+
+# Personal lifestyle/financial planning dossier -- not project content and
+# never meant for the public repo, same never-public-repo category as
+# PERSONAL_FINANCIAL_BLUEPRINT.md above.
+/FOUNDER_LIFESTYLE_DOSSIER_2026.md
