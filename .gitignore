@@ -12,7 +12,18 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-dist/
+# dist/* (not "dist/") so git still descends into the tree below -- a
+# plain "dist/" match prunes the whole directory and no negation pattern
+# can re-include anything under it, per gitignore(5)'s documented
+# limitation ("It is not possible to re-include a file if a parent
+# directory of that file is excluded").
+dist/*
+# Exception: the client eval sandbox's benchmark README is documentation,
+# not a build artifact -- track it, but keep ignoring eval_harness.exe and
+# everything else under dist/.
+!dist/AnimusCore_Eval_Sandbox/
+dist/AnimusCore_Eval_Sandbox/*
+!dist/AnimusCore_Eval_Sandbox/README_BENCHMARK.txt
 build/
 
 # C++ / Visual Studio build outputs
