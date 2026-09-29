@@ -2,7 +2,7 @@
 
 **Classification:** Founder-Drafted Incorporation & Banking Execution Package — Template Starting Point Only
 **Audience:** Alakshendra Roy (Promoter), and whichever platform/CA/CS/bank actually executes this filing.
-**Companion documents:** [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md) (the fuller CA/CS engagement docket this package is built to be consistent with — read that document's names, NIC codes, capital structure, and FEMA directives as the source of truth where the two overlap) · [`../../COMPLIANCE_AND_RISK_MITIGATION.md`](../../COMPLIANCE_AND_RISK_MITIGATION.md) (the ongoing FEMA/RBI/DTAA pipeline this package's forex artifacts feed into) · [`../../COMMERCIAL.md`](../../COMMERCIAL.md) (the license fee structure — $30k–$240k+/yr — that the inward wires this package prepares for will actually be settling).
+**Companion documents:** [`../../LEGAL_INCORPORATION_BRIEF.md`](../../LEGAL_INCORPORATION_BRIEF.md) (the fuller CA/CS engagement docket this package is built to be consistent with — read that document's names, NIC codes, capital structure, and FEMA directives as the source of truth where the two overlap) · [`../../COMPLIANCE_AND_RISK_MITIGATION.md`](../../COMPLIANCE_AND_RISK_MITIGATION.md) (the ongoing FEMA/RBI/DTAA pipeline this package's forex artifacts feed into) · [`../../COMMERCIAL.md`](../../COMMERCIAL.md) (the license fee structure — $30k–$480k+/yr — that the inward wires this package prepares for will actually be settling).
 
 ---
 

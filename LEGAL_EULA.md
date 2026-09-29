@@ -55,9 +55,9 @@ Upon expiration of the Evaluation Period, the evaluation License File shall ceas
 Following the Evaluation Period, Customer may elect to enter a commercial engagement under one of the four production tiers described in Vendor's then-current commercial materials (see `COMMERCIAL.md` §2):
 
 - **Desk License** — single production node, single strategy or pipeline, capped core count (`docs/operations_legal/DESK_LICENSE_TERMSHEET.md`);
-- **Institutional Enterprise (Desk ELA)** — single designated trading desk, multi-node (`docs/operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md`; order form `docs/contracts/CONTRACT_ENTERPRISE_DESK_240K.md`);
+- **Institutional Enterprise (Desk ELA)** — single designated trading desk, multi-node (`docs/operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md`; order form `docs/contracts/CONTRACT_ENTERPRISE_DESK_480K.md`);
 - **OEM / Redistribution** — redistribution into a third party's product, under a separate OEM Distribution Agreement;
-- **Global Strategic Master Agreement (Global Enterprise ELA)** — uncapped global deployment across Customer and its Affiliates, subject to Section 3.1 (order form `docs/contracts/CONTRACT_GLOBAL_STRATEGIC_480K.md`).
+- **Global Strategic Master Agreement (Global Enterprise ELA)** — uncapped global deployment across Customer and its Affiliates, subject to Section 3.1 (order form `docs/contracts/CONTRACT_GLOBAL_STRATEGIC_720K.md`).
 
 Any such commercial license shall be governed by a separate written order form or license schedule executed by both Parties, which shall incorporate the general terms of this Agreement (Sections 3.2, 3.3 and 4–9) except as expressly modified by that order form. Where an order form grants production rights, Sections 4(d) and 4(e) apply by reference to the licensed scope stated in that order form rather than to the single Licensed Hardware and Evaluation Period of Section 2. **No commercial license, fee obligation, or production right is created by this Agreement standing alone** — this Agreement, absent an executed order form, governs the Evaluation Period only.
 

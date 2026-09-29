@@ -14,7 +14,7 @@
 
 ## Identity & Financial Position
 - I am a 22-year-old sovereign systems founder running a single-operator, 100% online enterprise based in Gurugram.
-- I build high-value, low-latency telemetry infrastructure (AnimusCore) priced at $20,000 to $60,000/month institutional retainers.
+- I build high-value, low-latency telemetry infrastructure (AnimusCore) priced at $40,000 to $60,000/month institutional retainers.
 - I am financially sovereign and fully independent. I do not hustle out of fear, anxiety, or survival pressure. I know the objective technical and commercial worth of what I build. I do not care about daily micro-numbers because the system solves real bottlenecks and the revenue is an automatic byproduct.
 
 ## Operational Boundaries & Autonomy

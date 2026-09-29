@@ -7,7 +7,7 @@
 
 **Audience:** you (Alakshendra), running this process — and, where noted, prospective technical sponsors reading the emails/FAQ this playbook produces.
 
-**Companion documents:** [`../../Pilot_Kit/PILOT_README.md`](../../Pilot_Kit/PILOT_README.md) (Windows self-serve kit — the trial vehicle for §1) · [`../../eval_kit/README.md`](../../eval_kit/README.md) (Linux turnkey tarball — alternate/parallel trial vehicle) · [`PILOT_EVAL_CHECKLIST.md`](../technical_eval/PILOT_EVAL_CHECKLIST.md) (the technical gate the roadmap below walks through) · [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (reference figures cited throughout) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid, deeper 4-week engagement this playbook can *optionally* upsell into — not required) · [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) (the existing $240k/yr Institutional tier — see §3 for how the new Desk License tier relates to it).
+**Companion documents:** [`../../Pilot_Kit/PILOT_README.md`](../../Pilot_Kit/PILOT_README.md) (Windows self-serve kit — the trial vehicle for §1) · [`../../eval_kit/README.md`](../../eval_kit/README.md) (Linux turnkey tarball — alternate/parallel trial vehicle) · [`PILOT_EVAL_CHECKLIST.md`](../technical_eval/PILOT_EVAL_CHECKLIST.md) (the technical gate the roadmap below walks through) · [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (reference figures cited throughout) · [`PILOT_PROGRAM.md`](PILOT_PROGRAM.md) (the paid, deeper 4-week engagement this playbook can *optionally* upsell into — not required) · [`ANIMUS_ENTERPRISE_TERMSHEET.md`](ANIMUS_ENTERPRISE_TERMSHEET.md) (the existing $480k/yr Institutional tier — see §3 for how the new Desk License tier relates to it).
 
 ---
 
@@ -152,17 +152,17 @@ animusinfra.com
 
 ## 3. The Desk License — how it relates to the existing Enterprise tier
 
-This playbook introduces a **Desk License** ($30k–$60k/year, indicative) as a narrower, lower-commitment paid tier than the existing $240k/year Institutional Enterprise tier in `ANIMUS_ENTERPRISE_TERMSHEET.md`. It is **not** a discount on that tier — it's a smaller scope, so it needs its own boundary, not just a smaller number stapled to the same terms:
+This playbook introduces a **Desk License** ($30k–$60k/year, indicative) as a narrower, lower-commitment paid tier than the existing $480k/year Institutional Enterprise tier in `ANIMUS_ENTERPRISE_TERMSHEET.md`. It is **not** a discount on that tier — it's a smaller scope, so it needs its own boundary, not just a smaller number stapled to the same terms:
 
 | | Desk License (new, this playbook) | Institutional Enterprise (`ANIMUS_ENTERPRISE_TERMSHEET.md`) |
 |---|---|---|
-| Price | $30k–$60k/year (indicative, scoped by footprint) | $240k/year ($20k/month) |
+| Price | $30k–$60k/year (indicative, scoped by footprint) | $480k/year ($40k/month) |
 | Scope | Single strategy, single production node, capped core count (to be fixed per quote) | Unlimited cores/threads/packet volume within one designated trading desk |
 | Support | Email, best-effort, same terms as `PILOT_PROGRAM.md` §6.1's "commercially reasonable efforts" language | Dedicated Slack Connect channel + priority email, per §6.3 |
 | Source escrow | Not offered at this tier | Negotiable per §5.4 |
 | Upgrade path | Rolls into Institutional Enterprise if footprint outgrows single-node/single-strategy scope | — |
 
-The term sheet for this tier is [`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) — same CIN-pending and counsel-review disclaimers as `ANIMUS_ENTERPRISE_TERMSHEET.md`, plus its own §2.4 scope table and §8 upgrade path into the Enterprise tier. Send that document for pricing conversations at this tier, not the $240k Enterprise template.
+The term sheet for this tier is [`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) — same CIN-pending and counsel-review disclaimers as `ANIMUS_ENTERPRISE_TERMSHEET.md`, plus its own §2.4 scope table and §8 upgrade path into the Enterprise tier. Send that document for pricing conversations at this tier, not the $480k Enterprise template.
 
 ---
 

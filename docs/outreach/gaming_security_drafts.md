@@ -12,7 +12,7 @@ Bespoke drafts for the 20 accounts in [`gaming_security_pipeline.md`](gaming_sec
 
 ---
 
-## Tier A — $40,000/mo, Enterprise Core License
+## Tier A — $60,000/mo, Enterprise Core License
 
 ### A1 — Epic Games
 
@@ -164,7 +164,7 @@ Bespoke drafts for the 20 accounts in [`gaming_security_pipeline.md`](gaming_sec
 
 ---
 
-## Tier B — $20,000/mo, Mid-Market / Regional Core License
+## Tier B — $40,000/mo, Mid-Market / Regional Core License
 
 ### B1 — Unity Technologies
 

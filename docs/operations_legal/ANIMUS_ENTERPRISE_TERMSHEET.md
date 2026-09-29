@@ -20,20 +20,20 @@
 
 ## 2. Commercial Structure & Payment Schedule
 
-**2.1 Annual Commitment.** Licensee shall pay Licensor an annual license fee of **USD $240,000** per year, equivalent to **USD $20,000/month**, for the Scope defined in §2.4.
+**2.1 Annual Commitment.** Licensee shall pay Licensor an annual license fee of **USD $480,000** per year, equivalent to **USD $40,000/month**, for the Scope defined in §2.4.
 
 **2.2 Billing Options.**
 
 | Option | Structure | Terms |
 |---|---|---|
-| **Option A** | 100% upfront, annual, with a 5% prepayment discount | USD $228,000 (USD $240,000 less USD $12,000), Net-30 from invoice date |
-| **Option B** | Quarterly advance | USD $60,000 per quarter, Net-15 from invoice date |
+| **Option A** | 100% upfront, annual, with a 5% prepayment discount | USD $456,000 (USD $480,000 less USD $24,000), Net-30 from invoice date |
+| **Option B** | Quarterly advance | USD $120,000 per quarter, Net-15 from invoice date |
 
 **2.3 Currency & Settlement.** All amounts are stated and payable in **USD**, by wire transfer via **SWIFT or Fedwire**. Licensee bears all wire, correspondent-bank, and currency-conversion fees; invoiced amounts are net of any such fees or withholding, subject to applicable tax treaty documentation (see [`W8BEN_GUIDE.md`](W8BEN_GUIDE.md)).
 
 **2.4 Scope of Use.** The license covers **unlimited CPU cores, threads, packet volumes, and production nodes** within Licensee's designated trading unit/desk, as identified in the definitive MSLA — this is the scope boundary that distinguishes this tier from the single-node Desk License ([`DESK_LICENSE_TERMSHEET.md`](DESK_LICENSE_TERMSHEET.md) §2.4): Institutional Enterprise is **single-desk, multi-node**, not single-node. There are no per-core, per-thread, per-tick, or per-node metering penalties within that scope. Use outside the designated trading unit/desk (a second desk, a different business unit) requires a separate license or scope amendment.
 
-**2.5 Committed Term — No Termination for Convenience.** The initial twelve (12)-month term is **firm, non-cancellable, and non-refundable**. Licensee will have no right to terminate for convenience. If Licensee attempts early termination, gives notice of non-use or project discontinuation, or defaults on an installment, all remaining unpaid quarterly installments for the full twelve-month commitment accelerate and become due within ten (10) business days. The sole exception is Licensee's termination for Licensor's uncured material breach. The binding terms are [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §3.3 and the order form, [`CONTRACT_ENTERPRISE_DESK_240K.md`](../contracts/CONTRACT_ENTERPRISE_DESK_240K.md) §5.
+**2.5 Committed Term — No Termination for Convenience.** The initial twelve (12)-month term is **firm, non-cancellable, and non-refundable**. Licensee will have no right to terminate for convenience. If Licensee attempts early termination, gives notice of non-use or project discontinuation, or defaults on an installment, all remaining unpaid quarterly installments for the full twelve-month commitment accelerate and become due within ten (10) business days. The sole exception is Licensee's termination for Licensor's uncured material breach. The binding terms are [`../../LEGAL_EULA.md`](../../LEGAL_EULA.md) §3.3 and the order form, [`CONTRACT_ENTERPRISE_DESK_480K.md`](../contracts/CONTRACT_ENTERPRISE_DESK_480K.md) §5.
 
 ---
 

@@ -10,7 +10,7 @@
 
 ---
 
-## Tier A — $40,000/mo, Enterprise Core License (10 Accounts)
+## Tier A — $60,000/mo, Enterprise Core License (10 Accounts)
 
 | # | Firm | Domain | Target Persona | Email Convention | Technical Moat Hook | Channel | Status | Notes |
 |---|---|---|---|---|---|---|---|---|
@@ -25,7 +25,7 @@
 | A9 | Fortinet | fortinet.com | Director of FortiOS Runtime Engineering / ASIC-Software Co-Design Lead | `{first}.{last}@fortinet.com` (unverified) | Single-header C++17 drop-in for driver-adjacent runtime telemetry without adding allocation overhead to the ASIC/software co-design hot path | Email + LinkedIn | Long-cycle | Same formal-intake caveat as CrowdStrike/Palo Alto Networks. |
 | A10 | Zscaler | zscaler.com | VP of Zero Trust Exchange Engineering / Principal Architect, Packet Inspection | `{first}.{last}@zscaler.com` (unverified) | Ring-buffer sequence integrity under sustained high-throughput inspection load, avoiding telemetry loss during peak traffic on the Zero Trust Exchange | Email + LinkedIn | Long-cycle | Same formal-intake caveat as the other large security vendors above. |
 
-## Tier B — $20,000/mo, Mid-Market / Regional Core License (10 Accounts)
+## Tier B — $40,000/mo, Mid-Market / Regional Core License (10 Accounts)
 
 | # | Firm | Domain | Target Persona | Email Convention | Technical Moat Hook | Channel | Status | Notes |
 |---|---|---|---|---|---|---|---|---|

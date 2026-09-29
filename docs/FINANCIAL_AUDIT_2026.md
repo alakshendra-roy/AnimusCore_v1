@@ -1,6 +1,6 @@
 # AnimusCore — 5-Year Financial Audit (₹17.87 Cr Target)
 
-**Prepared:** 2026-09-25
+**Prepared:** 2026-09-25 · **Repriced:** 2026-09-30 (Institutional Enterprise / Tower row raised from $240k to $480k ACV; Sections 2–3 and the verdict figures recomputed; tax now applied to profit, not gross. Prop-desk and Global rows unchanged.)
 **Scope:** Institutional CFO / enterprise HFT infrastructure sales audit of the ₹17.87 Cr, 5-year liquid net worth target modeled in `docs/financial_architecture/index.html`, re-tested against realistic enterprise sales-cycle dynamics for the named target account list.
 **Nature of this document:** Informed industry-judgment modeling (deal-cycle norms, enterprise pricing structures, HFT security-review practices), not verified facts about the internal budgets, procurement policies, or vendor-adoption plans of any named firm. Treat all figures as planning estimates, not disclosed or confirmed data from those firms.
 
@@ -12,7 +12,7 @@ The ₹17.87 Cr target is **not an enterprise-sales forecast — it's a personal
 
 Re-running the numbers as a genuine B2B enterprise infrastructure sale into the actual named 9-account target list, with real sales-cycle physics (evaluation periods, security/code audits, sandboxed backpressure testing, net-60/90 payment terms) produces a materially different picture:
 
-> **Even at a 100% win rate on every single named account, on an aggressive-but-plausible timeline, the ₹17.87 Cr target is not reached within 5 years.** Best case lands around **₹13.2 Cr**. A realistic (still optimistic) win rate lands around **₹4–7 Cr** — 25–40% of the stated target.
+> **Even at a 100% win rate on every single named account, on an aggressive-but-plausible timeline, the ₹17.87 Cr target is not reached within 5 years.** Best case lands around **₹17.6 Cr** (98% of target — a near-miss, not a clean hit). A realistic (still optimistic) win rate lands around **₹2.9–5.2 Cr** — roughly 16–29% of the stated target.
 
 ---
 
@@ -21,7 +21,7 @@ Re-running the numbers as a genuine B2B enterprise infrastructure sale into the 
 | Segment | Accounts | Core License (Annual) | Annual Production Colo Retainer | Total ACV |
 |---|---|---|---|---|
 | Domestic Prop Desk | AlphaGrep, Graviton, iRage, Quadeye | $45,000 | $15,000 (33%) | **$60,000** |
-| Domestic Enterprise | Tower Research (India engineering site) | $180,000 | $60,000 (33%) | **$240,000** |
+| Domestic Enterprise | Tower Research (India engineering site) | $360,000 | $120,000 (33%) | **$480,000** |
 | Global Market Maker | Wintermute, Flow Traders | $400,000 | $150,000 (37.5%) | **$550,000** |
 | Global Tier-1 HFT/Prop | Jump Trading, Jane Street | $400,000 | $150,000 (37.5%) | **$550,000** (see risk note) |
 
@@ -49,14 +49,14 @@ The Retainer line is a cost center for the vendor too (dedicated benchmark/regre
 | Y3 Q2 | Graviton signs | $180k | $45k | $45k |
 | Y3 Q3 | — | $240k | $60k | $45k |
 | Y3 Q4 | Tower signs | $240k | $60k | $60k |
-| Y4 Q1 | Wintermute signs | $480k | $120k | $60k |
-| Y4 Q2 | — | $1,030k | $257.5k | $120k |
-| Y4 Q3 | Flow Traders signs | $1,030k | $257.5k | $257.5k |
-| Y4 Q4 | — | $1,580k | $395k | $257.5k |
-| Y5 Q1 | Jump Trading signs | $1,580k | $395k | $395k |
-| Y5 Q2 | — | $2,130k | $532.5k | $395k |
-| Y5 Q3 | Jane Street signs | $2,130k | $532.5k | $532.5k |
-| Y5 Q4 | — | $2,680k | $670k | $532.5k |
+| Y4 Q1 | Wintermute signs | $720k | $180k | $60k |
+| Y4 Q2 | — | $1,270k | $317.5k | $180k |
+| Y4 Q3 | Flow Traders signs | $1,270k | $317.5k | $317.5k |
+| Y4 Q4 | — | $1,820k | $455k | $317.5k |
+| Y5 Q1 | Jump Trading signs | $1,820k | $455k | $455k |
+| Y5 Q2 | — | $2,370k | $592.5k | $455k |
+| Y5 Q3 | Jane Street signs | $2,370k | $592.5k | $592.5k |
+| Y5 Q4 | — | $2,920k | $730k | $592.5k |
 
 ### Annual Rollup
 
@@ -65,13 +65,13 @@ The Retainer line is a cost center for the vendor too (dedicated benchmark/regre
 | Y1 | $0 | $0 |
 | Y2 | $90k | $60k |
 | Y3 | $210k | $180k |
-| Y4 | $1,030k | $695k |
-| Y5 | $2,130k | $1,855k |
-| **5-Yr Total** | **$3.46M** | **$2.79M** |
+| Y4 | $1,270k | $875k |
+| Y5 | $2,370k | $2,095k |
+| **5-Yr Total** | **$3.94M** | **$3.21M** |
 
-Note the $670k gap between the two totals: Q20's revenue has not converted to cash by the end of Year 5 — it is still in net-60/90 transit into Year 6. **Revenue recognized and cash in hand are not the same number, and only cash compounds.**
+Note the $730k gap between the two totals: Q20's revenue has not converted to cash by the end of Year 5 — it is still in net-60/90 transit into Year 6. **Revenue recognized and cash in hand are not the same number, and only cash compounds.**
 
-$2.79M cash collected @ ₹90/$1 = **₹25.11 Cr gross, best case, 100% win rate on every named account.**
+$3.21M cash collected @ ₹90/$1 = **₹28.89 Cr gross, best case, 100% win rate on every named account.**
 
 ---
 
@@ -89,25 +89,36 @@ $2.79M cash collected @ ₹90/$1 = **₹25.11 Cr gross, best case, 100% win rate
 
 ### Recomputed Realistic Grand Total
 
-Applying 22% corporate tax to the ₹25.11 Cr gross (best case) and subtracting the unmodeled opex above:
+Corporate tax is applied to **profit** (cash collected less the opex above), since engineer, colo and SOC 2 costs are deductible. (An earlier draft taxed gross cash and then subtracted opex, which overstated tax by ~₹1.4 Cr.) Tax rate held at the model's 22%; the effective rate incl. surcharge/cess is nearer 25%, which would trim every retained figure below by roughly ₹0.5–0.9 Cr at best case.
 
 ```
-₹25.11 Cr  (gross cash collected, 100% win rate)
-− ₹5.5  Cr (22% corporate tax)
+₹28.89 Cr  (gross cash collected, 100% win rate)
 − ₹6.35 Cr (unmodeled opex: engineer, colo, SOC 2)
 ─────────────────────────────────────────────────
-≈ ₹13.2 Cr  realistic BEST-CASE retained treasury
+  ₹22.54 Cr pre-tax profit
+× 0.78     (after 22% corporate tax)
+─────────────────────────────────────────────────
+≈ ₹17.6 Cr  realistic BEST-CASE retained treasury
 ```
 
-Against the ₹17.87 Cr target, **this is the ceiling** — the outcome only if every one of the 9 named accounts closes, with zero churn, on an aggressive timeline.
+Against the ₹17.87 Cr target, **this is the ceiling** — 98% of target, and only if every one of the 9 named accounts closes, with zero churn, on an aggressive timeline. Any slippage in signing dates or a single lost account puts it below target.
 
-Applying a realistic (still optimistic, given zero reference customers) **35–45% weighted win rate** instead of 100% collapses this to **roughly ₹4–7 Cr** — 25–40% of the stated target.
+Applying a realistic (still optimistic, given zero reference customers) **35–45% weighted win rate** to gross cash, with opex held fixed (the SOC 2 audit and support hire are needed to sell at all, whatever closes):
 
-### Exact Contract Count Required to Actually Hit ₹17.87 Cr
+| Win rate | Gross cash | Pre-tax profit | Retained (×0.78) | % of target |
+|---|---|---|---|---|
+| 35% | ₹10.11 Cr | ₹3.76 Cr | **₹2.9 Cr** | 16% |
+| 45% | ₹13.00 Cr | ₹6.65 Cr | **₹5.2 Cr** | 29% |
 
-Working backward: hitting the cash-collected equivalent of ₹17.87 Cr (after the same tax/opex drag, this requires roughly **$5.5–6M gross cash collected**) at a blended realistic ACV (~$300k across the tier mix) requires approximately **18–20 concurrent, fully-active, non-churned enterprise contracts by Year 5** — more than **double the entire current 9-account named target list**, all closed, all retained, on top of the SOC 2 audit and support-engineer hire being funded and operational well before Year 3.
+### What It Takes to Actually Hit ₹17.87 Cr
 
-**Conclusion:** as scoped to this exact 9-firm list, the ₹17.87 Cr target is not reachable in 5 years even at a 100% close rate. Reaching it requires either (a) expanding the target account list to 18–20+ similarly-sized firms, or (b) recutting the target itself.
+Working backward: retained ₹17.87 Cr ⇒ pre-tax profit ₹22.91 Cr ⇒ **gross cash ≈ ₹29.26 Cr ≈ $3.25M** collected over 5 years (after adding back ₹6.35 Cr opex).
+
+The 9-account list at a 100% win rate collects $3.21M — **$40k short** of that. So the target is not out of reach by a wide margin on paper; it is unreachable in practice because it requires *every* account to close on schedule.
+
+Sizing the pipeline instead: at a 35–45% win rate, the list yields only ~$1.1–1.4M cash. Hitting $3.25M needs **2.25–2.9x the current list's cash-generating capacity — roughly 20–26 similarly-sized, similarly-timed accounts in active pipeline** (vs. 9 named today), on top of the SOC 2 audit and support-engineer hire being funded and operational well before Year 3. (Supersedes the earlier "18–20 concurrent contracts at ~$300k blended ACV" figure, which mixed a run-rate ACV with 5-year cumulative cash and did not reconcile with the tax/opex math.)
+
+**Conclusion:** as scoped to this exact 9-firm list, the ₹17.87 Cr target is reached only at a 100% close rate with no timing slippage (₹17.6 Cr, 98%). At realistic win rates it requires either (a) expanding the target list to ~20–26 similarly-sized accounts, or (b) recutting the target itself.
 
 ---
 

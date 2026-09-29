@@ -58,15 +58,15 @@
 
 | Item | Amount (USD) |
 |---|---|
-| Monthly equivalent | **$40,000** |
-| Annual Contract Value (ACV) — Committed Fees for the Initial Term | **$480,000** |
+| Monthly equivalent | **$60,000** |
+| Annual Contract Value (ACV) — Committed Fees for the Initial Term | **$720,000** |
 
 **4.2 Billing.** Unless Licensee elects Option A at signature, Licensee is billed under the default Monthly Billing Schedule (Schedule B):
 
 | | Option | Payment | Terms |
 |---|---|---|---|
-| ☐ | **Standard — Monthly in advance** | **$40,000** per contract month × 12 = $480,000 | See Schedule B |
-| ☐ | **Option A — Annual prepayment** | **$456,000** (the $480,000 ACV less a 5% prepayment discount of $24,000), in one payment | Invoiced on the Order Effective Date; due Net-30 |
+| ☐ | **Standard — Monthly in advance** | **$60,000** per contract month × 12 = $720,000 | See Schedule B |
+| ☐ | **Option A — Annual prepayment** | **$684,000** (the $720,000 ACV less a 5% prepayment discount of $36,000), in one payment | Invoiced on the Order Effective Date; due Net-30 |
 
 The 5% discount under Option A is conditional on payment in full by its due date; if Option A is not paid when due, the Monthly Billing Schedule applies to the Initial Term and Licensor may re-invoice accordingly.
 
@@ -82,7 +82,7 @@ The 5% discount under Option A is conditional on payment in full by its due date
 
 This §5 restates, and is in addition to, Master Agreement §3.3.
 
-**5.1 Initial Term.** Twelve (12) months from the Order Effective Date (the "**Initial Term**"). The Initial Term is **firm, non-cancellable, and non-refundable**. The full $480,000 Committed Fees (or $456,000 under Option A) is an unconditional payment obligation of Licensee from the moment this order form is executed; the Monthly Billing Schedule governs only the timing of payment.
+**5.1 Initial Term.** Twelve (12) months from the Order Effective Date (the "**Initial Term**"). The Initial Term is **firm, non-cancellable, and non-refundable**. The full $720,000 Committed Fees (or $684,000 under Option A) is an unconditional payment obligation of Licensee from the moment this order form is executed; the Monthly Billing Schedule governs only the timing of payment.
 
 **5.2 No termination for convenience.** Licensee may not terminate this order form, or reduce the Licensed Scope, for convenience at any time. Non-use or reduced use of the Software; withdrawal from any site, region, desk, or pod; discontinuation of any project or strategy; divestiture of any Affiliate; a change in budget or strategy; or a change of control of Licensee does not reduce, suspend, or excuse any payment.
 
@@ -141,19 +141,19 @@ Master Agreement §9.2 applies: laws of **India**; SIAC arbitration seated in **
 
 | Installment | Contract Month | Invoice issued | Due | Amount (USD) |
 |---|---|---|---|---|
-| 1 | Month 1 | Order Effective Date | Net-15 from invoice | $40,000 |
-| 2 | Month 2 | 15 days before Month 2 begins | Net-15 from invoice | $40,000 |
-| 3 | Month 3 | 15 days before Month 3 begins | Net-15 from invoice | $40,000 |
-| 4 | Month 4 | 15 days before Month 4 begins | Net-15 from invoice | $40,000 |
-| 5 | Month 5 | 15 days before Month 5 begins | Net-15 from invoice | $40,000 |
-| 6 | Month 6 | 15 days before Month 6 begins | Net-15 from invoice | $40,000 |
-| 7 | Month 7 | 15 days before Month 7 begins | Net-15 from invoice | $40,000 |
-| 8 | Month 8 | 15 days before Month 8 begins | Net-15 from invoice | $40,000 |
-| 9 | Month 9 | 15 days before Month 9 begins | Net-15 from invoice | $40,000 |
-| 10 | Month 10 | 15 days before Month 10 begins | Net-15 from invoice | $40,000 |
-| 11 | Month 11 | 15 days before Month 11 begins | Net-15 from invoice | $40,000 |
-| 12 | Month 12 | 15 days before Month 12 begins | Net-15 from invoice | $40,000 |
-| | | | **Committed Fees** | **$480,000** |
+| 1 | Month 1 | Order Effective Date | Net-15 from invoice | $60,000 |
+| 2 | Month 2 | 15 days before Month 2 begins | Net-15 from invoice | $60,000 |
+| 3 | Month 3 | 15 days before Month 3 begins | Net-15 from invoice | $60,000 |
+| 4 | Month 4 | 15 days before Month 4 begins | Net-15 from invoice | $60,000 |
+| 5 | Month 5 | 15 days before Month 5 begins | Net-15 from invoice | $60,000 |
+| 6 | Month 6 | 15 days before Month 6 begins | Net-15 from invoice | $60,000 |
+| 7 | Month 7 | 15 days before Month 7 begins | Net-15 from invoice | $60,000 |
+| 8 | Month 8 | 15 days before Month 8 begins | Net-15 from invoice | $60,000 |
+| 9 | Month 9 | 15 days before Month 9 begins | Net-15 from invoice | $60,000 |
+| 10 | Month 10 | 15 days before Month 10 begins | Net-15 from invoice | $60,000 |
+| 11 | Month 11 | 15 days before Month 11 begins | Net-15 from invoice | $60,000 |
+| 12 | Month 12 | 15 days before Month 12 begins | Net-15 from invoice | $60,000 |
+| | | | **Committed Fees** | **$720,000** |
 
 Each invoice is issued fifteen (15) calendar days before the contract month it covers begins (Month 1 is invoiced on the Order Effective Date) and is due Net-15 from the invoice date. All installments are subject to acceleration under §5.3.
 
@@ -170,7 +170,7 @@ By signing, each Party agrees to this order form and the Master Agreement it inc
 | **Name** | Alakshendra Roy | [PRINTED NAME] |
 | **Title** | Founder & Director | [TITLE] |
 | **Date** | ________ | ________ |
-| **Billing option selected** | — | ☐ Standard — Monthly ($40,000/month) ☐ Option A ($456,000 annual prepay) |
+| **Billing option selected** | — | ☐ Standard — Monthly ($60,000/month) ☐ Option A ($684,000 annual prepay) |
 | **Notice Address** | [ANIMUS ADDRESS — registered office address to be added upon issuance of the Certificate of Incorporation]; inquiries@animusinfra.com | [CLIENT ADDRESS] |
 
 ---
