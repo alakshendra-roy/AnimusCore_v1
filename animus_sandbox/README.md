@@ -134,6 +134,32 @@ native extension's own DLL dependencies (PEP 578). `python_bridge_test.py`
 already calls `os.add_dll_directory()` for the common MSYS2 install paths;
 if yours differs, add it the same way before the `import`.
 
+## Live telemetry dashboard (optional)
+
+Requires the compiled `animus_sandbox_bridge` module above, plus
+`pip install fastapi "uvicorn[standard]" numpy`. From this directory (or
+the build output directory containing `animus_sandbox_bridge*.pyd`/`.so`):
+
+```
+python dashboard_server.py            # http://127.0.0.1:8765/
+```
+
+This runs `TelemetryStream.start_continuous()` -- a **best-effort**,
+bounded-retry producer (distinct from `start_producer()`'s unbounded-retry
+mode used by `python_bridge_test.py` above, which never drops) -- feeding
+the same ring buffer, drains it in a tight native-adjacent Python loop, and
+pushes live throughput / P50 / P90 / P99 latency / buffer occupancy / drop
+counter snapshots to the browser over one WebSocket, four to five times a
+second. Latency is computed per drained event as
+`(TelemetryStream.tsc_now() - event.dispatch_tsc) / cycles_per_ns`, both
+read from the same calibrated TSC domain the rest of this sandbox uses --
+so the number on screen is tick-to-drain wall time, not a synthetic
+figure. A non-zero drop counter here reflects this demo's Python-side
+drain loop occasionally falling behind an unthrottled native producer
+(GIL, GC, OS scheduling) under the default `--max-retry-spins`; it says
+nothing about `benchmark_harness`/`soak_harness`'s own throughput numbers
+above, which use the ring's unbounded-retry `enqueue()` and never drop.
+
 ## What's in this directory
 
 | File | Purpose |
@@ -146,8 +172,9 @@ if yours differs, add it the same way before the `import`.
 | `tsc_clock.hpp` | Invariant-TSC detection, serialized reads, wall-clock calibration -- zero system calls. |
 | `benchmark_harness.cpp` | The native benchmark: false-sharing A/B test, MPMC throughput + correctness check, TSC hot-loop cost. Producer-only push rate, short burst. |
 | `soak_harness.cpp` | Simultaneous producer+consumer, time- or event-count-bounded throughput and latency percentiles (p50/p90/p99/p99.9/p99.99, ns and cycles), after a fixed warm-up. Built by `make soak` or directly: `g++ -std=c++17 -O3 -pthread soak_harness.cpp -o soak_harness` (or add `-fsanitize=address,undefined -g` for a correctness/leak-checking run). |
-| `nanobind_bridge.cpp` | Python extension module exposing the ring buffer as a zero-copy `TelemetryStream`. |
+| `nanobind_bridge.cpp` | Python extension module exposing the ring buffer as a zero-copy `TelemetryStream` (unbounded-retry and best-effort bounded-retry producer modes, drain(), and live counters: produced/consumed/dropped totals, occupancy estimate, capacity, calibrated cycles/ns). |
 | `python_bridge_test.py` | Measures real drain() latency against the compiled bridge module; verifies `OWNDATA is False`. |
+| `dashboard_server.py` | FastAPI + WebSocket + HTML5-canvas live dashboard: throughput, P50/P90/P99 latency, buffer occupancy, drop counter. |
 
 ## Notes for evaluators
 
