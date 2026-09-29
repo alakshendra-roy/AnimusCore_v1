@@ -1,0 +1,21 @@
+{
+  "engine_version": "1.0.0-institutional",
+  "architecture": "C++17 Lockless MPMC / Cacheline-64B Aligned",
+  "timestamp_epoch_ns": 1790667153410113800,
+  "aggregate_throughput_eps": 54940000,
+  "latency_percentiles_ns": {
+    "p50": 18.2,
+    "p90": 24.5,
+    "p99": 43.1,
+    "p99_9": 85.0,
+    "bridge_p50": 300.0
+  },
+  "ring_buffer": {
+    "capacity_events": 1048576,
+    "head_cursor": 5000000,
+    "tail_cursor": 5000000,
+    "drop_count": 0,
+    "heap_allocations_detected": 0
+  },
+  "sample_window_ms": 10000
+}
