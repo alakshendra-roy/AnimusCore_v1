@@ -3,14 +3,15 @@
 Audience: engineers evaluating Animus for production integration into a
 low-latency ingestion, market-data, or telemetry-fan-out path. This
 document describes the shared-memory IPC and observability subsystem as
-implemented in `include/animus/{shm_ipc,shm_lifecycle,schema,telemetry,
-thread_affinity}.hpp`, `bindings/animus_shm_py.cpp`, `animus/*.py`, and
-`scripts/animus_stat.py`. Every claim below is traceable to a specific
+implemented in `include/animus/{shm_ipc,broadcast_ring,spsc_queue,
+shm_lifecycle,schema,telemetry,thread_affinity}.hpp`,
+`bindings/animus_shm_py.cpp`, `animus/*.py`, and `scripts/animus_stat.py`. Every claim below is traceable to a specific
 file and, where useful, a line-level construct in this repository as of
 the v1.2.0 tag — nothing here is aspirational.
 
-Scope note: Animus ships two distinct IPC primitives that are easy to
-conflate:
+Scope note: Animus ships two long-standing IPC primitives that are easy to
+conflate (a newer pair, `BroadcastRing<T>`/`SpscQueue<T>` — the primitives
+behind the C-ABI and Python bindings — is covered in §1.4):
 
 - `animus::SpscRingBuffer` / `animus::SharedTelemetryChannel` (`animus.hpp`)
   — the original, wire-compatible-with-pure-Python primitive
@@ -174,6 +175,42 @@ versa, fails outright rather than silently misreading a
 differently-sized/shaped header), a `payload_size` mismatch, and a
 `schema_version_hash` mismatch (§3.1). All four checks happen before a
 single payload byte is read.
+
+### 1.4 `BroadcastRing<T>` and `SpscQueue<T>` — the decoupled primitives
+
+Two further primitives live in their own headers and operate on
+caller-supplied, cache-line-aligned memory (a heap block, or a mapping such
+as `SharedMemoryRegion`) with no OS calls of their own: `init()` on the
+writer's side, `attach()` on each reader's. Each serves one traffic class,
+and the Python/C-ABI layers are built on them:
+
+| | `BroadcastRing<T>` (`include/animus/broadcast_ring.hpp`) | `SpscQueue<T>` (`include/animus/spsc_queue.hpp`) |
+|---|---|---|
+| Contract | **Lossy**, 1 writer → N readers. `publish()` never blocks and never refuses; the oldest record is overwritten. | **Lossless**, 1 producer → 1 consumer. `try_push()` returns `false` on a full queue; nothing is ever overwritten. |
+| Traffic class | Market data, telemetry | Execution / order flow |
+| Shared state | One atomic `cursor`, written only by the writer. Readers never write shared memory — no tail, no CAS, no reader count. | `head` (producer-owned) and `tail` (consumer-owned), each on its own cache line. |
+| Slow consumer | Detected, not prevented: a reader more than `capacity − 1` records behind snaps forward, and the skipped records are counted in that reader's own `dropped()`. Only the newest `capacity − 1` records are ever readable. | Back-pressures the producer via the `try_push()` return value. All `capacity` slots are usable. |
+| Reader state | Cursor and drop counter live in the reader's own process memory. | Each side caches the peer's index in its own view object. |
+| Header | `BroadcastHeader`, 2 cache lines | `SpscQueueHeader`, 3 cache lines |
+
+Both headers carry only `magic`, `capacity`, `mask` and `payload_size`
+(validated by `attach()` before any field is trusted). They do **not** carry
+the `ring_kind`/`schema_version_hash`/`wire_format` descriptor of §1.3, so
+`AnimusGetMetrics()`, `scripts/animus_stat.py` and the schema-agnostic
+`SharedSchemaChannel` cannot inspect these segments; they still work on
+`ShmRing<T>`/`SpmcRing<T>` segments, which remain in `shm_ipc.hpp`. The
+broadcast protocol's deliberate formal data race on the slot `memcpy` (and
+why it is detected rather than prevented) is documented at the top of
+`broadcast_ring.hpp`; `tests/stress_broadcast_ring.cpp` exercises it with one
+writer and two racing readers.
+
+Where they are used: the C-ABI `animus_shm_ring_*` exports wrap
+`BroadcastRing<RawEvent>` and `animus_shm_ring_order_*` wrap
+`SpscQueue<OrderRequest>`; the nanobind module exposes `BroadcastRing` and
+`SpscQueue` directly (§3.3); `benchmarks/harness_benchmark` publishes its
+default `--mode overwrite` into a `BroadcastRing<ExecutionEvent>`. Its
+`--mode backpressure` stays on the legacy `ShmRing<T>`, because a broadcast
+ring has no backpressure by design.
 
 ---
 
@@ -439,50 +476,43 @@ object-per-field deserialization pass. `to_structured_array()` validates
 padding/stale-format-string mismatch as a `ValueError` rather than a
 silently misaligned view.
 
-The compiled-`T` fast path (`SharedExecutionChannel.poll()`/`.drain()`,
-`bindings/animus_shm_py.cpp:166`) follows the identical zero-copy pattern
-for the primary `ExecutionEvent` schema, batching into a pre-sized
+The compiled-`T` fast path (`BroadcastRing.poll(batch_size)`,
+`bindings/animus_shm_py.cpp`) follows the identical zero-copy pattern for
+the primary `ExecutionEvent` schema, batching into a pre-sized
 `std::vector<WireRecord> scratch_` and returning an `(n, sizeof(T))`
 `uint8` `ndarray` view over it — the buffer-lifetime contract is
-identical: valid only until the next `poll()`/`drain()` call on that same
-channel object.
+identical: valid only until the next `poll()` call on that same reader
+object. `ring.dropped_count` (a read-only property) reports the records
+that reader missed. `SpscQueue` moves one record per call instead:
+`try_push(record)` returns `bool` (`False` when full) and `try_pop()`
+returns an `ExecutionEvent` or `None`, so its path allocates one small
+Python object per record by design — it is the execution path, not the
+market-data path. Segments created by either class carry no wire-format
+descriptor, so `SharedSchemaChannel` (above) attaches only to legacy
+`ShmRing<T>` segments.
 
-### 3.4 GIL isolation
+### 3.4 GIL discipline
 
-The hot spin-wait inside `poll()` runs entirely inside a
-`nb::gil_scoped_release` block:
+Every call on `BroadcastRing` and `SpscQueue` is non-blocking: `publish()`
+and `try_push()`/`try_pop()` are O(1), and `poll()` is a bounded `memcpy`
+loop of at most `batch_capacity` records that never waits for a writer. None
+of them releases the GIL — releasing and reacquiring it would cost more than
+the work it would unblock. There is deliberately no spin-wait and no
+`max_spins` parameter: a caller that wants to wait for data loops on
+`poll()` (an empty view means "caught up") and decides its own idle
+strategy, so a lagging or absent writer in another OS process can never
+hold the interpreter's other threads hostage.
 
-```cpp
-nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> poll(size_t max_count, uint64_t max_spins) {
-    size_t n = 0;
-    {
-        nb::gil_scoped_release release;   // no Python API touched in here
-        WireRecord rec;
-        while (n < limit && ring_->pop_spin(rec, max_spins)) {
-            scratch_[n++] = rec;
-        }
-    }
-    return nb::ndarray<uint8_t, nb::memview, nb::ndim<2>>(/* ... */, nb::find(*this));
-}
-```
-
-The GIL is reacquired implicitly when the scope ends, *before*
-constructing the returned `ndarray` — `nb::find()` is itself a Python-API
-call and must run under the GIL. This means a producer running in a
-different OS process, and lagging or momentarily absent, blocks only the
-calling Python thread's own `poll()` — never the interpreter's other
-threads, since the GIL is released for the full duration of the native
-spin-wait. `push()`/`push_overwrite()`/`broadcast()` are not spin/blocking
-calls (the underlying `try_push`/`push_overwrite`/`broadcast` never wait),
-so they intentionally do **not** release the GIL — doing so would only
-add overhead around an already-O(1) call. `SpmcConsumerChannel.poll()`
-follows the identical convention.
+`poll()` does re-poll up to four times when a batch was discarded because
+the writer lapped the reader mid-copy, so that an empty result means
+"caught up" rather than "lost a race"; the bound keeps a writer that
+outruns the reader from pinning the caller inside the call.
 
 On the pure-C++ side, the producer/ingestion loop has no GIL dependency
-whatsoever — `ShmRing<T>`/`SpmcRing<T>` are plain C++ templates with no
-Python runtime linkage; GIL isolation is purely a property of the Python
-*binding* layer around them, not something the ring itself needs to know
-about.
+whatsoever — `BroadcastRing<T>`, `SpscQueue<T>` and the legacy
+`ShmRing<T>`/`SpmcRing<T>` are plain C++ templates with no Python runtime
+linkage; GIL handling is purely a property of the Python *binding* layer
+around them, not something the ring itself needs to know about.
 
 ---
 

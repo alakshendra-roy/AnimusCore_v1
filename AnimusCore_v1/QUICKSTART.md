@@ -1022,19 +1022,43 @@ matters more than being able to swap in a Python producer or consumer.
 
 **Python binding, via nanobind rather than the ctypes/C-ABI path every
 other primitive in this document uses.** `bindings/animus_shm_py.cpp`
-binds `ShmRing<animus::ExecutionEvent>` (`include/animus/execution_event.hpp`
--- the one shared record layout both the C++ producer and this binding
-build against, so the two can never silently drift onto different byte
-offsets) directly, with no ctypes marshalling tax: `SharedExecutionChannel.poll()`
-spin-waits for new records with Python's GIL released, reacquiring it
-only to hand back a zero-copy buffer-protocol view of whatever arrived.
-See `eval_kit/scripts/verify_stream.py` for a complete consumer built on
-it, or guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` if you
-want the ctypes-based, wire-compatible-with-pure-Python alternative
-instead -- that one trades this binding's zero-copy/GIL-released design
-for interchangeability with a pure-Python producer or consumer, which
+binds two newer primitives over `animus::ExecutionEvent`
+(`include/animus/execution_event.hpp` -- the one shared record layout both
+the C++ producer and this binding build against, so the two can never
+silently drift onto different byte offsets) directly, with no ctypes
+marshalling tax:
+
+- `BroadcastRing` (`include/animus/broadcast_ring.hpp`) -- lossy, one
+  writer, any number of readers. `publish(record)` never blocks and never
+  refuses; `poll(batch_size)` is non-blocking and returns a zero-copy
+  buffer-protocol view of whatever is available (an empty view means
+  caught up); `dropped_count` (a read-only property) is how many records
+  *that reader* missed by falling more than `capacity - 1` behind. For
+  market data and telemetry.
+- `SpscQueue` (`include/animus/spsc_queue.hpp`) -- lossless, one producer,
+  one consumer. `try_push(record)` returns `False` when the queue is full
+  (strict backpressure, nothing is overwritten); `try_pop()` returns the
+  oldest record or `None`. For execution / order flow.
+
+Records cross as the `ExecutionEvent` class (plain read/write fields).
+Nothing in either class blocks, so none of it holds or releases the GIL
+around a wait. Both create a segment with `create(name, capacity)` and
+attach with `open(name)`, and use their own headers, so they are not
+visible to `SharedSchemaChannel` or `scripts/animus_stat.py`, which read
+the `ShmRing<T>`/`SpmcRing<T>` layout described in the rest of this guide.
+See `eval_kit/scripts/verify_stream.py` for a complete `BroadcastRing`
+consumer, or guide 1's `SharedTelemetryRing`/`SharedTelemetryChannel` if
+you want the ctypes-based, wire-compatible-with-pure-Python alternative
+instead -- that one trades this binding's zero-copy design for
+interchangeability with a pure-Python producer or consumer, which
 `ShmRing<T>` deliberately does not offer (see the tradeoff stated at the
 top of this guide).
+
+The ctypes/C-ABI `animus_shm_ring_*` and `animus_shm_ring_order_*` exports
+use the same two primitives (`RawEvent` over `BroadcastRing`,
+`OrderRequest` over `SpscQueue`), so `ShmRingChannel.try_push()` on the
+market-data ring always succeeds and overwrites the oldest record when it
+is full, while `ShmOrderRingChannel.try_push()` returns `False` when full.
 
 **Standalone, not part of `animus.hpp`:** `shm_ipc.hpp` has no dependency
 on `animus.hpp` or `animus_release.hpp` -- it only includes

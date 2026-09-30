@@ -1,7 +1,7 @@
 """Animus Engine -- Cross-Process Shared-Memory Consumer (Milestone 4).
 
-Consumer half of harness_benchmark.cpp's evaluation harness. Attaches to
-the exact same named OS shared-memory segment
+Consumer half of harness_benchmark.cpp's `--mode backpressure` evaluation
+harness. Attaches to the exact same named OS shared-memory segment
 (animus::sys::ipc::ShmRing<ExecutionEvent>, include/animus/shm_ipc.hpp)
 that binary creates and pushes into, decodes records directly with
 `struct` against a hardcoded byte layout mirroring that C++ header
@@ -18,7 +18,15 @@ run on a 64-byte-cache-line target for the header offsets below to agree;
 that covers essentially all x86_64 evaluation hardware this harness is
 meant for.
 
-Usage (after running harness_benchmark --name NAME, without --unlink-when-done):
+Only the legacy ShmRing<T> layout is understood. harness_benchmark's default
+`--mode overwrite` publishes into a BroadcastRing<ExecutionEvent>
+(include/animus/broadcast_ring.hpp), whose header is a different shape; this
+script refuses such a segment with a ValueError rather than misreading it --
+read those with eval_kit/scripts/verify_stream.py (the nanobind
+BroadcastRing binding) instead.
+
+Usage (after running harness_benchmark --mode backpressure --name NAME,
+without --unlink-when-done):
 
     python consumer.py --name animus_harness_shm --events 10000000
 """
@@ -143,8 +151,10 @@ class ShmExecutionConsumer:
         if ring_kind != _RING_KIND_SPSC:
             raise ValueError(
                 f"segment '{name}' has ring_kind={ring_kind}, expected {_RING_KIND_SPSC} (SPSC) -- "
-                f"this script only understands ShmRing<T>'s single-producer/single-consumer ring, "
-                f"not SpmcRing<T>'s broadcast ring")
+                f"this script only understands the legacy ShmRing<T> single-producer/single-consumer "
+                f"layout, not SpmcRing<T>, BroadcastRing<T> or SpscQueue<T> segments (for a "
+                f"BroadcastRing from harness_benchmark's --mode overwrite, use "
+                f"eval_kit/scripts/verify_stream.py)")
         # Milestone 1 schema check, mirroring ShmRing<T>::open()'s own
         # payload_size validation (shm_ipc.hpp) on the C++ side: refuse to
         # attach if the segment's stamped record size doesn't match this

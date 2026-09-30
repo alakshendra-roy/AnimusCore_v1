@@ -5,6 +5,13 @@ Zero-dependency (stdlib only, matching CLAUDE.md's Python SDK constraint)
 live dashboard / Prometheus exporter for animus::sys::ipc::ShmRing<T> (SPSC)
 and SpmcRing<T> (SPMC broadcast) segments (include/animus/shm_ipc.hpp).
 
+Not covered: BroadcastRing<T> and SpscQueue<T> segments (include/animus/
+broadcast_ring.hpp, spsc_queue.hpp -- what the C-ABI ring exports, the
+nanobind BroadcastRing/SpscQueue classes and harness_benchmark's default
+--mode overwrite create). Their header carries no wire descriptor or
+ring_kind, so sample_ring() reports them as valid=False rather than
+guessing at their layout.
+
 Mirrors the wire-descriptor header byte-for-byte by hand -- the same
 "no C++ toolchain at runtime" convention benchmarks/consumer.py already
 uses for its own, narrower ExecutionEvent-only reader. Keep the offsets

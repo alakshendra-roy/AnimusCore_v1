@@ -457,6 +457,22 @@ C++ object by value or reference, which is what makes the boundary
 resilient to the calling language having no concept of a C++ class layout
 at all.
 
+The two families of ring exports have different delivery contracts, which
+is deliberate. `animus_shm_ring_*` (market data, `RawEvent`) wraps
+`BroadcastRing<RawEvent>` (`include/animus/broadcast_ring.hpp`): lossy and
+never blocking -- `animus_shm_ring_try_push` always returns `true`,
+`push_batch` always accepts the whole batch, a full ring overwrites its
+oldest record, and only the newest `capacity - 1` records are readable.
+`animus_shm_ring_order_*` (execution, `OrderRequest`) wraps
+`SpscQueue<OrderRequest>` (`include/animus/spsc_queue.hpp`): lossless --
+`try_push` returns `false` and `push_batch` returns a short count when the
+queue is full, and nothing is ever overwritten. Symbol names and signatures
+are unchanged. Each handle owns the named shared-memory mapping and the
+view over it; `capacity` is rounded up to a power of two (minimum 2), and
+`create` fails rather than overflow on an absurd capacity. These segments
+use their own headers (no `wire_format` descriptor), so they are not
+inspectable by `SharedSchemaChannel` or `scripts/animus_stat.py`.
+
 The interop path this repository actually ships and verifies is Python:
 `animus/bindings.py` loads the shared library via `ctypes.CDLL` and calls
 straight through this `extern "C"` surface with zero third-party Python

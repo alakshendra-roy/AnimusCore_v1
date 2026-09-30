@@ -18,32 +18,36 @@ does the entire Quickstart automatically and prints a pass/fail verdict.
 
 ## Architecture Overview
 
-- **Transport**: a single-producer/single-consumer, lock-free ring buffer
-  living entirely inside a named POSIX shared-memory segment under
-  `/dev/shm`. Two independent OS processes -- the bundled C++ producer
-  binary and your Python consumer -- exchange fixed-layout records with
+- **Transport**: a single-writer, lock-free broadcast ring
+  (`BroadcastRing`) living entirely inside a named POSIX shared-memory
+  segment under `/dev/shm`. Two independent OS processes -- the bundled
+  C++ producer binary and your Python consumer -- exchange fixed-layout records with
   no serialization step and no kernel round trip once both sides have
   mapped the segment.
-- **Cache-line isolation**: the ring's head cursor (producer-owned) and
-  tail cursor (consumer-owned) each live on their own `alignas(64)`
-  cache line, so the producer publishing a new head never invalidates
-  the cache line the consumer is polling the tail from, and vice versa
-  -- the false-sharing elimination that makes a lock-free SPSC ring
-  actually fast across two different cores (or two different sockets).
+- **Cache-line isolation**: the producer's single write cursor lives on
+  its own `alignas(64)` cache line, apart from the read-only descriptor.
+  Consumers never write shared memory at all -- no tail cursor, no CAS,
+  no reader count -- so a consumer polling can never invalidate the line
+  the producer is publishing on, and any number of consumers can attach
+  without the producer knowing or paying for them.
 - **Non-blocking overwrite mode**: the producer's default mode never
-  waits on a slow or absent consumer. When the ring is full, it reclaims
-  the oldest unconsumed slot instead of blocking, and increments a
-  deterministic drop counter -- the producer's throughput is never
-  gated by consumer speed. A bounded-backpressure mode is also available
-  (`--mode backpressure`) for measuring true zero-loss, end-to-end
-  throughput against a consumer that is actually keeping up.
+  waits on a slow or absent consumer. When the ring is full, it simply
+  overwrites the oldest slot instead of blocking -- the producer's
+  throughput is never gated by consumer speed. Each consumer keeps its own
+  read cursor in its own process memory; one that falls more than
+  `capacity - 1` records behind is snapped forward, and the records it
+  skipped are counted in *its own* drop counter. Only the newest
+  `capacity - 1` records are ever readable.
 - **Zero-copy Python consumer**: the bundled `_animus_shm_native`
-  extension (nanobind) binds the same ring directly -- no ctypes
-  marshalling, no per-record Python object construction. Its spin-wait
-  for new records runs with Python's GIL released, so a lagging producer
-  never blocks anything else your interpreter is doing; the GIL is
-  reacquired only to hand back a zero-copy view of whatever batch
-  arrived.
+  extension (nanobind) binds the same ring directly (`BroadcastRing`) --
+  no ctypes marshalling, no per-record Python object construction.
+  `poll()` is non-blocking and hands back a zero-copy view of whatever
+  batch is available; an empty view means the consumer has caught up.
+- **Backpressure mode** (`--mode backpressure`): a separate, lossless
+  mode on the older `ShmRing` layout, for measuring zero-loss end-to-end
+  throughput against a consumer that keeps up. It is read by the
+  source repo's `benchmarks/consumer.py`, which this kit does not bundle;
+  `verify_stream.py` reads overwrite-mode (`BroadcastRing`) segments only.
 
 ## Pre-requisites
 
@@ -78,11 +82,13 @@ pip install wheels/animus_native_stream-*.whl
 This injects 10,000,000 synthetic execution events into a new shared-memory
 ring and reports its own enqueue-latency percentiles and throughput.
 Overwrite mode is self-contained -- it completes and exits on its own,
-whether or not a consumer is attached, leaving the segment (and whatever
-fits in the ring's capacity) behind for the next step. To watch the
-producer being kept honest by a live, draining consumer instead, run it
-with `--mode backpressure` in one terminal and start step 3 in a second
-terminal before it finishes.
+whether or not a consumer is attached, leaving the segment (and the newest
+`capacity - 1` records) behind for the next step. To watch a consumer
+drain the stream *while* the producer is still running, start step 3 in a
+second terminal before it finishes -- use a larger `--events` count so
+there is time to attach. (`--mode backpressure` is not an option here:
+`verify_stream.py` cannot read that mode's segment -- see the Architecture
+Overview.)
 
 **3. Start the Python consumer.**
 
@@ -108,17 +114,20 @@ throughput followed by a summary table.
   measured. Tail figures (p99.9, max) reflect OS scheduling noise on
   whatever core each process landed on as much as the transport itself;
   pin both processes (see Troubleshooting) for a tighter tail.
-- **Dropped packet counter**: under `--mode overwrite`, `dropped_count`
-  is the number of records the producer reclaimed before any consumer
-  read them -- this is expected, not an error. `verify_stream.py`
-  independently counts sequence gaps in what it actually received and
-  cross-checks that figure against the producer's own counter
+- **Dropped packet counter**: the producer cannot know what any consumer
+  missed, so it reports a writer-side figure -- how many of the events are
+  no longer readable once the run ends (everything beyond the newest
+  `capacity - 1`). `verify_stream.py` reports its own, reader-side
+  `Dropped records (reader)`: the records *this* attach missed, including
+  any published before it attached. Both are expected, not errors.
+  `verify_stream.py` independently counts sequence gaps in what it
+  actually received and cross-checks that figure against its own counter
   (`Gaps == dropped_count?` in its summary table); a mismatch there,
   not a nonzero drop count by itself, would indicate a real problem.
 
 ## Troubleshooting & Edge Cases
 
-**`ShmRing::create(...) failed` / permission denied on `/dev/shm`.**
+**`error: creating the '<name>' segment failed` / permission denied on `/dev/shm`.**
 Some hardened containers (certain Docker/Kubernetes security profiles,
 some CI runners) mount `/dev/shm` read-only, too small, or not at all.
 Check with `df -h /dev/shm`; if it's missing or tiny, this kit needs a
@@ -150,7 +159,7 @@ on the same NUMA node, on separate physical cores -- not two hyperthread
 siblings of the same core):
 
 ```bash
-taskset -c 2 ./bin/harness_benchmark --events 10000000 --mode backpressure &
+taskset -c 2 ./bin/harness_benchmark --events 100000000 --mode overwrite &
 taskset -c 3 python3 scripts/verify_stream.py
 ```
 

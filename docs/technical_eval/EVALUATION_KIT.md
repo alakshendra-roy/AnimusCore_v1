@@ -12,7 +12,7 @@
 
 ### 1.1 High-Throughput / Overwrite Telemetry
 
-Decoupled SPSC overwrite mode (`--mode overwrite`) — the producer never waits on a consumer, matching the design intent for a market-data feed where the newest tick matters more than every historical one.
+Decoupled overwrite mode (`--mode overwrite`) — the producer never waits on a consumer, matching the design intent for a market-data feed where the newest tick matters more than every historical one. The harness now publishes this mode into a lossy single-writer `BroadcastRing` (see §1.3); the figures below were captured before that change, on the earlier SPSC `push_overwrite` path, and have not been re-measured.
 
 | Metric | Result |
 |---|---|
@@ -48,11 +48,11 @@ Bounded-retry backpressure mode (`--mode backpressure`) with `benchmarks/consume
 
 ### 1.3 Architectural Distinction — Overwrite vs. Backpressure
 
-These are two deliberately different contracts over the same `ShmRing<T>` transport (`include/animus/shm_ipc.hpp`), not two implementations of the same thing:
+These are two deliberately different contracts, not two implementations of the same thing. Overwrite mode publishes into a `BroadcastRing<T>` (`include/animus/broadcast_ring.hpp`): a lossy single-writer ring whose readers keep their own cursors and count their own drops. Backpressure mode stays on the legacy `ShmRing<T>` (`include/animus/shm_ipc.hpp`), because a broadcast ring has no backpressure by design:
 
 | | Overwrite (`--mode overwrite`) | Backpressure (`--mode backpressure`) |
 |---|---|---|
-| Producer behavior when the ring is full | Overwrites the oldest unread slot and continues — never blocks | Bounded-retry `push_spin()`: waits for the consumer to free a slot, up to a retry budget |
+| Producer behavior when the ring is full | Overwrites the oldest slot and continues — never blocks; only the newest `capacity - 1` records are readable | Bounded-retry `push_spin()`: waits for the consumer to free a slot, up to a retry budget |
 | Delivery guarantee | None — newest data wins, oldest unread data is silently lost | Every event is delivered, provided the consumer keeps pace within the retry budget |
 | Producer speed ceiling | Bounded only by the engine's own enqueue cost (§1.1) | Bounded by whichever is slower: the engine, or the attached consumer (§1.2) |
 | Intended use case | Market-data / telemetry feeds where the latest tick matters more than a complete history — an order book snapshot, a live price feed | Anything where losing a message is a correctness bug, not a tolerable staleness — trade confirmations, risk-check signals, audit/compliance event streams |
@@ -85,7 +85,7 @@ The one-command reproduction, which also runs a live telemetry snapshot mid-flig
 ./scripts/run_benchmarks.sh --events 10000000
 ```
 
-(There is no `--quick` flag — the script's full interface is `[--events N] [--capacity SLOTS] [--build-dir DIR]`; pass a smaller `--events` value for a faster pass.) This builds `harness_benchmark` in Release, runs the producer standalone, samples its shared-memory telemetry via `scripts/animus_stat.py` while it's still writing, and prints the throughput/latency report — this is exactly how §1.1's figures were produced.
+(There is no `--quick` flag — the script's full interface is `[--events N] [--capacity SLOTS] [--build-dir DIR]`; pass a smaller `--events` value for a faster pass.) This builds `harness_benchmark` in Release, runs the producer standalone, and prints the throughput/latency report — this is how §1.1's figures were produced. Note: the script also tries to sample the ring's live telemetry via `scripts/animus_stat.py` while the producer is writing, but `animus_stat.py` reads the legacy `ShmRing`/`SpmcRing` header and reports a `BroadcastRing` segment as invalid, so in overwrite mode that snapshot section comes up empty (the script tolerates this and still prints the producer's own report). To watch a live overwrite-mode stream, attach `eval_kit/scripts/verify_stream.py` while the producer is running.
 
 ### 2.3 Running Attached-Consumer Validation (`--mode backpressure`)
 

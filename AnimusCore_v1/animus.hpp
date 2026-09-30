@@ -1757,13 +1757,20 @@ extern "C" {
     // animus_feed_poll_l2_updates.
     ANIMUS_API size_t animus_feed_poll_trades(void* feed, animus::TradeTick* out, size_t max_count);
 
-    // animus::sys::ipc::ShmRing<RawEvent> (include/animus/shm_ipc.hpp), the
-    // generic cross-process ring, instantiated here for animus::RawEvent
-    // specifically -- the same 16-byte record animus_record_events_batch
-    // already takes, chosen so a batch popped off this ring is exactly the
-    // array record_batch() wants, with no translation step. A different
-    // C++ caller (or a future C-ABI export) is free to instantiate
-    // ShmRing<T> for some other T directly; this is the one concrete
+    // animus::sys::ipc::BroadcastRing<RawEvent> (include/animus/
+    // broadcast_ring.hpp), a lossy single-writer cross-process ring,
+    // instantiated here for animus::RawEvent specifically -- the same
+    // 16-byte record animus_record_events_batch already takes, chosen so a
+    // batch popped off this ring is exactly the array record_batch() wants,
+    // with no translation step. This is the market-data path: a push never
+    // blocks and never fails -- a full ring overwrites its oldest record,
+    // and only the newest capacity - 1 records are ever readable. Each
+    // handle keeps its own read cursor, so every handle that pops gets its
+    // own independent view, and one that falls further behind than that
+    // silently skips ahead. For a path where losing a message is a bug, use
+    // the lossless animus_shm_ring_order_* block below. A different C++
+    // caller (or a future C-ABI export) is free to instantiate
+    // BroadcastRing<T> for some other T directly; this is the one concrete
     // instantiation exposed across the ctypes boundary, not a claim that
     // it's the only one that exists.
     //
@@ -1774,41 +1781,47 @@ extern "C" {
     // animus_spsc_init), this is a data-transport primitive, not a
     // hardware-entitlement one.
     //
-    // No spin-blocking variant is exposed here on purpose. ShmRing<T>'s own
-    // push_spin()/pop_spin() can legitimately block for low seconds waiting
-    // for a peer (bounded by max_spins, not infinite, but still long for a
-    // single call) -- fine for a native C++ caller, but a ctypes call that
-    // blocks that long holds the GIL released for its whole duration and
-    // cannot be interrupted with Ctrl+C from Python. A caller that wants
-    // "wait for the next item" implements a bounded retry loop in Python
-    // instead (same shape as ingest_engine.py's own signal-poller loop),
-    // which stays interruptible at every iteration.
+    // No blocking variant is exposed here on purpose: every call below
+    // returns immediately, and "nothing new" is reported as false / 0. A
+    // caller that wants "wait for the next item" implements a bounded retry
+    // loop instead (same shape as ingest_engine.py's own signal-poller
+    // loop), which stays interruptible at every iteration -- a native call
+    // that blocked for seconds could not be interrupted with Ctrl+C from
+    // Python.
     ANIMUS_API void* animus_shm_ring_create(const char* name, size_t requested_capacity);
     ANIMUS_API void* animus_shm_ring_open(const char* name);
     ANIMUS_API void animus_shm_ring_close(void* ring);
     ANIMUS_API bool animus_shm_ring_unlink(const char* name);
     ANIMUS_API size_t animus_shm_ring_capacity(void* ring);
 
-    // Never blocks; false if the ring is full/empty or `ring` is null.
+    // Never blocks. try_push returns true for any valid call (the ring is
+    // lossy -- it overwrites rather than refuses) and false only if `ring`
+    // or `event` is null; try_pop returns false when this handle has caught
+    // up with the writer, or `ring`/`out` is null.
     ANIMUS_API bool animus_shm_ring_try_push(void* ring, const animus::RawEvent* event);
     ANIMUS_API bool animus_shm_ring_try_pop(void* ring, animus::RawEvent* out);
 
-    // Same "stop at the first push that fails, return how many actually
-    // transferred" contract as animus_record_events_batch/
-    // animus_spsc_record_events_batch -- never blocks, never partially
-    // corrupts state, just tells the caller how far it got.
+    // push_batch accepts the whole batch and returns `count` (0 only if
+    // `ring`/`events` is null) -- unlike animus_record_events_batch, there
+    // is no full-ring point to stop at; a batch larger than the ring leaves
+    // only its newest capacity - 1 records readable. pop_batch returns how
+    // many were copied out (0 when caught up). Neither ever blocks.
     ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count);
     ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count);
 
-    // Same animus::sys::ipc::ShmRing<T> primitive, instantiated for
-    // animus::OrderRequest instead of animus::RawEvent -- routing orders
-    // (not telemetry) across a shared-memory ring needs its own wire shape,
-    // not a reinterpretation of RawEvent's fields. Otherwise byte-for-byte
-    // the same 9-function surface and the same contracts as the
-    // animus_shm_ring_* block above (create/open own the segment's
-    // lifecycle the same way; try_push/try_pop never block;
-    // push_batch/pop_batch stop at the first failure and report how far
-    // they got) -- see that block's own comments for what each one means.
+    // animus::sys::ipc::SpscQueue<OrderRequest> (include/animus/
+    // spsc_queue.hpp), a lossless one-producer/one-consumer queue,
+    // instantiated for animus::OrderRequest instead of animus::RawEvent --
+    // routing orders (not telemetry) across a shared-memory ring needs its
+    // own wire shape, not a reinterpretation of RawEvent's fields. The same
+    // 9-function surface as the animus_shm_ring_* block above (create/open
+    // own the segment's lifecycle the same way; nothing ever blocks), but
+    // the OPPOSITE delivery contract: strict backpressure. try_push returns
+    // false when the queue is full, push_batch stops at the first refusal
+    // and returns how many were accepted, nothing is ever overwritten, and
+    // try_pop/pop_batch return records in exactly the order pushed.
+    // Exactly one producer and one consumer, each on its own handle or
+    // thread.
     ANIMUS_API void* animus_shm_ring_order_create(const char* name, size_t requested_capacity);
     ANIMUS_API void* animus_shm_ring_order_open(const char* name);
     ANIMUS_API void animus_shm_ring_order_close(void* ring);

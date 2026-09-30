@@ -1514,38 +1514,42 @@ def _configure_shm_ring_signatures(lib: ctypes.CDLL) -> None:
 
 
 class ShmRingChannel:
-    """ctypes-backed wrapper over animus::sys::ipc::ShmRing<animus::RawEvent>
-    (include/animus/shm_ipc.hpp), instantiated for animus::RawEvent -- the
-    same 16-byte record animus_record_events_batch itself takes, so a batch
-    popped off this ring is exactly the array record_events_batch() wants,
-    with no translation step.
+    """ctypes-backed wrapper over animus::sys::ipc::BroadcastRing<animus::RawEvent>
+    (include/animus/broadcast_ring.hpp), instantiated for animus::RawEvent --
+    the same 16-byte record animus_record_events_batch itself takes, so a
+    batch popped off this ring is exactly the array record_events_batch()
+    wants, with no translation step.
+
+    LOSSY, by design -- this is the market-data path. try_push()/push_batch()
+    never refuse and never block: a full ring overwrites its oldest record,
+    and only the newest capacity - 1 records are ever readable. A reader that
+    falls further behind than that silently skips ahead to the oldest
+    readable record (the C++ BroadcastRing counts those drops per reader;
+    this wrapper does not surface that counter -- use the nanobind
+    BroadcastRing class's dropped_count if you need it). For a path where
+    losing a message is a bug, use ShmOrderRingChannel below (lossless).
 
     Distinct from SharedTelemetryChannel above, not a replacement for it:
     that class is deliberately wire-compatible with the pure-Python
     SharedTelemetryRing (identical byte layout, no cache-line padding, so
     either implementation can produce or consume the same segment).
-    ShmRing<T> has no such interop constraint -- it pads its producer head
-    and consumer tail cursors onto separate cache lines to eliminate false
-    sharing between them, at the cost of that Python/C++ wire compatibility.
-    See include/animus/shm_ipc.hpp's own module docstring and
-    AnimusCore_v1/BENCHMARKS.md's Phase 20 section for the measured latency
-    difference that buys.
+    BroadcastRing has no such interop constraint -- the writer's single
+    cursor sits on its own cache line and readers never write shared
+    memory -- at the cost of that Python/C++ wire compatibility. See
+    include/animus/broadcast_ring.hpp's own header comment for the protocol.
 
-    Single-producer/single-consumer, same contract as SpscRingBuffer/
-    SharedTelemetryChannel elsewhere in this module -- don't share one
-    channel across more than one producer or more than one consumer
-    process/thread; it isn't enforced at runtime, for the same reason it
-    isn't there either.
+    Single writer, same contract as SpscRingBuffer/SharedTelemetryChannel
+    elsewhere in this module -- don't share one channel across more than
+    one producer process/thread; it isn't enforced at runtime, for the same
+    reason it isn't there either. Each handle keeps its own read cursor, so
+    every process/handle that polls gets its own independent view.
 
-    No spin-blocking wait is exposed here, on purpose. ShmRing<T>'s own C++
-    push_spin()/pop_spin() can legitimately block for low seconds waiting
-    for a peer (bounded, not infinite, but still long for one call) -- a
-    ctypes call that blocks that long releases the GIL for its entire
-    duration and cannot be interrupted with Ctrl+C from Python. If you need
-    "wait for the next item," poll try_pop()/pop_batch() in your own
-    Python-level loop instead (optionally with a short time.sleep()) --
-    interruptible at every iteration, same pattern
-    AnimusCore_v1/ingest_engine.py's own signal-poller loop already uses.
+    No blocking wait is exposed here, on purpose: try_pop()/pop_batch()
+    return immediately, and "nothing new" is an empty result. If you need
+    "wait for the next item," poll in your own Python-level loop instead
+    (optionally with a short time.sleep()) -- interruptible at every
+    iteration, same pattern AnimusCore_v1/ingest_engine.py's own
+    signal-poller loop already uses.
 
     Requires the native engine; there is no pure-Python fallback (a native
     concurrency primitive, same reasoning as SpscRingBuffer/MarketDataFeed
@@ -1600,12 +1604,15 @@ class ShmRingChannel:
         return int(self._lib.animus_shm_ring_capacity(self._handle))
 
     def try_push(self, event_id: int, trace_id: int, metric_value: int) -> bool:
-        """Producer-side. Never blocks; returns False if the ring is full."""
+        """Producer-side. Never blocks and never refuses: a full ring
+        overwrites its oldest record, so this returns True for any valid
+        call (False only if the native call itself rejected its arguments)."""
         event = NativeEvent(event_id, trace_id, metric_value)
         return bool(self._lib.animus_shm_ring_try_push(self._handle, ctypes.byref(event)))
 
     def try_pop(self) -> Optional[NativeEvent]:
-        """Consumer-side. Never blocks; returns None if the ring is empty."""
+        """Consumer-side. Never blocks; returns None if this handle has
+        caught up with the writer."""
         event = NativeEvent()
         if not self._lib.animus_shm_ring_try_pop(self._handle, ctypes.byref(event)):
             return None
@@ -1615,9 +1622,10 @@ class ShmRingChannel:
         """Producer-side batch push. Amortizes the ctypes call boundary
         across the whole batch -- same reasoning, and the same
         struct.pack()+memmove() buffer-building, as
-        AnimusBindings.record_events_batch(). Stops at the first push that
-        fails (ring full); returns how many, in order, actually made it in
-        (never blocks, same contract as try_push()).
+        AnimusBindings.record_events_batch(). The ring is lossy, so the
+        whole batch is always accepted and this returns len(events); if the
+        batch is larger than the ring, only its newest capacity - 1 records
+        remain readable (never blocks, same contract as try_push()).
         """
         events = list(events)
         if not events:
@@ -1678,13 +1686,16 @@ def _configure_shm_ring_order_signatures(lib: ctypes.CDLL) -> None:
 
 
 class ShmOrderRingChannel:
-    """ctypes-backed wrapper over animus::sys::ipc::ShmRing<animus::OrderRequest>
-    (include/animus/shm_ipc.hpp), instantiated for animus::OrderRequest --
+    """ctypes-backed wrapper over animus::sys::ipc::SpscQueue<animus::OrderRequest>
+    (include/animus/spsc_queue.hpp), instantiated for animus::OrderRequest --
     the order-routing counterpart to ShmRingChannel above (which carries
-    animus::RawEvent, a telemetry shape). Same API shape, same contracts,
-    same single-producer/single-consumer restriction, same "no spin-blocking
-    wait exposed here" rationale as ShmRingChannel's own docstring -- see
-    that class for the full explanation, not repeated here.
+    animus::RawEvent, a telemetry shape). Same API shape and the same "no
+    blocking wait exposed here" rationale as ShmRingChannel's own docstring,
+    but the opposite delivery contract: LOSSLESS, strict backpressure.
+    try_push() returns False when the queue is full and push_batch() returns
+    a short count -- nothing is ever overwritten -- and try_pop()/pop_batch()
+    return records in exactly the order they were pushed. Strictly
+    single-producer/single-consumer: one thread/process pushes, one pops.
 
     Typically paired with SecurityContext below: a producer process pushes
     OrderRequest records for ONE tenant into one named ring; the consumer
