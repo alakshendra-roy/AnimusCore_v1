@@ -3,83 +3,64 @@
 // Companion to animus_py.cpp, and deliberately distinct from it:
 // animus_py.cpp's TelemetryStream binds animus::SpscRingBuffer<T>, an
 // *in-process* ring invisible outside the Python interpreter that loaded
-// this extension. This file binds animus::sys::ipc::ShmRing<T>
-// (include/animus/shm_ipc.hpp) instead -- a ring that lives entirely
-// inside a named OS shared-memory segment (Windows: CreateFileMapping;
-// POSIX: shm_open/mmap under /dev/shm), so a native C++ producer process
-// (e.g. benchmarks/harness_benchmark.cpp) and this Python process can
-// exchange records with no serialization step and no copy across the
-// process boundary itself -- only the same one memcpy-equivalent per
-// event that any ring pop() already costs, matching animus_py.cpp's own
-// stated zero-copy contract (see that file's header comment) rather than
-// promising something stronger.
+// this extension. This file binds rings that live entirely inside a named OS
+// shared-memory segment (Windows: CreateFileMapping; POSIX: shm_open/mmap
+// under /dev/shm), so a native C++ process and this Python process exchange
+// records with no serialization step and no copy across the process boundary
+// itself -- only the one memcpy-equivalent per record that any ring read
+// already costs.
 //
-// Wire format: WireRecord below is animus::ExecutionEvent
-// (include/animus/execution_event.hpp) -- the same 40-byte layout
-// benchmarks/harness_benchmark.cpp writes into the ring and
-// benchmarks/consumer.py decodes by hand. SharedExecutionChannel stays
-// hardcoded to this one type deliberately: it is the primary,
-// backward-compatible fast path (animus::schema::Traits<ExecutionEvent>,
-// include/animus/schema.hpp), unchanged since before Milestone 1.
+// Two primitives, one per traffic class (see the headers for the protocols):
 //
-// Milestone 1 (Dynamic & User-Defined Wire Schemas) adds SharedSchemaChannel
-// below it: a second, genuinely schema-agnostic binding over
-// animus::sys::ipc::RawSchemaView (shm_ipc.hpp) that attaches to a segment
-// without ever naming T at compile time, reading whatever
-// payload_size/stride/schema_version_hash/wire_format ShmRing<T>::create()
-// stamped into the header instead. Since ShmRing<T>::open() now validates
-// that header against the attaching side's own T (a real gap this
-// milestone closes -- previously two same-size T's could attach to the
-// same segment and silently misread each other's fields, with no
-// cross-check possible), SharedSchemaChannel is what lets a Python
-// consumer inspect *any* registered custom schema (MarketDepthEvent,
-// OrderBookL2, AlphaSignal, ...) and build a matching NumPy structured
-// dtype from wire_format() at runtime, without a new compiled extension
-// per schema.
+//   BroadcastRing  (include/animus/broadcast_ring.hpp) -- lossy 1-writer ->
+//       N-reader market-data/telemetry ring. publish() never blocks and
+//       never refuses; every reader keeps its own cursor in its own process
+//       memory, and one that falls more than capacity-1 records behind is
+//       snapped forward with the loss counted into dropped_count().
 //
-// "Milestone 2: Single-Producer Multi-Consumer Broadcast Ring" (this
-// conversation's own numbering for this project, distinct from the
-// pre-existing internal "Milestone 2/3/4" labels already used elsewhere in
-// this file and shm_lifecycle.hpp/harness_benchmark.cpp for SIGINT
-// handling, GIL discipline, and the cross-process harness respectively --
-// spelled out explicitly below to avoid confusion with those) adds
-// SpmcConsumerChannel further down: a binding over
-// animus::sys::ipc::SpmcRing<ExecutionEvent> (shm_ipc.hpp) -- a ring with
-// exactly one producer but any number of independent consumers, each
-// polling at its own pace through a read cursor that lives only in that
-// consumer's own process memory, never contending with any other consumer
-// or with the producer over shared state (unlike ShmRing<T>'s single
-// shared tail). A consumer that falls more than capacity() behind is
-// corrected by jumping forward, with the skipped span counted into
-// overrun_count() -- see that class's own docstring for the full contract.
+//   SpscQueue      (include/animus/spsc_queue.hpp) -- lossless 1-producer ->
+//       1-consumer execution/order queue. try_push() returns False on a full
+//       queue (strict backpressure); nothing is ever overwritten.
 //
-// GIL discipline (Milestone 3's explicit requirement): poll()'s spin-wait
-// over the shared ring runs entirely inside a nb::gil_scoped_release
-// block -- a lagging or momentarily-absent producer in another process
-// never blocks Python's other threads. The GIL is reacquired (implicitly,
-// when that scope ends) before constructing the returned ndarray, for the
-// same reason drain() in animus_py.cpp does not release the GIL for its
-// own ndarray construction: nb::find() is a Python-API call. push()/
-// push_overwrite()/broadcast() are not spin/blocking calls (ShmRing's
-// try_push/push_overwrite and SpmcRing's broadcast never wait), so they
-// run under the GIL like any other fast native call -- releasing it
-// around them would only add overhead. SpmcConsumerChannel.poll() follows
-// the identical GIL-release convention as SharedExecutionChannel.poll().
+// Both carry WireRecord below, which is animus::ExecutionEvent
+// (include/animus/execution_event.hpp): the same 40-byte layout
+// benchmarks/consumer.py decodes by hand. It is exposed to Python as the
+// ExecutionEvent class -- SpscQueue.try_push()/try_pop() move one of those
+// per call, while BroadcastRing.poll() returns a batch as a zero-copy
+// (n, WIRE_RECORD_SIZE) uint8 view instead, so the hot path allocates nothing
+// per record.
+//
+// SharedSchemaChannel at the bottom is unchanged: a schema-agnostic,
+// read-only attach (animus::sys::ipc::RawSchemaView, shm_ipc.hpp) to
+// segments laid out by the legacy ShmRing<T>, which is still what the C++
+// ITCH bridge produces. BroadcastRing/SpscQueue segments carry no wire_format
+// descriptor, so it cannot attach to them.
+//
+// GIL discipline: every call here is non-blocking (a bounded memcpy loop at
+// most), so none of them releases the GIL -- releasing and reacquiring it
+// would cost more than the work it would unblock.
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/unique_ptr.h>
 
-#include <cstring>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <memory>
+#include <new>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
-#include "animus.hpp"
-#include "animus/shm_ipc.hpp"
+#include "animus/broadcast_ring.hpp"
 #include "animus/execution_event.hpp"
+#include "animus/shm_ipc.hpp"
+#include "animus/spsc_queue.hpp"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -90,161 +71,202 @@ using WireRecord = animus::ExecutionEvent;
 static_assert(sizeof(WireRecord) == 40, "must stay wire-compatible with animus::ExecutionEvent");
 constexpr const char* kWireFormat = animus::kExecutionEventWireFormat;
 
-using Ring = animus::sys::ipc::ShmRing<WireRecord>;
+using Broadcast = animus::sys::ipc::BroadcastRing<WireRecord>;
+using Queue = animus::sys::ipc::SpscQueue<WireRecord>;
+using Region = animus::sys::ipc::SharedMemoryRegion;
+using RecordBatch = nb::ndarray<uint8_t, nb::memview, nb::ndim<2>>;
 
-// Thin Python-facing wrapper over one attached ShmRing<WireRecord>. Exactly
-// one of create()/open() is called per instance (mirroring ShmRing's own
-// create-vs-open split): create() allocates and owns the underlying OS
-// segment; open() attaches to one another process already created. Only
-// the owning side should ever call unlink().
-class SharedExecutionChannel {
+// One named shared-memory segment plus the lock-free view over it.
+// BroadcastRing/SpscQueue operate on caller-supplied memory and make no OS
+// calls, so this owns the mapping: exactly one of create()/open() builds an
+// instance. create() allocates the segment and makes this side its owner --
+// only the owner may unlink(); open() attaches to one another process (or
+// this one) already created.
+template <typename Ring>
+class Segment {
 public:
-    static SharedExecutionChannel create(const std::string& name, size_t capacity, size_t drain_batch_capacity) {
-        auto ring = Ring::create(name.c_str(), capacity);
-        if (!ring) {
+    static Segment create(const std::string& name, size_t requested_capacity) {
+        // Power of two, minimum 2 (the rings index with an AND mask), bounded
+        // so required_bytes() cannot overflow size_t.
+        const size_t max_capacity =
+            (std::numeric_limits<size_t>::max() - Ring::required_bytes(0)) / sizeof(WireRecord);
+        size_t capacity = 2;
+        while (capacity < requested_capacity) {
+            if (capacity > max_capacity / 2) {
+                throw std::invalid_argument("capacity " + std::to_string(requested_capacity) + " is too large");
+            }
+            capacity <<= 1;
+        }
+
+        Segment seg;
+        if (!Region::create(name.c_str(), Ring::required_bytes(capacity), seg.region_)) {
             throw std::runtime_error(
-                "ShmRing::create('" + name + "') failed -- a segment with this name "
+                "create('" + name + "') failed -- a segment with this name "
                 "may already exist, or the OS refused the shared-memory allocation");
         }
-        ring->mark_producer_attached();
-        return SharedExecutionChannel(std::move(ring), drain_batch_capacity, /*is_owner=*/true, name);
+        if (!Ring::init(seg.region_.data(), seg.region_.size(), capacity, seg.ring_)) {
+            Region::unlink(name.c_str()); // don't leave a half-built segment behind
+            throw std::runtime_error("create('" + name + "') failed -- could not initialise the ring header");
+        }
+        seg.name_ = name;
+        seg.is_owner_ = true;
+        return seg;
     }
 
-    static SharedExecutionChannel open(const std::string& name, size_t drain_batch_capacity) {
-        auto ring = Ring::open(name.c_str());
-        if (!ring) {
+    static Segment open(const std::string& name) {
+        Segment seg;
+        if (!Region::open(name.c_str(), seg.region_)) {
+            throw std::runtime_error("open('" + name + "') failed -- no such segment");
+        }
+        if (!Ring::attach(seg.region_.data(), seg.region_.size(), seg.ring_)) {
             throw std::runtime_error(
-                "ShmRing::open('" + name + "') failed -- no such segment, or its header "
-                "is not a valid ShmRing<WireRecord> (wrong record type or a torn/foreign segment)");
+                "open('" + name + "') failed -- the segment is not a valid ring of this kind "
+                "and record type (wrong ring kind, wrong record size, or a torn/foreign segment)");
         }
-        ring->mark_consumer_attached();
-        return SharedExecutionChannel(std::move(ring), drain_batch_capacity, /*is_owner=*/false, name);
+        seg.name_ = name;
+        return seg;
     }
 
-    SharedExecutionChannel(const SharedExecutionChannel&) = delete;
-    SharedExecutionChannel& operator=(const SharedExecutionChannel&) = delete;
-    SharedExecutionChannel(SharedExecutionChannel&&) noexcept = default;
-    SharedExecutionChannel& operator=(SharedExecutionChannel&&) noexcept = default;
-
-    // Producer-side. Never blocks; False means the ring was full and the
-    // event was refused (bounded-backpressure contract -- see push_overwrite
-    // for the decoupled/lossy alternative). dispatch_ts_raw is stamped here
-    // via animus::read_cycle_counter() (the same RDTSC-or-monotonic-clock
-    // helper animus.hpp uses throughout) -- not a serialized/calibrated
-    // read the way harness_benchmark.cpp's own sample_clock() is, so
-    // latencies computed against a Python-side push() are directly
-    // comparable to each other but not bit-for-bit comparable to a run
-    // produced by the C++ harness.
-    bool push(uint64_t sequence, int64_t price_ticks, int64_t quantity, uint32_t instrument_id) noexcept {
-        const WireRecord rec{sequence, animus::read_cycle_counter(), price_ticks, quantity, instrument_id, 0};
-        return ring_->try_push(rec);
-    }
-
-    // Producer-side. Never blocks and never refuses: if the ring is full,
-    // reclaims the oldest unconsumed slot and increments dropped_count()
-    // instead -- see ShmRing::push_overwrite's own doc comment
-    // (include/animus/shm_ipc.hpp) for the exact concurrency contract.
-    void push_overwrite(uint64_t sequence, int64_t price_ticks, int64_t quantity, uint32_t instrument_id) noexcept {
-        const WireRecord rec{sequence, animus::read_cycle_counter(), price_ticks, quantity, instrument_id, 0};
-        ring_->push_overwrite(rec);
-    }
-
-    // Consumer-side. Pops up to min(max_count, drain_batch_capacity())
-    // events, spin-waiting (with animus::cpu_relax() between attempts, via
-    // ShmRing::pop_spin) up to max_spins times per event for the producer
-    // to catch up before giving up and returning whatever was collected so
-    // far -- possibly an empty (0, record_size)-shaped array if none
-    // arrived in time. The entire spin-wait runs with the GIL released
-    // (see file header); it is reacquired automatically before the
-    // returned ndarray is constructed.
-    //
-    // THE RETURNED VIEW ALIASES THIS OBJECT'S SCRATCH BUFFER -- valid only
-    // until the next poll() call on this same object. Same lifetime
-    // contract as animus_py.cpp's TelemetryStream.drain(); see
-    // animus/consumer.py's decode()/decode_iter()/to_numpy() for how to
-    // copy or reinterpret it before that happens.
-    nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> poll(size_t max_count, uint64_t max_spins) {
-        const size_t limit = max_count < scratch_.size() ? max_count : scratch_.size();
-        size_t n = 0;
-        {
-            nb::gil_scoped_release release; // hot spin-wait: no Python API touched in here
-            WireRecord rec;
-            while (n < limit && ring_->pop_spin(rec, max_spins)) {
-                scratch_[n++] = rec;
-            }
-        }
-        return nb::ndarray<uint8_t, nb::memview, nb::ndim<2>>(
-            reinterpret_cast<uint8_t*>(scratch_.data()),
-            {n, sizeof(WireRecord)},
-            nb::find(*this)
-        );
-    }
-
-    // Consumer-side, non-blocking: pops whatever is immediately available
-    // (no spin-wait at all), up to drain_batch_capacity(). Equivalent to
-    // poll(max_count, max_spins=1) but doesn't pay even one cpu_relax();
-    // prefer this in a Python-side loop that wants to interleave other
-    // work between polls rather than spin natively.
-    nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> drain(size_t max_count) {
-        return poll(max_count, /*max_spins=*/1);
-    }
-
-    void mark_producer_attached() noexcept { ring_->mark_producer_attached(); }
-    void mark_consumer_attached() noexcept { ring_->mark_consumer_attached(); }
-    void producer_heartbeat() noexcept { ring_->producer_heartbeat(); }
-    void consumer_heartbeat() noexcept { ring_->consumer_heartbeat(); }
-    bool is_producer_alive(uint64_t stale_after) const noexcept { return ring_->is_producer_alive(stale_after); }
-    bool is_consumer_alive(uint64_t stale_after) const noexcept { return ring_->is_consumer_alive(stale_after); }
-
-    // Destroys the underlying OS shared-memory object. Owner-only (the
-    // side that called create(), not open()) -- call only after every
-    // attached process, including this one, is done with the segment.
-    // Raises rather than silently no-op'ing if called from the non-owning
-    // side, since that call would either fail outright (POSIX) or be a
-    // confusing no-op (Windows) and either way does not mean what the
-    // caller likely intended.
+    // Destroys the underlying OS shared-memory object. Owner-only: call only
+    // after every attached process, including this one, is done with it.
+    // Raises rather than silently no-op'ing on a non-owner, since that call
+    // would fail outright (POSIX) or do nothing (Windows) and either way not
+    // mean what the caller likely intended.
     void unlink() {
         if (!is_owner_) {
             throw std::runtime_error(
                 "unlink() called on a channel opened with open(), not create() -- "
                 "only the owning (creating) side should unlink the underlying segment");
         }
-        Ring::unlink(name_.c_str());
+        Region::unlink(name_.c_str());
     }
 
-    uint64_t dropped_count() const noexcept { return ring_->dropped_count(); }
-    size_t capacity() const noexcept { return ring_->capacity(); }
-    size_t drain_batch_capacity() const noexcept { return scratch_.size(); }
+    Ring& ring() noexcept { return ring_; }
+    const Ring& ring() const noexcept { return ring_; }
     bool is_owner() const noexcept { return is_owner_; }
     const std::string& name() const noexcept { return name_; }
 
 private:
-    SharedExecutionChannel(std::unique_ptr<Ring> ring, size_t drain_batch_capacity, bool is_owner, std::string name)
-        : ring_(std::move(ring)),
-          scratch_(drain_batch_capacity == 0 ? size_t{1} : drain_batch_capacity),
-          is_owner_(is_owner),
-          name_(std::move(name)) {
-    }
+    Segment() = default;
 
-    std::unique_ptr<Ring> ring_;
-    std::vector<WireRecord> scratch_;
-    bool is_owner_;
+    Region region_;
+    Ring ring_;
     std::string name_;
+    bool is_owner_ = false;
 };
 
-// Milestone 1: schema-agnostic Python attach. Wraps
-// animus::sys::ipc::RawSchemaView (include/animus/shm_ipc.hpp) -- unlike
-// SharedExecutionChannel above, this never names a C++ record type, so it
-// can attach to a segment created for ExecutionEvent, OrderBookL2
-// (animus::schema, include/animus/schema.hpp), or any other struct a
-// client registered with ANIMUS_DEFINE_SCHEMA, purely by reading the
-// wire descriptor ShmRing<T>::create() stamped into the header. Read-only
-// by design (no push/push_overwrite): a Python consumer that also needs
-// to *produce* a custom-schema record still needs a compiled binding for
-// that concrete T (there is no way to construct an arbitrary trivially-
-// copyable C++ struct from untyped Python bytes without one), but reading
-// an existing stream and decoding it -- the actual "dynamic unpacker"
-// this milestone asks for -- needs no such binding.
+// Lossy broadcast ring. create() takes the writer role (publish()); open()
+// attaches an independent reader (poll()) whose cursor lives only in this
+// object -- two opens of the same segment, even in one process, never share
+// one. The creating handle can also poll() its own ring.
+class PyBroadcastRing {
+public:
+    static PyBroadcastRing create(const std::string& name, size_t capacity, size_t batch_capacity) {
+        return PyBroadcastRing(Segment<Broadcast>::create(name, capacity), batch_capacity);
+    }
+
+    static PyBroadcastRing open(const std::string& name, size_t batch_capacity) {
+        return PyBroadcastRing(Segment<Broadcast>::open(name), batch_capacity);
+    }
+
+    // Writer-side. Never blocks and never refuses: overwrites the oldest
+    // record once the ring is full. Exactly one writer per segment.
+    void publish(const WireRecord& record) noexcept { seg_.ring().publish(record); }
+
+    // Reader-side. Copies up to min(batch_size, batch_capacity) of the oldest
+    // unread records into this object's scratch buffer and returns a
+    // zero-copy view of them -- possibly (0, WIRE_RECORD_SIZE). Records the
+    // writer recycled before they could be read are skipped and added to
+    // dropped_count().
+    //
+    // THE RETURNED VIEW ALIASES THIS OBJECT'S SCRATCH BUFFER -- valid only
+    // until the next poll() call on this same object. Copy or reinterpret it
+    // first (see animus/consumer.py's decode()/to_numpy()).
+    RecordBatch poll(size_t batch_size) {
+        const size_t limit = batch_size < scratch_.size() ? batch_size : scratch_.size();
+        const size_t n = poll_some(scratch_.data(), limit);
+        return RecordBatch(reinterpret_cast<uint8_t*>(scratch_.data()), {n, sizeof(WireRecord)}, nb::find(*this));
+    }
+
+    // Cumulative records THIS reader missed because it fell more than
+    // capacity-1 behind the writer.
+    uint64_t dropped_count() const noexcept { return seg_.ring().dropped(); }
+
+    void unlink() { seg_.unlink(); }
+    size_t capacity() const noexcept { return seg_.ring().capacity(); }
+    size_t batch_capacity() const noexcept { return scratch_.size(); }
+    bool is_owner() const noexcept { return seg_.is_owner(); }
+    const std::string& name() const noexcept { return seg_.name(); }
+
+private:
+    PyBroadcastRing(Segment<Broadcast>&& seg, size_t batch_capacity)
+        : seg_(std::move(seg)), scratch_(batch_capacity == 0 ? size_t{1} : batch_capacity) {}
+
+    // BroadcastRing::poll() can return 0 after discarding a batch the writer
+    // lapped mid-copy, even though newer records are already readable. To
+    // keep "returned nothing" meaning "caught up", re-poll while unread
+    // records remain -- a few times at most, so a writer outrunning this
+    // reader cannot pin the caller inside this call.
+    size_t poll_some(WireRecord* out, size_t limit) noexcept {
+        constexpr int kMaxPollAttempts = 4;
+        Broadcast& ring = seg_.ring();
+        size_t got = 0;
+        for (int attempt = 0; limit != 0 && attempt < kMaxPollAttempts && got == 0; ++attempt) {
+            got = ring.poll(out, limit);
+            if (got == 0 && ring.read_cursor() >= ring.writer_cursor()) break;
+        }
+        return got;
+    }
+
+    Segment<Broadcast> seg_;
+    std::vector<WireRecord> scratch_;
+};
+
+// Lossless SPSC queue. One side creates, the other opens; either handle
+// supports try_push() and try_pop(), but each direction must be driven by one
+// thread/process only.
+class PySpscQueue {
+public:
+    static PySpscQueue create(const std::string& name, size_t capacity) {
+        return PySpscQueue(Segment<Queue>::create(name, capacity));
+    }
+
+    static PySpscQueue open(const std::string& name) {
+        return PySpscQueue(Segment<Queue>::open(name));
+    }
+
+    // Producer-side. False means the queue was full and the record was
+    // refused -- nothing is overwritten.
+    bool try_push(const WireRecord& record) noexcept { return seg_.ring().try_push(record); }
+
+    // Consumer-side. None when the queue is empty.
+    std::optional<WireRecord> try_pop() noexcept {
+        WireRecord record;
+        if (!seg_.ring().try_pop(record)) return std::nullopt;
+        return record;
+    }
+
+    void unlink() { seg_.unlink(); }
+    size_t capacity() const noexcept { return seg_.ring().capacity(); }
+    bool is_owner() const noexcept { return seg_.is_owner(); }
+    const std::string& name() const noexcept { return seg_.name(); }
+
+private:
+    explicit PySpscQueue(Segment<Queue>&& seg) : seg_(std::move(seg)) {}
+
+    Segment<Queue> seg_;
+};
+
+// Schema-agnostic Python attach. Wraps
+// animus::sys::ipc::RawSchemaView (include/animus/shm_ipc.hpp) -- this never
+// names a C++ record type, so it can attach to a legacy ShmRing<T> segment
+// created for ExecutionEvent, OrderBookL2 (animus::schema,
+// include/animus/schema.hpp), or any other struct a client registered with
+// ANIMUS_DEFINE_SCHEMA, purely by reading the wire descriptor
+// ShmRing<T>::create() stamped into the header. Read-only by design: there
+// is no way to construct an arbitrary trivially-copyable C++ struct from
+// untyped Python bytes without a compiled binding for that concrete T, but
+// reading an existing stream and decoding it needs no such binding.
 class SharedSchemaChannel {
 public:
     static SharedSchemaChannel open(const std::string& name) {
@@ -294,181 +316,78 @@ private:
     std::string name_;
 };
 
-using SpmcRing = animus::sys::ipc::SpmcRing<WireRecord>;
-
-// Milestone 2 (Single-Producer Multi-Consumer Broadcast Ring): binds
-// animus::sys::ipc::SpmcRing<ExecutionEvent> -- see this file's own header
-// comment above for the full contract. create() takes the producer role
-// (broadcast()); open() takes an independent consumer role (poll()/drain()),
-// exactly like SharedExecutionChannel's own create()-vs-open() split, just
-// over a ring with no shared tail: every SpmcConsumerChannel instance --
-// including two opened by the same Python process -- gets its own read
-// cursor, so N of them can poll concurrently with no contention between
-// them and no way for one consumer's pace to affect another's or the
-// producer's.
-class SpmcConsumerChannel {
-public:
-    static SpmcConsumerChannel create(const std::string& name, size_t capacity, size_t drain_batch_capacity) {
-        auto ring = SpmcRing::create(name.c_str(), capacity);
-        if (!ring) {
-            throw std::runtime_error(
-                "SpmcRing::create('" + name + "') failed -- a segment with this name "
-                "may already exist, or the OS refused the shared-memory allocation");
-        }
-        ring->mark_producer_attached();
-        return SpmcConsumerChannel(std::move(ring), drain_batch_capacity, /*is_owner=*/true, name);
-    }
-
-    static SpmcConsumerChannel open(const std::string& name, size_t drain_batch_capacity) {
-        auto ring = SpmcRing::open(name.c_str());
-        if (!ring) {
-            throw std::runtime_error(
-                "SpmcRing::open('" + name + "') failed -- no such segment, its header is not a "
-                "valid SpmcRing<ExecutionEvent> broadcast ring (wrong record type, an SPSC "
-                "ShmRing<T> segment instead of an SpmcRing<T> one, or a torn/foreign segment)");
-        }
-        return SpmcConsumerChannel(std::move(ring), drain_batch_capacity, /*is_owner=*/false, name);
-    }
-
-    SpmcConsumerChannel(const SpmcConsumerChannel&) = delete;
-    SpmcConsumerChannel& operator=(const SpmcConsumerChannel&) = delete;
-    SpmcConsumerChannel(SpmcConsumerChannel&&) noexcept = default;
-    SpmcConsumerChannel& operator=(SpmcConsumerChannel&&) noexcept = default;
-
-    // Producer-side. Never blocks and never refuses -- see
-    // SpmcRing<T>::broadcast's own doc comment (include/animus/shm_ipc.hpp)
-    // for the full contract. dispatch_ts_raw is stamped the same way
-    // SharedExecutionChannel::push does (animus::read_cycle_counter()).
-    void broadcast(uint64_t sequence, int64_t price_ticks, int64_t quantity, uint32_t instrument_id) noexcept {
-        const WireRecord rec{sequence, animus::read_cycle_counter(), price_ticks, quantity, instrument_id, 0};
-        ring_->broadcast(rec);
-    }
-
-    // Consumer-side. Spin-waits (GIL released) up to max_spins times for at
-    // least one record to become available on THIS channel's own cursor,
-    // then returns a zero-copy view of whatever it picked up -- possibly an
-    // empty (0, record_size)-shaped array if none arrived in time. Same
-    // buffer-lifetime contract as SharedExecutionChannel.poll(): the
-    // returned view aliases this object's scratch buffer, valid only until
-    // the next poll()/drain() call on this same object.
-    //
-    // Overrun correction (this consumer fell more than capacity() behind)
-    // happens transparently inside the underlying SpmcRing<T>::poll_spin --
-    // check last_poll_overran/overrun_count afterward to observe it.
-    nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> poll(size_t max_count, uint64_t max_spins) {
-        const size_t limit = max_count < scratch_.size() ? max_count : scratch_.size();
-        size_t n = 0;
-        {
-            nb::gil_scoped_release release; // hot spin-wait: no Python API touched in here
-            n = ring_->poll_spin(scratch_.data(), limit, max_spins);
-        }
-        return nb::ndarray<uint8_t, nb::memview, nb::ndim<2>>(
-            reinterpret_cast<uint8_t*>(scratch_.data()),
-            {n, sizeof(WireRecord)},
-            nb::find(*this)
-        );
-    }
-
-    // Consumer-side, non-blocking: pops whatever is immediately available
-    // (no spin-wait), up to drain_batch_capacity(). Equivalent to
-    // poll(max_count, max_spins=1).
-    nb::ndarray<uint8_t, nb::memview, nb::ndim<2>> drain(size_t max_count) {
-        return poll(max_count, /*max_spins=*/1);
-    }
-
-    void mark_producer_attached() noexcept { ring_->mark_producer_attached(); }
-    void producer_heartbeat() noexcept { ring_->producer_heartbeat(); }
-    bool is_producer_alive(uint64_t stale_after) const noexcept { return ring_->is_producer_alive(stale_after); }
-
-    // The "overrun detection flags" this milestone calls for: overrun_count
-    // is the cumulative number of records THIS consumer has been forced to
-    // skip because it fell more than capacity() behind head; last_poll_overran
-    // is a transient flag for whether the MOST RECENT poll()/drain() call
-    // specifically triggered that correction, for a caller that wants to
-    // react to a fresh overrun rather than only monitor the running total.
-    uint64_t overrun_count() const noexcept { return ring_->overrun_count(); }
-    bool last_poll_overran() const noexcept { return ring_->last_poll_overran(); }
-    uint64_t local_tail() const noexcept { return ring_->local_tail(); }
-
-    // Destroys the underlying OS shared-memory object. Owner-only (the
-    // side that called create(), not open()) -- same rationale as
-    // SharedExecutionChannel::unlink.
-    void unlink() {
-        if (!is_owner_) {
-            throw std::runtime_error(
-                "unlink() called on a channel opened with open(), not create() -- "
-                "only the owning (creating) side should unlink the underlying segment");
-        }
-        SpmcRing::unlink(name_.c_str());
-    }
-
-    uint64_t schema_version_hash() const noexcept { return ring_->schema_version_hash(); }
-    size_t payload_size() const noexcept { return ring_->payload_size(); }
-    size_t stride() const noexcept { return ring_->stride(); }
-    std::string wire_format() const { return std::string(ring_->wire_format()); }
-    size_t capacity() const noexcept { return ring_->capacity(); }
-    size_t drain_batch_capacity() const noexcept { return scratch_.size(); }
-    bool is_owner() const noexcept { return is_owner_; }
-    const std::string& name() const noexcept { return name_; }
-
-private:
-    SpmcConsumerChannel(std::unique_ptr<SpmcRing> ring, size_t drain_batch_capacity, bool is_owner, std::string name)
-        : ring_(std::move(ring)),
-          scratch_(drain_batch_capacity == 0 ? size_t{1} : drain_batch_capacity),
-          is_owner_(is_owner),
-          name_(std::move(name)) {
-    }
-
-    std::unique_ptr<SpmcRing> ring_;
-    std::vector<WireRecord> scratch_;
-    bool is_owner_;
-    std::string name_;
-};
-
 } // namespace
 
 NB_MODULE(_animus_shm_native, m) {
-    m.doc() = "Animus Engine -- nanobind zero-copy interop over animus::sys::ipc::ShmRing<ExecutionEvent> "
-               "(cross-process, OS shared-memory backed; see bindings/animus_shm_py.cpp)";
+    m.doc() = "Animus Engine -- nanobind zero-copy interop over named OS shared-memory rings: "
+              "BroadcastRing (lossy 1-writer -> N-reader) and SpscQueue (lossless 1 -> 1); "
+              "see bindings/animus_shm_py.cpp";
     m.attr("WIRE_FORMAT") = kWireFormat;
     m.attr("WIRE_RECORD_SIZE") = sizeof(WireRecord);
 
-    nb::class_<SharedExecutionChannel>(m, "SharedExecutionChannel")
-        .def_static("create", &SharedExecutionChannel::create,
-             "name"_a, "capacity"_a, "drain_batch_capacity"_a = 8192,
-             "Allocate a new named OS shared-memory ring and take ownership of it. "
-             "Fails (raises RuntimeError) if a segment with this name already exists.")
-        .def_static("open", &SharedExecutionChannel::open,
-             "name"_a, "drain_batch_capacity"_a = 8192,
-             "Attach to an existing named OS shared-memory ring created by another "
-             "process's create() call (C++ or Python -- same wire format either way).")
-        .def("push", &SharedExecutionChannel::push,
-             "sequence"_a, "price_ticks"_a, "quantity"_a, "instrument_id"_a,
-             "Producer-side. Never blocks; returns False if the ring is full.")
-        .def("push_overwrite", &SharedExecutionChannel::push_overwrite,
-             "sequence"_a, "price_ticks"_a, "quantity"_a, "instrument_id"_a,
-             "Producer-side, decoupled/overwrite mode: never blocks and never refuses -- "
-             "reclaims the oldest unconsumed slot on a full ring instead. See dropped_count.")
-        .def("poll", &SharedExecutionChannel::poll, "max_count"_a, "max_spins"_a = 200000,
-             "Consumer-side. Spin-waits (GIL released) up to max_spins times per event for "
-             "the producer to catch up, then returns a zero-copy view of whatever arrived -- "
-             "see the C++ docstring in bindings/animus_shm_py.cpp for the buffer-lifetime contract.")
-        .def("drain", &SharedExecutionChannel::drain, "max_count"_a,
-             "Consumer-side, non-blocking: pop() only what's immediately available.")
-        .def("mark_producer_attached", &SharedExecutionChannel::mark_producer_attached)
-        .def("mark_consumer_attached", &SharedExecutionChannel::mark_consumer_attached)
-        .def("producer_heartbeat", &SharedExecutionChannel::producer_heartbeat)
-        .def("consumer_heartbeat", &SharedExecutionChannel::consumer_heartbeat)
-        .def("is_producer_alive", &SharedExecutionChannel::is_producer_alive, "stale_after"_a = 0)
-        .def("is_consumer_alive", &SharedExecutionChannel::is_consumer_alive, "stale_after"_a = 0)
-        .def("unlink", &SharedExecutionChannel::unlink,
-             "Destroy the underlying OS shared-memory object. Owner-only -- call after "
-             "every attached process, including this one, is done with the segment.")
-        .def_prop_ro("dropped_count", &SharedExecutionChannel::dropped_count)
-        .def_prop_ro("capacity", &SharedExecutionChannel::capacity)
-        .def_prop_ro("drain_batch_capacity", &SharedExecutionChannel::drain_batch_capacity)
-        .def_prop_ro("is_owner", &SharedExecutionChannel::is_owner)
-        .def_prop_ro("name", &SharedExecutionChannel::name);
+    nb::class_<WireRecord>(m, "ExecutionEvent",
+             "One 40-byte wire record (struct format WIRE_FORMAT). Fields are plain read/write "
+             "attributes; dispatch_ts_raw is whatever the caller sets -- nothing stamps it.")
+        .def("__init__",
+             [](WireRecord* self, uint64_t sequence, int64_t price_ticks, int64_t quantity,
+                uint32_t instrument_id, uint64_t dispatch_ts_raw, uint32_t flags) {
+                 new (self) WireRecord{sequence, dispatch_ts_raw, price_ticks, quantity, instrument_id, flags};
+             },
+             "sequence"_a = 0, "price_ticks"_a = 0, "quantity"_a = 0, "instrument_id"_a = 0,
+             "dispatch_ts_raw"_a = 0, "flags"_a = 0)
+        .def_rw("sequence", &WireRecord::sequence)
+        .def_rw("dispatch_ts_raw", &WireRecord::dispatch_ts_raw)
+        .def_rw("price_ticks", &WireRecord::price_ticks)
+        .def_rw("quantity", &WireRecord::quantity)
+        .def_rw("instrument_id", &WireRecord::instrument_id)
+        .def_rw("flags", &WireRecord::flags);
+
+    nb::class_<PyBroadcastRing>(m, "BroadcastRing",
+             "Lossy 1-writer -> N-reader broadcast ring in a named OS shared-memory segment. "
+             "The writer never waits; a reader that falls behind skips ahead and counts the loss.")
+        .def_static("create", &PyBroadcastRing::create,
+             "name"_a, "capacity"_a, "batch_capacity"_a = 8192,
+             "Allocate a new named segment (capacity rounded up to a power of two) and take the "
+             "writer role and ownership. Raises RuntimeError if the name already exists. Only "
+             "capacity - 1 records are ever readable.")
+        .def_static("open", &PyBroadcastRing::open,
+             "name"_a, "batch_capacity"_a = 8192,
+             "Attach an independent reader to an existing segment. Each open() gets its own "
+             "cursor, starting at the oldest still-readable record.")
+        .def("publish", &PyBroadcastRing::publish, "record"_a,
+             "Writer-side. Never blocks and never refuses; overwrites the oldest record when full.")
+        .def("poll", &PyBroadcastRing::poll, "batch_size"_a,
+             "Reader-side, non-blocking. Returns a zero-copy (n, WIRE_RECORD_SIZE) uint8 view of up "
+             "to batch_size of the oldest unread records; n == 0 means caught up. The view aliases "
+             "this object's scratch buffer and is valid only until the next poll().")
+        .def("unlink", &PyBroadcastRing::unlink,
+             "Destroy the underlying OS shared-memory object. Owner-only -- call after every "
+             "attached process, including this one, is done with the segment.")
+        .def_prop_ro("dropped_count", &PyBroadcastRing::dropped_count,
+             "Cumulative records this reader missed because it fell too far behind the writer.")
+        .def_prop_ro("capacity", &PyBroadcastRing::capacity)
+        .def_prop_ro("batch_capacity", &PyBroadcastRing::batch_capacity)
+        .def_prop_ro("is_owner", &PyBroadcastRing::is_owner)
+        .def_prop_ro("name", &PyBroadcastRing::name);
+
+    nb::class_<PySpscQueue>(m, "SpscQueue",
+             "Lossless 1-producer -> 1-consumer queue in a named OS shared-memory segment. "
+             "A full queue refuses the push; nothing is ever overwritten.")
+        .def_static("create", &PySpscQueue::create, "name"_a, "capacity"_a,
+             "Allocate a new named segment (capacity rounded up to a power of two) and take "
+             "ownership. Raises RuntimeError if the name already exists.")
+        .def_static("open", &PySpscQueue::open, "name"_a,
+             "Attach to an existing segment created by another process's (or this one's) create().")
+        .def("try_push", &PySpscQueue::try_push, "record"_a,
+             "Producer-side. Returns False if the queue is full (strict backpressure).")
+        .def("try_pop", &PySpscQueue::try_pop,
+             "Consumer-side. Returns the oldest record, or None if the queue is empty.")
+        .def("unlink", &PySpscQueue::unlink,
+             "Destroy the underlying OS shared-memory object. Owner-only -- call after every "
+             "attached process, including this one, is done with the segment.")
+        .def_prop_ro("capacity", &PySpscQueue::capacity)
+        .def_prop_ro("is_owner", &PySpscQueue::is_owner)
+        .def_prop_ro("name", &PySpscQueue::name);
 
     nb::class_<SharedSchemaChannel>(m, "SharedSchemaChannel")
         .def_static("open", &SharedSchemaChannel::open, "name"_a,
@@ -476,7 +395,8 @@ NB_MODULE(_animus_shm_native, m) {
              "its record type at compile time -- reads whatever schema descriptor "
              "ShmRing<T>::create() stamped into the header (payload_size, stride, "
              "schema_version_hash, wire_format). Works for ExecutionEvent, OrderBookL2, or "
-             "any other schema registered via ANIMUS_DEFINE_SCHEMA (include/animus/schema.hpp).")
+             "any other schema registered via ANIMUS_DEFINE_SCHEMA (include/animus/schema.hpp). "
+             "Legacy ShmRing<T> segments only -- BroadcastRing/SpscQueue segments carry no descriptor.")
         .def("raw_view", &SharedSchemaChannel::raw_view,
              "Zero-copy (capacity, stride) uint8 view of the entire slot array, matching the "
              "C++ memory layout byte-for-byte. Combine with wire_format to decode as a "
@@ -490,51 +410,4 @@ NB_MODULE(_animus_shm_native, m) {
         .def_prop_ro("tail", &SharedSchemaChannel::tail)
         .def_prop_ro("dropped_count", &SharedSchemaChannel::dropped_count)
         .def_prop_ro("name", &SharedSchemaChannel::name);
-
-    nb::class_<SpmcConsumerChannel>(m, "SpmcConsumerChannel")
-        .def_static("create", &SpmcConsumerChannel::create,
-             "name"_a, "capacity"_a, "drain_batch_capacity"_a = 8192,
-             "Allocate a new named OS shared-memory broadcast ring and take ownership of it "
-             "(the producer role). Fails (raises RuntimeError) if a segment with this name "
-             "already exists.")
-        .def_static("open", &SpmcConsumerChannel::open,
-             "name"_a, "drain_batch_capacity"_a = 8192,
-             "Attach an independent consumer to an existing named broadcast ring created by "
-             "another process's create() call (C++ or Python). Each open() call -- including "
-             "two from the same process -- gets its own read cursor, never shared with any "
-             "other consumer or the producer.")
-        .def("broadcast", &SpmcConsumerChannel::broadcast,
-             "sequence"_a, "price_ticks"_a, "quantity"_a, "instrument_id"_a,
-             "Producer-side. Never blocks and never refuses -- unconditionally publishes to "
-             "every attached consumer, overwriting the oldest still-unread slot if the ring "
-             "is full. There is no per-consumer backpressure; see SpmcRing<T>::broadcast's "
-             "own doc comment (include/animus/shm_ipc.hpp) for the full contract.")
-        .def("poll", &SpmcConsumerChannel::poll, "max_count"_a, "max_spins"_a = 200000,
-             "Consumer-side. Spin-waits (GIL released) up to max_spins times for at least one "
-             "record to arrive on this channel's own cursor, then returns a zero-copy view of "
-             "whatever it picked up -- see the C++ docstring in bindings/animus_shm_py.cpp for "
-             "the buffer-lifetime contract. Check last_poll_overran/overrun_count afterward.")
-        .def("drain", &SpmcConsumerChannel::drain, "max_count"_a,
-             "Consumer-side, non-blocking: pop() only what's immediately available.")
-        .def("mark_producer_attached", &SpmcConsumerChannel::mark_producer_attached)
-        .def("producer_heartbeat", &SpmcConsumerChannel::producer_heartbeat)
-        .def("is_producer_alive", &SpmcConsumerChannel::is_producer_alive, "stale_after"_a = 0)
-        .def("unlink", &SpmcConsumerChannel::unlink,
-             "Destroy the underlying OS shared-memory object. Owner-only -- call after every "
-             "attached process, including this one, is done with the segment.")
-        .def_prop_ro("overrun_count", &SpmcConsumerChannel::overrun_count,
-             "Cumulative records this consumer has been forced to skip because it fell more "
-             "than capacity behind the producer -- the broadcast lossy-mode dropped-tick count.")
-        .def_prop_ro("last_poll_overran", &SpmcConsumerChannel::last_poll_overran,
-             "Whether the MOST RECENT poll()/drain() call specifically detected and corrected "
-             "an overrun, for reacting to a fresh one rather than only the running total.")
-        .def_prop_ro("local_tail", &SpmcConsumerChannel::local_tail)
-        .def_prop_ro("schema_version_hash", &SpmcConsumerChannel::schema_version_hash)
-        .def_prop_ro("payload_size", &SpmcConsumerChannel::payload_size)
-        .def_prop_ro("stride", &SpmcConsumerChannel::stride)
-        .def_prop_ro("wire_format", &SpmcConsumerChannel::wire_format)
-        .def_prop_ro("capacity", &SpmcConsumerChannel::capacity)
-        .def_prop_ro("drain_batch_capacity", &SpmcConsumerChannel::drain_batch_capacity)
-        .def_prop_ro("is_owner", &SpmcConsumerChannel::is_owner)
-        .def_prop_ro("name", &SpmcConsumerChannel::name);
 }
