@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
 """Animus Evaluation Kit -- live stream verification (nanobind, zero-copy).
 
-Attaches to the shared-memory ring a running `bin/harness_benchmark`
-producer created, drains it through the compiled `_animus_shm_native`
-extension (bindings/animus_shm_py.cpp -- animus::sys::ipc::ShmRing<
+Attaches to the shared-memory broadcast ring a running producer created,
+drains it through the compiled `_animus_shm_native` extension
+(bindings/animus_shm_py.cpp -- animus::sys::ipc::BroadcastRing<
 ExecutionEvent>, the same struct the C++ producer writes; see
 include/animus/execution_event.hpp for the single shared wire-format
 definition both sides build against), and reports throughput, latency
 percentiles, and data-integrity validation.
 
+The ring is lossy by design: the producer never waits for this reader, and
+a reader that falls more than capacity - 1 records behind is snapped forward
+with the skipped records counted in `ring.dropped_count`. That count is
+reader-side (records THIS attach missed, including any published before it
+attached), which is what the "Gaps == dropped_count?" cross-check below
+compares the observed sequence gaps against.
+
 This is the client-facing, nanobind-accelerated counterpart to this
 project's benchmarks/consumer.py, which takes a pure-stdlib
 (multiprocessing.shared_memory + struct) path with no compiled extension
-required -- useful in CI, but it never releases the GIL during its
-poll loop and decodes one record at a time in Python. This script's
-poll() call runs its entire spin-wait for new records with the GIL
-released (see animus_shm_py.cpp's file header for the exact discipline),
-so this Python process's other threads are never blocked waiting on a
-producer in a different OS process, and a batch of records is handed
-back as one zero-copy buffer-protocol view rather than N individual
-Python objects.
+required -- useful in CI, but it decodes one record at a time in Python.
+This script's poll() hands a batch of records back as one zero-copy
+buffer-protocol view rather than N individual Python objects.
 
 Latency methodology, stated precisely rather than left implicit: this
 script measures *consumer-side inter-arrival latency* -- the wall-clock
@@ -77,15 +79,13 @@ def _print_table(rows: "list[tuple[str, str]]", title: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", default="animus_harness_shm",
-                         help="shared-memory segment name harness_benchmark created (default: animus_harness_shm)")
+                         help="shared-memory segment name the producer created (default: animus_harness_shm)")
     parser.add_argument("--events", type=int, default=10_000_000,
                          help="target event count to consume before stopping (default: 10000000)")
     parser.add_argument("--drain-batch", type=int, default=8192,
                          help="max records fetched per poll() call (default: 8192)")
-    parser.add_argument("--max-spins", type=int, default=200_000,
-                         help="spin-wait attempts per poll() before returning whatever arrived (default: 200000)")
     parser.add_argument("--idle-timeout-s", type=float, default=3.0,
-                         help="stop early if the ring stays empty this long AND the producer has exited (default: 3.0)")
+                         help="stop early if the ring stays empty this long (default: 3.0)")
     parser.add_argument("--progress-interval-s", type=float, default=1.0,
                          help="seconds between live throughput updates (default: 1.0)")
     args = parser.parse_args()
@@ -104,21 +104,21 @@ def main() -> int:
         return 1
 
     try:
-        channel = native.SharedExecutionChannel.open(args.name, drain_batch_capacity=args.drain_batch)
+        ring = native.BroadcastRing.open(args.name, batch_capacity=args.drain_batch)
     except RuntimeError as exc:
         print(f"error: {exc}\n"
-              f"Is harness_benchmark running with --name {args.name}? "
-              f"(./bin/harness_benchmark --name {args.name} --events {args.events} --mode overwrite)",
+              f"Is a producer running with --name {args.name}, and does it publish into a "
+              f"BroadcastRing<ExecutionEvent>? (A segment left by an older harness_benchmark "
+              f"build uses the legacy ShmRing layout, which this script cannot attach to.)",
               file=sys.stderr)
         return 1
 
     print("Animus Evaluation Kit -- Live Stream Verification")
     print("===================================================")
     print(f"Segment name:     {args.name}")
-    print(f"Ring capacity:    {channel.capacity} slots")
+    print(f"Ring capacity:    {ring.capacity} slots ({ring.capacity - 1} readable)")
     print(f"Target events:    {args.events}")
-    print(f"Wire format:      {native.WIRE_FORMAT} ({native.WIRE_RECORD_SIZE} bytes/record)")
-    print(f"Producer pid:     {'(not yet attached)' if not channel.is_producer_alive(0) else 'attached and alive'}\n")
+    print(f"Wire format:      {native.WIRE_FORMAT} ({native.WIRE_RECORD_SIZE} bytes/record)\n")
 
     consumed = 0
     gaps = 0
@@ -150,23 +150,21 @@ def main() -> int:
 
     try:
         while consumed < args.events:
-            view = channel.poll(args.drain_batch, args.max_spins)
+            view = ring.poll(args.drain_batch)  # non-blocking; an empty view means caught up
             n = view.shape[0]
 
             if n == 0:
-                if not channel.is_producer_alive(0):
-                    if idle_since is None:
-                        idle_since = time.perf_counter()
-                    elif time.perf_counter() - idle_since > args.idle_timeout_s:
-                        print(f"\nProducer has exited and the ring has been empty for "
-                              f"{args.idle_timeout_s:.1f}s -- stopping at {consumed}/{args.events} "
-                              f"(the remainder were lost to overwrite, if the producer ran in that mode).")
-                        break
+                if idle_since is None:
+                    idle_since = time.perf_counter()
+                elif time.perf_counter() - idle_since > args.idle_timeout_s:
+                    print(f"\nThe ring has been empty for {args.idle_timeout_s:.1f}s -- stopping at "
+                          f"{consumed}/{args.events} (the producer has finished, or the remainder "
+                          f"were overwritten before this reader could take them).")
+                    break
                 continue
             idle_since = None
 
             raw = bytes(view)  # one copy out of the zero-copy scratch view before the next poll() overwrites it
-            channel.consumer_heartbeat()  # once per batch is ample liveness resolution -- no need to pay the FFI call per record
             for sequence, _dispatch_ts_raw, _price_ticks, _quantity, _instrument_id, _flags in unpack(raw):
                 now_ns = monotonic_ns()
                 if last_record_time_ns is not None:
@@ -216,8 +214,8 @@ def main() -> int:
         ("Throughput", f"{throughput:,.0f} ticks/sec ({throughput / 1_000_000:.3f} M/sec)"),
         ("Wall time", f"{wall_seconds:.3f} s"),
         ("Sequence gaps seen", f"{gaps:,}"),
-        ("Producer dropped_count", f"{channel.dropped_count:,}"),
-        ("Gaps == dropped_count?", "yes" if gaps == channel.dropped_count else "NO -- investigate"),
+        ("Dropped records (reader)", f"{ring.dropped_count:,}"),
+        ("Gaps == dropped_count?", "yes" if gaps == ring.dropped_count else "NO -- investigate"),
         ("Data integrity", "OK" if integrity_ok else "FAILED -- see stderr above"),
         ("Run status", "interrupted (Ctrl+C)" if interrupted else "completed"),
     ]
