@@ -3,21 +3,30 @@
 // Producer half of the Milestone 4 evaluation harness. Unlike
 // telemetry_benchmark.cpp (an in-process, single-binary proof point over
 // animus::SpscRingBuffer), this binary is one of *two independent OS
-// processes*: it creates a named animus::sys::ipc::ShmRing<ExecutionEvent>
-// (include/animus/shm_ipc.hpp -- Windows: CreateFileMapping; POSIX:
-// shm_open/mmap under /dev/shm) and injects synthetic execution events into
-// it, hardware-timestamping each one. consumer.py (this same directory) is
-// the other half: it attaches to the identical segment from a separate
-// Python process and drains it, with no serialization step and no IPC
-// mechanism between the two beyond the shared pages themselves.
+// processes*: it creates a named shared-memory ring (Windows:
+// CreateFileMapping; POSIX: shm_open/mmap under /dev/shm) and injects
+// synthetic execution events into it, hardware-timestamping each one. A
+// consumer attaches to the identical segment from a separate Python process
+// and drains it, with no serialization step and no IPC mechanism between
+// the two beyond the shared pages themselves.
 //
-// Default mode is decoupled/overwrite (ShmRing::push_overwrite): the
-// producer never waits on the consumer, so this binary is fully
-// self-contained and meaningful to run with no consumer attached at all --
-// dropped_count() at the end reports exactly how many of the 10,000,000
-// events were never seen by any consumer. Pass --backpressure to switch to
-// bounded-retry push_spin() instead, for measuring true end-to-end
-// throughput with consumer.py running concurrently and nothing lost.
+// Default mode is decoupled/overwrite, on animus::sys::ipc::BroadcastRing<
+// ExecutionEvent> (include/animus/broadcast_ring.hpp): publish() never waits
+// on any reader, so this binary is fully self-contained and meaningful to run
+// with no consumer attached at all. Readers (eval_kit/scripts/verify_stream.py,
+// bindings/animus_shm_py.cpp's BroadcastRing) keep their own cursors and count
+// their own drops; the writer cannot know what any reader missed, so the
+// "dropped" figure reported here is the writer-side bound -- how many of the
+// events are no longer readable once the run ends (everything beyond the
+// newest capacity - 1).
+//
+// --backpressure switches to the legacy animus::sys::ipc::ShmRing<
+// ExecutionEvent> (include/animus/shm_ipc.hpp) and its bounded-retry
+// push_spin(), for measuring true end-to-end throughput with consumer.py
+// running concurrently and nothing lost. A broadcast ring has no
+// backpressure by design, so that mode cannot move to it; consumer.py and the
+// CI zero-loss check read the legacy segment layout, and stay on it until they
+// are migrated to the lossless SpscQueue (include/animus/spsc_queue.hpp).
 //
 // Timestamping follows telemetry_benchmark.cpp's own methodology: a
 // serialized RDTSC read (x86, calibrated against std::chrono::steady_clock
@@ -29,6 +38,7 @@
 // overwrite mode. Both are real, reportable numbers, not a benchmark
 // artifact to explain away.
 
+#include "animus/broadcast_ring.hpp"
 #include "animus/shm_ipc.hpp"
 #include "animus/shm_lifecycle.hpp"
 #include "animus/execution_event.hpp"
@@ -41,6 +51,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -76,7 +87,29 @@ using animus::ExecutionEvent;
 using animus::kExecutionEventWireFormat;
 constexpr const char* kWireFormat = kExecutionEventWireFormat;
 
-using Ring = animus::sys::ipc::ShmRing<ExecutionEvent>;
+using Broadcast = animus::sys::ipc::BroadcastRing<ExecutionEvent>; // overwrite mode
+using LegacyRing = animus::sys::ipc::ShmRing<ExecutionEvent>;      // backpressure mode only
+using Region = animus::sys::ipc::SharedMemoryRegion;
+
+// Allocates the named segment for at least `requested_capacity` slots
+// (rounded up to a power of two, minimum 2, as ShmRing::create did) and
+// initialises the writer's view of it. False on a name collision, an OS
+// failure, or a capacity whose byte size would overflow size_t.
+bool create_broadcast(const char* name, size_t requested_capacity, Region& region, Broadcast& writer) {
+    const size_t max_capacity = (SIZE_MAX - Broadcast::required_bytes(0)) / sizeof(ExecutionEvent);
+    size_t capacity = 2;
+    while (capacity < requested_capacity) {
+        if (capacity > max_capacity / 2) return false;
+        capacity <<= 1;
+    }
+    if (!Region::create(name, Broadcast::required_bytes(capacity), region)) return false;
+    if (!Broadcast::init(region.data(), region.size(), capacity, writer)) {
+        region.close();
+        Region::unlink(name); // don't leave a half-built segment behind
+        return false;
+    }
+    return true;
+}
 
 #if ANIMUS_ARCH_X86
 inline uint64_t sample_clock() noexcept {
@@ -185,11 +218,12 @@ Options parse_args(int argc, char** argv) {
                 "usage: harness_benchmark [--name NAME] [--events N] [--capacity SLOTS]\n"
                 "                          [--core CPU] [--mode overwrite|backpressure] [--unlink-when-done]\n"
                 "                          [--json PATH]\n"
-                "  --name             shared-memory segment name consumer.py must match (default: animus_harness_shm)\n"
+                "  --name             shared-memory segment name the consumer must match (default: animus_harness_shm)\n"
                 "  --events           synthetic events to inject (default: 10000000)\n"
                 "  --capacity         ring capacity in slots, rounded up to a power of two (default: 1048576)\n"
-                "  --mode             'overwrite' (default, decoupled/lossy, self-contained) or\n"
-                "                     'backpressure' (bounded-retry push_spin(), needs a live consumer)\n"
+                "  --mode             'overwrite' (default): lossy BroadcastRing, self-contained, read it with\n"
+                "                     eval_kit/scripts/verify_stream.py; or 'backpressure': legacy ShmRing with\n"
+                "                     bounded-retry push_spin(), needs a live benchmarks/consumer.py\n"
                 "  --backpressure     shorthand for --mode backpressure\n"
                 "  --unlink-when-done destroy the segment after the run (default: leave it for consumer.py)\n");
             std::exit(0);
@@ -214,7 +248,8 @@ int main(int argc, char** argv) {
     std::printf("Segment name:      %s\n", opt.name.c_str());
     std::printf("Events:            %llu\n", static_cast<unsigned long long>(opt.event_count));
     std::printf("Ring capacity:     %zu slots (%zu bytes/slot)\n", opt.ring_capacity, sizeof(ExecutionEvent));
-    std::printf("Mode:              %s\n", opt.backpressure ? "backpressure (push_spin)" : "decoupled overwrite (push_overwrite)");
+    std::printf("Mode:              %s\n", opt.backpressure ? "backpressure (legacy ShmRing, push_spin)"
+                                                           : "decoupled overwrite (BroadcastRing, publish)");
     std::printf("Clock source:      %s\n", clock_source_name());
     if (opt.producer_core >= 0) {
         animus::sys::pin_current_thread_to_core(static_cast<size_t>(opt.producer_core));
@@ -222,19 +257,27 @@ int main(int argc, char** argv) {
     }
     std::printf("\n");
 
-    auto ring = Ring::create(opt.name.c_str(), opt.ring_capacity);
-    if (!ring) {
+    // Exactly one of these is live: `legacy` in backpressure mode, otherwise
+    // `region` (owns the mapping) + `broadcast` (the writer's view over it).
+    std::unique_ptr<LegacyRing> legacy;
+    Region region;
+    Broadcast broadcast;
+    const bool created = opt.backpressure
+        ? static_cast<bool>(legacy = LegacyRing::create(opt.name.c_str(), opt.ring_capacity))
+        : create_broadcast(opt.name.c_str(), opt.ring_capacity, region, broadcast);
+    if (!created) {
         std::fprintf(stderr,
-            "error: ShmRing::create('%s') failed -- a segment with this name may already "
+            "error: creating the '%s' segment failed -- a segment with this name may already "
             "exist (clean it up, or pass a different --name) or the OS refused the "
             "shared-memory allocation.\n", opt.name.c_str());
         return 1;
     }
-    ring->mark_producer_attached();
+    if (legacy) legacy->mark_producer_attached();
+    const size_t ring_capacity = legacy ? legacy->capacity() : broadcast.capacity();
 
     // Milestone 2: install signal handling before the hot loop so Ctrl+C
     // (SIGINT) or a supervisor's SIGTERM detaches this process's view
-    // cleanly (breaks the loop below, unmaps via ring.reset()) rather than
+    // cleanly (breaks the loop below, unmaps via legacy.reset()/region.close()) rather than
     // being caught mid-push by the default handler and killing the process
     // with the segment's producer_pid still pointing at a corpse. Note
     // this process's own destructor path does NOT unlink by default (see
@@ -249,7 +292,7 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> latency_samples_raw;
     latency_samples_raw.reserve(static_cast<size_t>(opt.event_count));
 
-    uint64_t dropped_before = ring->dropped_count();
+    const uint64_t dropped_before = legacy ? legacy->dropped_count() : 0;
     uint64_t pushed = 0;
     const auto wall_start = steady_clock::now();
 
@@ -261,24 +304,29 @@ int main(int argc, char** argv) {
         }
         const ExecutionEvent ev = make_synthetic_event(i);
         const uint64_t t0 = sample_clock();
-        if (opt.backpressure) {
+        if (legacy) {
             // Bounded retry, not an unbounded blocking wait -- see
             // ShmRing::push_spin's own doc comment (shm_ipc.hpp). A
             // consumer that has died is detectable via
-            // ring->is_producer_alive()/is_consumer_alive() rather than
+            // legacy->is_producer_alive()/is_consumer_alive() rather than
             // this call hanging forever.
-            ring->push_spin(ev);
+            legacy->push_spin(ev);
         } else {
-            ring->push_overwrite(ev);
+            broadcast.publish(ev);
         }
         const uint64_t t1 = sample_clock();
         latency_samples_raw.push_back(t1 - t0);
         ++pushed;
-        ring->producer_heartbeat();
+        if (legacy) legacy->producer_heartbeat();
     }
 
     const auto wall_end = steady_clock::now();
-    const uint64_t dropped = ring->dropped_count() - dropped_before;
+    // Legacy ring: the writer itself counts every overwrite. Broadcast ring:
+    // readers own their drop counts, so report the writer-side bound instead --
+    // everything beyond the newest capacity - 1 records is no longer readable.
+    const uint64_t readable = ring_capacity - 1;
+    const uint64_t dropped = legacy ? legacy->dropped_count() - dropped_before
+                                    : (pushed > readable ? pushed - readable : 0);
 
     const PercentileReportNs report = summarize_ns(latency_samples_raw, units_per_ns);
     const double wall_seconds = duration<double>(wall_end - wall_start).count();
@@ -293,7 +341,9 @@ int main(int argc, char** argv) {
     std::printf("  max    %12.1f ns\n", report.max);
     std::printf("\nThroughput:        %.3f M events/sec (%llu events, %.3f s wall)\n",
                 events_per_sec / 1'000'000.0, static_cast<unsigned long long>(pushed), wall_seconds);
-    std::printf("Dropped (overwritten before consumption): %llu / %llu (%.4f%%)\n",
+    std::printf("%s: %llu / %llu (%.4f%%)\n",
+                legacy ? "Dropped (overwritten before consumption)"
+                       : "Overwritten (no longer readable; each reader counts its own drops)",
                 static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(pushed),
                 pushed ? 100.0 * static_cast<double>(dropped) / static_cast<double>(pushed) : 0.0);
 
@@ -303,10 +353,11 @@ int main(int argc, char** argv) {
                  << "  \"benchmark\": \"animus_shm_harness_producer\",\n"
                  << "  \"segment_name\": \"" << opt.name << "\",\n"
                  << "  \"mode\": \"" << (opt.backpressure ? "backpressure" : "overwrite") << "\",\n"
+                 << "  \"ring_type\": \"" << (legacy ? "ShmRing" : "BroadcastRing") << "\",\n"
                  << "  \"events_requested\": " << opt.event_count << ",\n"
                  << "  \"events_pushed\": " << pushed << ",\n"
                  << "  \"events_dropped\": " << dropped << ",\n"
-                 << "  \"ring_capacity_slots\": " << ring->capacity() << ",\n"
+                 << "  \"ring_capacity_slots\": " << ring_capacity << ",\n"
                  << "  \"record_size_bytes\": " << sizeof(ExecutionEvent) << ",\n"
                  << "  \"wire_format\": \"" << kWireFormat << "\",\n"
                  << "  \"clock_source\": \"" << clock_source_name() << "\",\n"
@@ -328,13 +379,17 @@ int main(int argc, char** argv) {
     }
 
     if (opt.unlink_when_done) {
-        ring.reset(); // detach this process's own view first
-        Ring::unlink(opt.name.c_str());
+        legacy.reset(); // detach this process's own view first
+        region.close();
+        Region::unlink(opt.name.c_str());
         std::printf("Segment '%s' unlinked.\n", opt.name.c_str());
     } else {
-        std::printf("Segment '%s' left intact for consumer.py -- run:\n"
-                    "  python consumer.py --name %s --events %llu\n",
-                    opt.name.c_str(), opt.name.c_str(), static_cast<unsigned long long>(pushed));
+        std::printf("Segment '%s' left intact for %s -- run:\n"
+                    "  python %s --name %s --events %llu\n",
+                    opt.name.c_str(),
+                    legacy ? "consumer.py" : "verify_stream.py",
+                    legacy ? "consumer.py" : "scripts/verify_stream.py",
+                    opt.name.c_str(), static_cast<unsigned long long>(pushed));
     }
     return 0;
 }
