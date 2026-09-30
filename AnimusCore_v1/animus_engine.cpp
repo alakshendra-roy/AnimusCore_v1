@@ -47,6 +47,8 @@
 // animus_set_thread_high_priority below are just the license-gated C-ABI
 // shim around it.
 #include "../include/animus/thread_affinity.hpp"
+#include "../include/animus/broadcast_ring.hpp"
+#include "../include/animus/spsc_queue.hpp"
 #include "../include/animus/shm_ipc.hpp"
 #include "animus_security.hpp"
 
@@ -60,6 +62,8 @@
 #include <cstring>
 #include <exception>
 #include <fstream>
+#include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -324,6 +328,81 @@ namespace {
         } catch (...) {
             set_last_error("unknown non-standard exception");
         }
+    }
+
+} // namespace
+
+namespace {
+
+    // One C-ABI ring handle: the named OS mapping plus the lock-free view over
+    // it. BroadcastRing/SpscQueue operate on caller-supplied memory and make
+    // no OS calls, so this shim owns the mapping (same create/open/unlink
+    // semantics ShmRing<T> had) and the view lives exactly as long as it.
+    // Members destruct in reverse order: the view goes first, then the unmap.
+    template <typename Ring>
+    struct ShmRingHandle {
+        animus::sys::ipc::SharedMemoryRegion region;
+        Ring ring;
+    };
+
+    using RawEventHandle = ShmRingHandle<animus::sys::ipc::BroadcastRing<animus::RawEvent>>;
+    using OrderQueueHandle = ShmRingHandle<animus::sys::ipc::SpscQueue<animus::OrderRequest>>;
+
+    // Allocates a new named segment for at least `requested_capacity` slots
+    // (rounded up to a power of two, minimum 2, as ShmRing<T>::create did) and
+    // initialises the ring in it. Returns nullptr on a name collision, an OS
+    // failure, or a capacity whose byte size would overflow size_t.
+    template <typename Handle, typename T>
+    void* shm_ring_create(const char* name, size_t requested_capacity) {
+        using Ring = decltype(Handle::ring);
+        if (!name) return nullptr;
+
+        const size_t max_capacity = (std::numeric_limits<size_t>::max() - Ring::required_bytes(0)) / sizeof(T);
+        size_t capacity = 2;
+        while (capacity < requested_capacity) {
+            if (capacity > max_capacity / 2) return nullptr;
+            capacity <<= 1;
+        }
+
+        auto handle = std::make_unique<Handle>();
+        if (!animus::sys::ipc::SharedMemoryRegion::create(name, Ring::required_bytes(capacity), handle->region)) {
+            return nullptr;
+        }
+        if (!Ring::init(handle->region.data(), handle->region.size(), capacity, handle->ring)) {
+            animus::sys::ipc::SharedMemoryRegion::unlink(name); // don't leave a half-built segment behind
+            return nullptr;
+        }
+        return handle.release();
+    }
+
+    // Maps an existing segment and validates its header. Returns nullptr if
+    // it doesn't exist or isn't a ring of this kind and record type.
+    template <typename Handle>
+    void* shm_ring_open(const char* name) {
+        using Ring = decltype(Handle::ring);
+        if (!name) return nullptr;
+
+        auto handle = std::make_unique<Handle>();
+        if (!animus::sys::ipc::SharedMemoryRegion::open(name, handle->region)) return nullptr;
+        if (!Ring::attach(handle->region.data(), handle->region.size(), handle->ring)) return nullptr;
+        return handle.release();
+    }
+
+    // BroadcastRing::poll() can return 0 after discarding a batch the writer
+    // lapped mid-copy, even though newer records are already readable. To keep
+    // "returned nothing" meaning "caught up", re-poll while unread records
+    // remain -- a few times at most, so a writer outrunning this reader can't
+    // pin the caller inside the C-ABI call.
+    template <typename Ring, typename T>
+    size_t broadcast_poll(Ring& ring, T* out, size_t max_count) noexcept {
+        constexpr int kMaxPollAttempts = 4;
+        if (max_count == 0) return 0;
+        size_t got = 0;
+        for (int attempt = 0; attempt < kMaxPollAttempts && got == 0; ++attempt) {
+            got = ring.poll(out, max_count);
+            if (got == 0 && ring.read_cursor() >= ring.writer_cursor()) break;
+        }
+        return got;
     }
 
 } // namespace
@@ -617,133 +696,130 @@ extern "C" {
         });
     }
 
+    // animus_shm_ring_* -- market-data path. Lossy 1-writer -> N-reader
+    // broadcast (BroadcastRing<RawEvent>): try_push always succeeds and may
+    // overwrite the oldest unread record; a reader that falls behind snaps
+    // forward instead of back-pressuring the writer. The same handle works
+    // for both roles: the creating side publishes, any attached side polls.
     ANIMUS_API void* animus_shm_ring_create(const char* name, size_t requested_capacity) {
         return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
-            if (!name) return nullptr;
-            return animus::sys::ipc::ShmRing<animus::RawEvent>::create(name, requested_capacity).release();
+            return shm_ring_create<RawEventHandle, animus::RawEvent>(name, requested_capacity);
         });
     }
 
     ANIMUS_API void* animus_shm_ring_open(const char* name) {
         return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
-            if (!name) return nullptr;
-            return animus::sys::ipc::ShmRing<animus::RawEvent>::open(name).release();
+            return shm_ring_open<RawEventHandle>(name);
         });
     }
 
     ANIMUS_API void animus_shm_ring_close(void* ring) {
         abi_guard_void([&]() {
-            delete static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
+            delete static_cast<RawEventHandle*>(ring);
         });
     }
 
     ANIMUS_API bool animus_shm_ring_unlink(const char* name) {
         return abi_guard(false, [&]() {
             if (!name) return false;
-            return animus::sys::ipc::ShmRing<animus::RawEvent>::unlink(name);
+            return animus::sys::ipc::SharedMemoryRegion::unlink(name);
         });
     }
 
     ANIMUS_API size_t animus_shm_ring_capacity(void* ring) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring) return 0;
-            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->capacity();
+            return static_cast<RawEventHandle*>(ring)->ring.capacity();
         });
     }
 
     ANIMUS_API bool animus_shm_ring_try_push(void* ring, const animus::RawEvent* event) {
         return abi_guard(false, [&]() {
             if (!ring || !event) return false;
-            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_push(*event);
+            static_cast<RawEventHandle*>(ring)->ring.publish(*event);
+            return true; // a broadcast publish never fails and never waits
         });
     }
 
     ANIMUS_API bool animus_shm_ring_try_pop(void* ring, animus::RawEvent* out) {
         return abi_guard(false, [&]() {
             if (!ring || !out) return false;
-            return static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring)->try_pop(*out);
+            return broadcast_poll(static_cast<RawEventHandle*>(ring)->ring, out, 1) == 1;
         });
     }
 
     ANIMUS_API size_t animus_shm_ring_push_batch(void* ring, const animus::RawEvent* events, size_t count) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring || !events) return 0;
-            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
-            size_t pushed = 0;
-            for (; pushed < count; ++pushed) {
-                if (!r->try_push(events[pushed])) break;
-            }
-            return pushed;
+            auto& r = static_cast<RawEventHandle*>(ring)->ring;
+            for (size_t i = 0; i < count; ++i) r.publish(events[i]);
+            return count;
         });
     }
 
     ANIMUS_API size_t animus_shm_ring_pop_batch(void* ring, animus::RawEvent* out, size_t max_count) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring || !out) return 0;
-            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::RawEvent>*>(ring);
-            size_t popped = 0;
-            for (; popped < max_count; ++popped) {
-                if (!r->try_pop(out[popped])) break;
-            }
-            return popped;
+            return broadcast_poll(static_cast<RawEventHandle*>(ring)->ring, out, max_count);
         });
     }
 
+    // animus_shm_ring_order_* -- execution path. Lossless 1-producer ->
+    // 1-consumer queue (SpscQueue<OrderRequest>): a full queue refuses the
+    // push (false / short batch count), it never overwrites an order.
     ANIMUS_API void* animus_shm_ring_order_create(const char* name, size_t requested_capacity) {
         return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
-            if (!name) return nullptr;
-            return animus::sys::ipc::ShmRing<animus::OrderRequest>::create(name, requested_capacity).release();
+            return shm_ring_create<OrderQueueHandle, animus::OrderRequest>(name, requested_capacity);
         });
     }
 
     ANIMUS_API void* animus_shm_ring_order_open(const char* name) {
         return abi_guard(static_cast<void*>(nullptr), [&]() -> void* {
-            if (!name) return nullptr;
-            return animus::sys::ipc::ShmRing<animus::OrderRequest>::open(name).release();
+            return shm_ring_open<OrderQueueHandle>(name);
         });
     }
 
     ANIMUS_API void animus_shm_ring_order_close(void* ring) {
         abi_guard_void([&]() {
-            delete static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+            delete static_cast<OrderQueueHandle*>(ring);
         });
     }
 
     ANIMUS_API bool animus_shm_ring_order_unlink(const char* name) {
         return abi_guard(false, [&]() {
             if (!name) return false;
-            return animus::sys::ipc::ShmRing<animus::OrderRequest>::unlink(name);
+            return animus::sys::ipc::SharedMemoryRegion::unlink(name);
         });
     }
 
     ANIMUS_API size_t animus_shm_ring_order_capacity(void* ring) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring) return 0;
-            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->capacity();
+            return static_cast<OrderQueueHandle*>(ring)->ring.capacity();
         });
     }
 
     ANIMUS_API bool animus_shm_ring_order_try_push(void* ring, const animus::OrderRequest* order) {
         return abi_guard(false, [&]() {
             if (!ring || !order) return false;
-            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_push(*order);
+            return static_cast<OrderQueueHandle*>(ring)->ring.try_push(*order);
         });
     }
 
     ANIMUS_API bool animus_shm_ring_order_try_pop(void* ring, animus::OrderRequest* out) {
         return abi_guard(false, [&]() {
             if (!ring || !out) return false;
-            return static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring)->try_pop(*out);
+            return static_cast<OrderQueueHandle*>(ring)->ring.try_pop(*out);
         });
     }
 
     ANIMUS_API size_t animus_shm_ring_order_push_batch(void* ring, const animus::OrderRequest* orders, size_t count) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring || !orders) return 0;
-            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+            auto& q = static_cast<OrderQueueHandle*>(ring)->ring;
             size_t pushed = 0;
             for (; pushed < count; ++pushed) {
-                if (!r->try_push(orders[pushed])) break;
+                if (!q.try_push(orders[pushed])) break;
             }
             return pushed;
         });
@@ -752,10 +828,10 @@ extern "C" {
     ANIMUS_API size_t animus_shm_ring_order_pop_batch(void* ring, animus::OrderRequest* out, size_t max_count) {
         return abi_guard(size_t{0}, [&]() -> size_t {
             if (!ring || !out) return 0;
-            auto* r = static_cast<animus::sys::ipc::ShmRing<animus::OrderRequest>*>(ring);
+            auto& q = static_cast<OrderQueueHandle*>(ring)->ring;
             size_t popped = 0;
             for (; popped < max_count; ++popped) {
-                if (!r->try_pop(out[popped])) break;
+                if (!q.try_pop(out[popped])) break;
             }
             return popped;
         });
