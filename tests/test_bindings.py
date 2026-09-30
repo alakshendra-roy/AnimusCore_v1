@@ -1133,10 +1133,13 @@ class SharedTelemetryChannelIntegrationTests(unittest.TestCase):
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
 class ShmRingChannelIntegrationTests(unittest.TestCase):
-    """End-to-end tests for animus::sys::ipc::ShmRing<animus::RawEvent>
-    (include/animus/shm_ipc.hpp, exposed as animus_shm_ring_*) against the
-    real compiled binary. Distinct from SharedTelemetryChannelIntegrationTests
-    above: ShmRing<T> has no Python/C++ wire-compatibility constraint (see
+    """End-to-end tests for animus::sys::ipc::BroadcastRing<animus::RawEvent>
+    (include/animus/broadcast_ring.hpp, exposed as animus_shm_ring_*) against
+    the real compiled binary. This is the LOSSY market-data path: try_push()
+    never refuses -- a full ring overwrites its oldest record, and only the
+    newest capacity - 1 records are readable. Distinct from
+    SharedTelemetryChannelIntegrationTests
+    above: the ring has no Python/C++ wire-compatibility constraint (see
     ShmRingChannel's own docstring), so there is no SharedTelemetryRing-style
     pure-Python interop to test here -- only round-trip correctness,
     capacity semantics, and genuine cross-process delivery, same bar as
@@ -1182,31 +1185,40 @@ class ShmRingChannelIntegrationTests(unittest.TestCase):
 
     def test_capacity_rounds_up_to_power_of_two(self):
         # Unlike SharedTelemetryChannel (exact capacity, modulo indexing),
-        # ShmRing<T> uses a bitmask for slot indexing (see
-        # include/animus/shm_ipc.hpp's own ShmRing::round_up_pow2) and so
-        # requires -- and silently rounds up to -- a power-of-two capacity.
+        # The ring uses a bitmask for slot indexing (see
+        # include/animus/broadcast_ring.hpp) and so requires -- and the
+        # C-ABI silently rounds up to -- a power-of-two capacity.
         name = self._unique_name("powtwocap")
         channel = ShmRingChannel.create(name, capacity=1000)
         self.assertEqual(channel.capacity, 1024)
         channel.close()
 
-    def test_ring_full_and_empty_return_false_and_none(self):
+    def test_full_ring_overwrites_the_oldest_and_never_refuses(self):
+        # Lossy broadcast semantics: try_push() is always True, even on a
+        # "full" ring, and a reader only ever sees the newest capacity - 1
+        # records (write w recycles the slot of record w - capacity while the
+        # cursor still reads w, so that oldest slot cannot be proven intact).
         name = self._unique_name("fullempty")
         channel = ShmRingChannel.create(name, capacity=4)
         self.assertIsNone(channel.try_pop())  # empty
-        for i in range(4):
-            self.assertTrue(channel.try_push(1, i, i))
-        self.assertFalse(channel.try_push(1, 99, 99))  # full
-        for _ in range(4):
-            self.assertIsNotNone(channel.try_pop())
+        for i in range(10):
+            self.assertTrue(channel.try_push(1, i, i), f"push {i} must never be refused")
+
+        survivors = []
+        while True:
+            ev = channel.try_pop()
+            if ev is None:
+                break
+            survivors.append(ev.trace_id)
+        self.assertEqual(survivors, [7, 8, 9])  # newest capacity - 1 == 3, in order
         self.assertIsNone(channel.try_pop())  # empty again
         channel.close()
 
     def test_push_batch_pop_batch_round_trip(self):
-        # push_batch's contract mirrors AnimusBindings.record_events_batch:
-        # stop at the first push that fails, return how many actually made
-        # it in -- verified here both under-capacity (everything fits) and
-        # over-capacity (partial acceptance, in order).
+        # push_batch on the lossy ring accepts EVERY event (there is no
+        # backpressure to stop at) and returns len(events); pop_batch then
+        # yields whatever survived, in order -- verified both under-capacity
+        # (everything survives) and over-capacity (oldest overwritten).
         name = self._unique_name("batch")
         channel = ShmRingChannel.create(name, capacity=8)
 
@@ -1220,9 +1232,10 @@ class ShmRingChannelIntegrationTests(unittest.TestCase):
 
         overflow_events = [(2, i, i) for i in range(12)]  # capacity is only 8
         pushed = channel.push_batch(overflow_events)
-        self.assertEqual(pushed, 8)
+        self.assertEqual(pushed, 12)  # nothing refused
         drained = channel.pop_batch(max_count=100)
-        self.assertEqual([(e.event_id, e.trace_id, e.metric_value) for e in drained], overflow_events[:8])
+        self.assertEqual([(e.event_id, e.trace_id, e.metric_value) for e in drained],
+                         overflow_events[-7:])  # newest capacity - 1 == 7 survive
         channel.close()
 
     def test_push_batch_empty_list_is_a_no_op(self):
@@ -1272,10 +1285,13 @@ class ShmRingChannelIntegrationTests(unittest.TestCase):
 
 @unittest.skipUnless(find_native_library(), "no compiled native engine found; build CMakeLists.txt or AnimusCore_v1.slnx first")
 class ShmOrderRingChannelIntegrationTests(unittest.TestCase):
-    """End-to-end tests for animus::sys::ipc::ShmRing<animus::OrderRequest>
-    (exposed as animus_shm_ring_order_*) against the real compiled binary.
-    Same bar as ShmRingChannelIntegrationTests above, mirrored for
-    OrderRequest instead of RawEvent -- not repeated in full detail here.
+    """End-to-end tests for animus::sys::ipc::SpscQueue<animus::OrderRequest>
+    (include/animus/spsc_queue.hpp, exposed as animus_shm_ring_order_*)
+    against the real compiled binary. The LOSSLESS execution path: unlike
+    the market-data ring above, a full queue refuses the push and never
+    overwrites an order -- pinned by test_ring_full_and_empty_return_false_and_none.
+    Same round-trip bar as ShmRingChannelIntegrationTests above, mirrored
+    for OrderRequest instead of RawEvent.
     """
 
     def setUp(self):
@@ -1342,6 +1358,26 @@ class ShmOrderRingChannelIntegrationTests(unittest.TestCase):
         self.assertEqual(channel.push_batch(orders), 5)
         drained = channel.pop_batch(max_count=100)
         self.assertEqual([o.client_order_id for o in drained], [o.client_order_id for o in orders])
+        channel.close()
+
+    def test_full_queue_applies_strict_backpressure_and_keeps_fifo_order(self):
+        # Lossless: a saturated queue refuses pushes instead of overwriting,
+        # push_batch stops at the first refusal and reports how many were
+        # accepted, and every accepted order comes back out in push order.
+        name = self._unique_name("backpressure")
+        channel = ShmOrderRingChannel.create(name, capacity=8)
+
+        pushed = channel.push_batch([self._order(i) for i in range(12)])  # capacity is only 8
+        self.assertEqual(pushed, 8)
+        for i in range(12, 15):
+            self.assertFalse(channel.try_push(self._order(i)), "a saturated queue must refuse, not overwrite")
+
+        self.assertEqual(channel.try_pop().client_order_id, 0)        # FIFO: the oldest comes out first
+        self.assertTrue(channel.try_push(self._order(100)))            # exactly one slot was freed
+        self.assertFalse(channel.try_push(self._order(101)))
+
+        drained = channel.pop_batch(max_count=100)
+        self.assertEqual([o.client_order_id for o in drained], [1, 2, 3, 4, 5, 6, 7, 100])
         channel.close()
 
     def test_real_cross_process_round_trip(self):

@@ -7,15 +7,18 @@ compiled-extension dependency:
     against hand-built format strings -- no compiled extension needed at
     all, always runs (skipped only if numpy itself isn't installed, same
     as tests/test_consumer.py's own ToNumpyTests).
-  - SharedSchemaChannelIntegrationTests drives a real
-    _animus_shm_native.SharedExecutionChannel (bindings/animus_shm_py.cpp)
-    end to end, then attaches to that same live segment with the new,
-    schema-agnostic SharedSchemaChannel and verifies its metadata
-    (payload_size/stride/schema_version_hash/wire_format) and raw_view()
-    agree with what the typed channel already knows -- proving the
-    "inspect any registered schema without a new compiled extension"
-    contract this milestone adds. Skipped, not failed, when the extension
-    hasn't been built.
+  - SharedSchemaChannelIntegrationTests attaches the compiled,
+    schema-agnostic _animus_shm_native.SharedSchemaChannel
+    (bindings/animus_shm_py.cpp) to a live legacy ShmRing<ExecutionEvent>
+    segment and verifies its metadata (payload_size/stride/
+    schema_version_hash/wire_format), cursors and raw_view() agree with what
+    was written into it -- proving the "inspect any registered schema
+    without a new compiled extension" contract this milestone adds. The
+    extension no longer has a Python-side producer for that legacy layout
+    (BroadcastRing/SpscQueue segments carry no wire_format descriptor), so
+    the segment is written byte-for-byte by _LegacySpscSegment below, from
+    the same header offsets scripts/animus_stat.py mirrors. Skipped, not
+    failed, when the extension hasn't been built.
 
 Run with:
     python -m unittest discover -s tests
@@ -23,11 +26,15 @@ or:
     python -m pytest tests
 """
 import os
+import struct
 import sys
 import unittest
+from multiprocessing import shared_memory
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import animus_stat  # noqa: E402
 from animus.dynamic_schema import to_structured_array, wire_format_to_dtype  # noqa: E402
 
 
@@ -45,6 +52,53 @@ def _numpy_available() -> bool:
     except ImportError:
         return False
     return True
+
+
+class _LegacySpscSegment:
+    """Writes a legacy ShmRing<ExecutionEvent> segment straight into a named
+    shared-memory mapping: the 256-byte RingHeader (wire descriptor + SPSC
+    cursors, offsets from scripts/animus_stat.py) followed by `capacity`
+    40-byte slots. Exactly what SharedSchemaChannel.open() validates, with
+    push()/pop_one() standing in for the producer/consumer that only C++
+    (benchmarks/harness_benchmark.cpp, the ITCH bridge) provides now.
+    """
+
+    RECORD = struct.Struct("<QQqqII")  # animus::kExecutionEventWireFormat
+
+    def __init__(self, name: str, capacity: int):
+        assert capacity & (capacity - 1) == 0, "capacity must be a power of two"
+        self.capacity = capacity
+        size = animus_stat._SPSC_HEADER_SIZE + capacity * self.RECORD.size
+        self.shm = shared_memory.SharedMemory(name=name, create=True, size=size)
+        struct.pack_into(animus_stat._PREFIX_FORMAT, self.shm.buf, 0,
+                          capacity, capacity - 1, animus_stat.RING_KIND_SPSC,
+                          0xDEADBEEF, self.RECORD.size, self.RECORD.size)
+        wire_format = b"<QQqqII"
+        self.shm.buf[animus_stat._WIRE_FORMAT_OFF:animus_stat._WIRE_FORMAT_OFF + len(wire_format)] = wire_format
+
+    def _get(self, offset: int) -> int:
+        return struct.unpack_from("<Q", self.shm.buf, offset)[0]
+
+    def _set(self, offset: int, value: int) -> None:
+        struct.pack_into("<Q", self.shm.buf, offset, value)
+
+    def push(self, sequence: int, price_ticks: int, quantity: int, instrument_id: int) -> bool:
+        head, tail = self._get(animus_stat._SPSC_HEAD_OFF), self._get(animus_stat._SPSC_TAIL_OFF)
+        if head - tail >= self.capacity:
+            return False
+        slot = animus_stat._SPSC_HEADER_SIZE + (head & (self.capacity - 1)) * self.RECORD.size
+        self.RECORD.pack_into(self.shm.buf, slot, sequence, 0, price_ticks, quantity, instrument_id, 0)
+        self._set(animus_stat._SPSC_HEAD_OFF, head + 1)  # publish after the slot is written
+        return True
+
+    def pop_one(self) -> None:
+        self._set(animus_stat._SPSC_TAIL_OFF, self._get(animus_stat._SPSC_TAIL_OFF) + 1)
+
+    def close(self) -> None:
+        self.shm.close()
+
+    def unlink(self) -> None:
+        self.shm.unlink()
 
 
 @unittest.skipUnless(_numpy_available(), "numpy not installed")
@@ -84,29 +138,28 @@ class WireFormatToDtypeTests(unittest.TestCase):
                       "no compiled _animus_shm_native extension found; build it via "
                       "`pip install ./bindings` or bindings/CMakeLists.txt's direct-CMake steps first")
 class SharedSchemaChannelIntegrationTests(unittest.TestCase):
-    """Drives a real SharedExecutionChannel + SharedSchemaChannel pair
-    attached to the SAME segment, in-process (both are just handles onto
-    the same named OS shared-memory mapping -- attaching twice from one
-    process exercises the identical open() code path a second process
-    would use). Small capacities/counts throughout -- correctness, not a
-    benchmark."""
+    """Drives a real SharedSchemaChannel attached to a live legacy segment
+    (_LegacySpscSegment), in-process (both are just handles onto the same
+    named OS shared-memory mapping -- attaching from the same process
+    exercises the identical open() code path a second process would use).
+    Small capacities/counts throughout -- correctness, not a benchmark."""
 
     def setUp(self):
-        from animus._animus_shm_native import SharedExecutionChannel, WIRE_FORMAT, WIRE_RECORD_SIZE
-        self.SharedExecutionChannel = SharedExecutionChannel
+        from animus._animus_shm_native import WIRE_FORMAT, WIRE_RECORD_SIZE
         self.WIRE_FORMAT = WIRE_FORMAT
         self.WIRE_RECORD_SIZE = WIRE_RECORD_SIZE
         self._segment_counter = getattr(SharedSchemaChannelIntegrationTests, "_counter", 0) + 1
         SharedSchemaChannelIntegrationTests._counter = self._segment_counter
         self.name = f"animus_test_dynamic_schema_{os.getpid()}_{self._segment_counter}"
-        self.owner = self.SharedExecutionChannel.create(self.name, capacity=256, drain_batch_capacity=256)
+        self.owner = _LegacySpscSegment(self.name, capacity=256)
         self.addCleanup(self.owner.unlink)
+        self.addCleanup(self.owner.close)
 
     def _open_schema_channel(self):
         from animus._animus_shm_native import SharedSchemaChannel
         return SharedSchemaChannel.open(self.name)
 
-    def test_metadata_matches_the_typed_channel(self):
+    def test_metadata_matches_the_segment_header(self):
         schema_chan = self._open_schema_channel()
         self.assertEqual(schema_chan.payload_size, self.WIRE_RECORD_SIZE)
         self.assertEqual(schema_chan.stride, self.WIRE_RECORD_SIZE)
@@ -123,7 +176,7 @@ class SharedSchemaChannelIntegrationTests(unittest.TestCase):
 
         self.assertTrue(self.owner.push(sequence=1, price_ticks=100, quantity=5, instrument_id=7))
         self.assertEqual(schema_chan.head, 1)
-        self.owner.poll(max_count=1)
+        self.owner.pop_one()
         self.assertEqual(schema_chan.tail, 1)
 
     @unittest.skipUnless(_numpy_available(), "numpy not installed")
@@ -164,6 +217,19 @@ class SharedSchemaChannelIntegrationTests(unittest.TestCase):
         from animus._animus_shm_native import SharedSchemaChannel
         with self.assertRaises(RuntimeError):
             SharedSchemaChannel.open(f"{self.name}_does_not_exist")
+
+    def test_open_refuses_broadcast_ring_and_spsc_queue_segments(self):
+        # These carry a different header (magic/capacity/mask/payload_size,
+        # no wire_format descriptor), so attaching a schema view to them
+        # would misread cursor bytes as descriptor fields -- it must refuse.
+        from animus._animus_shm_native import BroadcastRing, SharedSchemaChannel, SpscQueue
+        ring = BroadcastRing.create(f"{self.name}_bcast", capacity=16)
+        self.addCleanup(ring.unlink)
+        queue = SpscQueue.create(f"{self.name}_spsc", capacity=16)
+        self.addCleanup(queue.unlink)
+        for name in (f"{self.name}_bcast", f"{self.name}_spsc"):
+            with self.assertRaises(RuntimeError):
+                SharedSchemaChannel.open(name)
 
 
 if __name__ == "__main__":
