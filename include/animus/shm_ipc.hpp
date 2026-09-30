@@ -38,9 +38,11 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <new>
 #include <type_traits>
+#include <utility>
 
 #if defined(_WIN32)
     #ifndef WIN32_LEAN_AND_MEAN
@@ -55,6 +57,28 @@
     #include <sys/mman.h>
     #include <sys/stat.h>
     #include <unistd.h>
+#endif
+
+#if defined(_MSC_VER)
+    #define ANIMUS_SHM_NOINLINE __declspec(noinline)
+#else
+    #define ANIMUS_SHM_NOINLINE __attribute__((noinline))
+#endif
+
+// See the `seqlock` namespace below. Forced on under ThreadSanitizer so the
+// sanitizer checks the protocol itself rather than a fast path it cannot see
+// is safe.
+#ifndef ANIMUS_SEQLOCK_STRICT
+    #if defined(__SANITIZE_THREAD__)
+        #define ANIMUS_SEQLOCK_STRICT 1
+    #elif defined(__has_feature)
+        #if __has_feature(thread_sanitizer)
+            #define ANIMUS_SEQLOCK_STRICT 1
+        #endif
+    #endif
+    #ifndef ANIMUS_SEQLOCK_STRICT
+        #define ANIMUS_SEQLOCK_STRICT 0
+    #endif
 #endif
 
 namespace animus {
@@ -292,7 +316,18 @@ namespace ipc {
     //     ever writes. Sharing this line among producer-only writes is
     //     free -- same single writer, so there is no false sharing to
     //     avoid, unlike splitting head from tail (different writers).
-    //   - consumer-owned line: tail plus the consumer's own pid/heartbeat.
+    //     write_seq (offset 160 on a 64-byte-line target) lives here too:
+    //     it is the seqlock that makes push_overwrite()'s reclaim visible
+    //     to readers -- see the `seqlock` namespace below for the protocol
+    //     an external (non-C++) reader must follow. It occupies bytes that
+    //     were previously padding, so no other field's offset moved and
+    //     the header is still 256 bytes: existing consumers that never
+    //     look at it (benchmarks/consumer.py, scripts/animus_stat.py)
+    //     keep working byte-for-byte, just without its torn-read guard.
+    //   - consumer-owned line: tail plus the consumer's own pid/heartbeat,
+    //     plus overwrite_active (offset 216): a flag the producer sets once,
+    //     at its first reclaim, so the consumer can pick its cheap or its
+    //     full validation route without reading the producer's hot line.
 #if defined(_MSC_VER)
     #pragma warning(push)
     #pragma warning(disable: 4324) // "structure was padded due to alignment specifier" -- the padding
@@ -321,10 +356,18 @@ namespace ipc {
         std::atomic<uint64_t> dropped_count{ 0 };
         std::atomic<uint64_t> producer_pid{ 0 };
         std::atomic<uint64_t> producer_heartbeat{ 0 };
+        std::atomic<uint64_t> write_seq{ 0 }; // seqlock for reclaiming writes; see namespace seqlock
 
         alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> tail{ 0 };
         std::atomic<uint64_t> consumer_pid{ 0 };
         std::atomic<uint64_t> consumer_heartbeat{ 0 };
+        // Set to 1 exactly once, by the PRODUCER, just before its first-ever
+        // reclaim. It lives on the consumer's line on purpose: the consumer
+        // reads it on every try_pop() to choose its validation route, and a
+        // read of the producer's line (dirtied every push) costs ~9 ns
+        // there, where a read of this one costs nothing. One producer write
+        // per ring lifetime is not false sharing.
+        std::atomic<uint64_t> overwrite_active{ 0 };
     };
 #if defined(_MSC_VER)
     #pragma warning(pop)
@@ -335,6 +378,19 @@ namespace ipc {
     static_assert(sizeof(RingHeader) % ANIMUS_CACHE_LINE_SIZE == 0,
         "RingHeader must be a whole number of cache lines -- if this fails, a field was added "
         "that isn't respecting the alignas(ANIMUS_CACHE_LINE_SIZE) boundaries above");
+#if ANIMUS_CACHE_LINE_SIZE == 64
+    // The wire offsets the Python/telemetry tooling hard-codes (see
+    // benchmarks/consumer.py's _*_OFF constants and scripts/animus_stat.py).
+    // write_seq took previously-unused padding, so all of these must be
+    // exactly what they were before it existed.
+    static_assert(offsetof(RingHeader, head) == 128 && offsetof(RingHeader, dropped_count) == 136 &&
+                  offsetof(RingHeader, producer_pid) == 144 && offsetof(RingHeader, producer_heartbeat) == 152 &&
+                  offsetof(RingHeader, write_seq) == 160 && offsetof(RingHeader, tail) == 192 &&
+                  offsetof(RingHeader, consumer_heartbeat) == 208 && offsetof(RingHeader, overwrite_active) == 216 &&
+                  sizeof(RingHeader) == 256,
+        "RingHeader's wire layout changed -- benchmarks/consumer.py and scripts/animus_stat.py "
+        "hard-code these offsets; update them (and bump the wire version) before changing this");
+#endif
 
     // Bounded, NUL-terminating copy of a schema's wire format string into
     // a wire-descriptor header's fixed-size buffer -- truncates (rather
@@ -356,6 +412,179 @@ namespace ipc {
         }
         header.wire_format[i] = '\0';
     }
+
+    // Seqlock that lets readers detect a write which recycles a slot they
+    // are (or were) copying -- the torn-read guard for ShmRing<T>::
+    // push_overwrite() and SpmcRing<T>::broadcast().
+    //
+    // Why one ring-wide counter is enough. A textbook seqlock keeps one
+    // counter per protected object and a reader retries on ANY change. Here
+    // that would either grow every slot (changing `stride`, which the Python
+    // tooling and the schema-agnostic NumPy view depend on) or make every
+    // unrelated push invalidate every read. Instead the single counter is
+    // *index-coded*: writing record index w stores
+    //     2w+1  (odd  -- write of index w in flight)   before touching the slot,
+    //     2w+2  (even -- write of index w complete)    after.
+    // Slot (w & mask) is the only slot a write of index w touches, and it held
+    // record (w - capacity) until now. So a reader that copied record i can
+    // tell exactly whether it lost the race: the write that recycles i's slot
+    // is index i+capacity, and it has begun iff the counter is > 2(i+capacity)
+    // (lapped(), below). The counter only ever grows, so observing "not
+    // begun" after the copy proves it had not begun at any point during it.
+    //
+    // Writer:   seq = 2w+1 (relaxed); fence(release); write slot; seq = 2w+2 (release).
+    // Reader:   copy slot; fence(acquire); s = seq (relaxed); valid iff !lapped(s, i, cap).
+    // The fence(release) is load-bearing: a release *store* of the odd value
+    // orders what came BEFORE it, not the payload stores that follow, so on
+    // its own it would let the payload writes become visible ahead of the odd
+    // marker and a reader could see new bytes with a still-clean counter.
+    // The fence-to-fence pairing (writer's release, reader's acquire) is what
+    // guarantees: if the reader saw any byte of write w, its counter load
+    // sees >= 2w+1.
+    //
+    // A reader never spins on an odd counter and never blocks on the writer.
+    // That is deliberate for cross-process shared memory: if the producer is
+    // killed mid-write the counter stays odd forever, and a spin-until-even
+    // reader would hang with it. An odd value just means "the write of index
+    // (seq-1)/2 has begun", which lapped() already accounts for -- readers of
+    // every other slot carry on.
+    //
+    // Only writes that can land on a slot a reader may still be reading take
+    // the write section: every SpmcRing::broadcast() and the *full* branch of
+    // ShmRing::push_overwrite(). try_push() and push_overwrite()'s
+    // free-slot branch write a slot that is outside [tail, head), which no
+    // reader looks at, so the strict-backpressure hot path costs nothing new.
+    // The stored values are absolute (derived from the write index, not
+    // incremented), so skipping the write section for some writes cannot
+    // desynchronize the counter.
+    //
+    // External (non-C++) readers: read write_seq at offset 160 (SPSC) / 152
+    // (SPMC) with the same copy-then-recheck shape. A classic reader that
+    // retries while odd or when the value changed is also correct (just
+    // coarser); the index-aware check above is exact.
+    //
+    // ANIMUS_SEQLOCK_STRICT (default 0; forced to 1 under ThreadSanitizer, or
+    // set -DANIMUS_SEQLOCK_STRICT=1 yourself). The payload-copy loads/stores
+    // below are relaxed atomics, which makes a reader/writer overlap
+    // well-defined -- but scalar atomic word copies cost ~2x on the strict
+    // SPSC pop path (see ShmRing::try_pop), so that path instead copies with
+    // plain memcpy and relies on a validation that is sound without it. With
+    // STRICT=1 every read takes the seqlock route with atomic payload access,
+    // so the protocol is data-race-free by the C++ memory model itself, not
+    // just by what real hardware does with a discarded read. Run the sanitizer
+    // builds with it; ship with it off.
+    namespace seqlock {
+        inline constexpr uint64_t begin_value(uint64_t write_index) noexcept { return (write_index << 1) | 1u; }
+        inline constexpr uint64_t end_value(uint64_t write_index) noexcept { return (write_index + 1) << 1; }
+
+        // The lowest record index whose slot has NOT yet been (or begun to be)
+        // recycled, as of counter value `seq`: writes of indices 0..begun-1
+        // have begun, where begun = (seq+1)/2 (an odd value counts its
+        // in-flight write), and each began by recycling the slot of the
+        // record `capacity` earlier. Records below this index are gone;
+        // records at or above it were intact when `seq` was read.
+        inline constexpr uint64_t oldest_intact(uint64_t seq, uint64_t capacity) noexcept {
+            const uint64_t begun = (seq + 1) >> 1;
+            return begun > capacity ? begun - capacity : 0;
+        }
+
+        // True iff the write that recycles record_index's slot has begun, as
+        // of a counter value `seq` -- i.e. a copy of that record taken before
+        // `seq` was read cannot be trusted. Because the lapped records are
+        // always exactly the ones below oldest_intact(), a batch of
+        // consecutive records can be validated with ONE read of the counter:
+        // the lapped ones are a prefix.
+        inline constexpr bool lapped(uint64_t seq, uint64_t record_index, uint64_t capacity) noexcept {
+            return record_index < oldest_intact(seq, capacity);
+        }
+
+        // Slot payload is copied word-by-word with relaxed atomics, not
+        // memcpy: a reader may legitimately overlap a writer on these bytes
+        // (the seqlock discards the result), and overlapping plain accesses
+        // are a C++ data race -- undefined behaviour, and a ThreadSanitizer
+        // report -- even when the value is thrown away. Relaxed atomic word
+        // accesses compile to ordinary loads/stores (nothing is locked) but
+        // make the overlap well-defined. The word is the widest of 8/4/2/1
+        // bytes that divides sizeof(T) and does not exceed alignof(T), so
+        // every slot address is suitably aligned for it. std::atomic<W> is
+        // overlaid on raw mapped bytes; C++20's std::atomic_ref is the
+        // by-the-book spelling of this once the project moves off C++17.
+        template <typename T>
+        struct SlotWord {
+            static constexpr size_t kWidth =
+                (alignof(T) >= 8 && sizeof(T) % 8 == 0) ? 8 :
+                (alignof(T) >= 4 && sizeof(T) % 4 == 0) ? 4 :
+                (alignof(T) >= 2 && sizeof(T) % 2 == 0) ? 2 : 1;
+            using type = typename std::conditional<kWidth == 8, uint64_t,
+                typename std::conditional<kWidth == 4, uint32_t,
+                typename std::conditional<kWidth == 2, uint16_t, uint8_t>::type>::type>::type;
+        };
+
+        // Up to this many words the copy is unrolled with an index_sequence
+        // (straight-line loads into registers, then one copy out) instead of
+        // a counted loop, so codegen does not depend on the compiler's
+        // unrolling heuristics. Note this does NOT make atomic word copies
+        // as cheap as a vector memcpy: eight scalar loads of a line that was
+        // just written by another core are markedly slower than two vector
+        // loads, atomic or not. That is why ShmRing::try_pop's strict-mode
+        // route copies with memcpy (see ANIMUS_SEQLOCK_STRICT above) and
+        // only the overwrite-mode paths pay for atomic copies.
+        inline constexpr size_t kMaxUnrolledWords = 16;
+
+        template <typename W, size_t... I>
+        inline void load_words(const std::atomic<W>* src, unsigned char* dst, std::index_sequence<I...>) noexcept {
+            const W words[] = { src[I].load(std::memory_order_relaxed)... };
+            std::memcpy(dst, words, sizeof(words));
+        }
+        template <typename W, size_t... I>
+        inline void store_words(std::atomic<W>* dst, const unsigned char* src, std::index_sequence<I...>) noexcept {
+            W words[sizeof...(I)];
+            std::memcpy(words, src, sizeof(words));
+            (dst[I].store(words[I], std::memory_order_relaxed), ...);
+        }
+
+        template <typename T>
+        inline void store_slot(T* slot, const T& value) noexcept {
+            using W = typename SlotWord<T>::type;
+            static_assert(std::atomic<W>::is_always_lock_free && sizeof(std::atomic<W>) == sizeof(W) &&
+                          alignof(std::atomic<W>) <= alignof(T),
+                "slot words must be lock-free and layout-compatible with the raw slot bytes");
+            constexpr size_t kWords = sizeof(T) / sizeof(W);
+            auto* dst = reinterpret_cast<std::atomic<W>*>(slot);
+            const auto* src = reinterpret_cast<const unsigned char*>(&value);
+            if constexpr (kWords <= kMaxUnrolledWords) {
+                store_words(dst, src, std::make_index_sequence<kWords>{});
+            } else {
+                for (size_t i = 0; i < kWords; ++i) {
+                    W word;
+                    std::memcpy(&word, src + i * sizeof(W), sizeof(W));
+                    dst[i].store(word, std::memory_order_relaxed);
+                }
+            }
+        }
+
+        // Copies the slot's bytes into `dst` (sizeof(T) bytes of caller
+        // storage). The result is only meaningful if the caller then
+        // validates it with lapped() after fence(acquire).
+        template <typename T>
+        inline void load_slot(void* dst, const T* slot) noexcept {
+            using W = typename SlotWord<T>::type;
+            static_assert(std::atomic<W>::is_always_lock_free && sizeof(std::atomic<W>) == sizeof(W) &&
+                          alignof(std::atomic<W>) <= alignof(T),
+                "slot words must be lock-free and layout-compatible with the raw slot bytes");
+            constexpr size_t kWords = sizeof(T) / sizeof(W);
+            const auto* src = reinterpret_cast<const std::atomic<W>*>(slot);
+            auto* out = static_cast<unsigned char*>(dst);
+            if constexpr (kWords <= kMaxUnrolledWords) {
+                load_words(src, out, std::make_index_sequence<kWords>{});
+            } else {
+                for (size_t i = 0; i < kWords; ++i) {
+                    const W word = src[i].load(std::memory_order_relaxed);
+                    std::memcpy(out + i * sizeof(W), &word, sizeof(W));
+                }
+            }
+        }
+    } // namespace seqlock
 
     // Single-producer/single-consumer, fixed-capacity ring living entirely
     // inside a SharedMemoryRegion. Same head/tail algorithm as animus.hpp's
@@ -513,31 +742,67 @@ namespace ipc {
         // into old data it hasn't consumed yet -- deterministically counted,
         // not silently lost.
         //
-        // Concurrency note: reclaiming the oldest slot while a consumer may
-        // concurrently be mid-try_pop()/pop_spin() on that exact slot is a
-        // deliberate, documented race, not an oversight -- the consumer's
-        // acquire-load of `head` and relaxed-load of `tail` give it no
-        // way to distinguish "genuinely empty" from "just overwritten out
-        // from under me" in overwrite mode, so a concurrent reader can
-        // observe a torn record at the reclaim boundary. Only pair
-        // push_overwrite() with a consumer that tolerates occasional torn
-        // reads at that boundary (e.g. best-effort telemetry/sampling) --
-        // never with a channel that must never observe a torn record. A
-        // consumer that must see clean records with a lagging producer
-        // should use try_push()/push_spin() (bounded backpressure) instead.
+        // Concurrency: when the ring is full the slot being reclaimed is the
+        // oldest one, which the consumer may be copying at that very moment.
+        // That write runs inside the seqlock write section (see namespace
+        // seqlock), so try_pop() detects the overlap and discards the copy
+        // instead of returning a record stitched from two different writes:
+        // a consumer never observes a torn record, only a gap -- and every
+        // gap is a record this method already counted in dropped_count(). A
+        // push into a free slot touches nothing a consumer can be reading
+        // and takes no write section, so the non-overwrite cost is unchanged.
+        //
+        // Accounting note: dropped_count() counts reclaims *this producer*
+        // performed. A record the consumer finishes validating in the same
+        // instant the producer reclaims it is delivered AND counted, so
+        // dropped_count() may exceed the consumer-observed gap count by a
+        // small amount under saturation; it never undercounts. Making that
+        // exact needs a compare-exchange on the consumer's pop, which costs a
+        // locked instruction (and a cache-line round trip) on the hot
+        // consumer path -- deliberately not paid here.
         void push_overwrite(const T& value) noexcept {
             const uint64_t head = header_->head.load(std::memory_order_relaxed);
-            const uint64_t tail = header_->tail.load(std::memory_order_acquire);
-            if (head - tail >= header_->capacity) {
-                // Full: reclaim the oldest slot ourselves. fetch_add (not a
-                // plain store) so this stays correct even if a concurrent
-                // try_pop() on the consumer side has already moved tail
-                // past this exact value -- either way, tail ends up at
-                // least one slot further along than it started here.
-                header_->tail.fetch_add(1, std::memory_order_acq_rel);
-                header_->dropped_count.fetch_add(1, std::memory_order_relaxed);
+            uint64_t tail = header_->tail.load(std::memory_order_acquire);
+            if (head - tail < header_->capacity) {
+                // A free slot: outside [tail, head), so no reader is looking.
+                slots_[head & header_->mask] = value;
+                header_->head.store(head + 1, std::memory_order_release);
+                return;
             }
-            slots_[head & header_->mask] = value;
+            // Full: slot (head & mask) currently holds the oldest live record.
+            // First reclaim this ring has ever done (write_seq is still 0):
+            // tell the consumer, once, that overwrite mode is live -- see
+            // RingHeader::overwrite_active and try_pop().
+            if (header_->write_seq.load(std::memory_order_relaxed) == 0) {
+                header_->overwrite_active.store(1, std::memory_order_release);
+            }
+            // Announce the overwrite before reclaiming or touching it.
+            header_->write_seq.store(seqlock::begin_value(head), std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_release);
+            // Reclaim by compare-exchange to an absolute target (the new
+            // oldest index once `head` is written), not fetch_add(1). If the
+            // consumer popped this slot first, tail is already at or past
+            // the target: nothing is dropped, the slot was free. If a stale
+            // consumer store left tail behind, this jumps straight back to
+            // the true floor instead of limping forward one push at a time
+            // while over-counting every step as a drop. The retry is bounded
+            // so the producer stays wait-free; the only writer that can make
+            // the CAS fail is the single consumer's one store per pop.
+            const uint64_t floor = head - header_->capacity + 1;
+            for (int tries = 0; tail < floor && tries < kMaxReclaimAttempts; ++tries) {
+                if (header_->tail.compare_exchange_weak(tail, floor,
+                        std::memory_order_acq_rel, std::memory_order_acquire)) {
+                    header_->dropped_count.fetch_add(1, std::memory_order_relaxed);
+                    break;
+                }
+            }
+            // Second release fence, after the tail CAS: try_pop()'s cheap
+            // fast path validates a copy by re-reading its own `tail`, which
+            // is only sound if "tail moved" is guaranteed visible to any
+            // reader that saw a byte of the slot write below.
+            std::atomic_thread_fence(std::memory_order_release);
+            seqlock::store_slot(&slots_[head & header_->mask], value);
+            header_->write_seq.store(seqlock::end_value(head), std::memory_order_release);
             header_->head.store(head + 1, std::memory_order_release);
         }
 
@@ -549,15 +814,63 @@ namespace ipc {
             return header_ ? header_->dropped_count.load(std::memory_order_relaxed) : 0;
         }
 
-        // Consumer-side only (one process). Never blocks; returns false
-        // if the ring is empty.
+        // Consumer-side only (one process, one thread). Never blocks. Returns
+        // true with a record that is guaranteed to be a complete, untorn
+        // copy of one push; `out` is written only on true.
+        //
+        // Returns false if the ring is empty -- or, rarely, if every record
+        // this call tried was reclaimed by a saturating push_overwrite()
+        // producer before it could be validated (kMaxSeqlockAttempts in a
+        // row). The records it skipped are the producer's already-counted
+        // drops, nothing is lost that wasn't already; call again.
+        //
+        // Two validation routes, chosen per call by overwrite_active -- a
+        // flag on the consumer's OWN cache line, so choosing costs nothing:
+        //   - overwrite_active == 0: the producer has never reclaimed, i.e.
+        //     a ring used only with try_push()/push_spin() (or push_overwrite()
+        //     that has never found the ring full). The only thing that can
+        //     overwrite a live slot is the producer's FIRST reclaim, and that
+        //     reclaim must move `tail` before it touches the slot, so a copy
+        //     is clean iff `tail` is unchanged afterwards. That re-read is
+        //     also on the consumer's own line. The obvious alternative --
+        //     validating through write_seq -- re-touches the producer's line
+        //     (dirtied every push) and measured ~2x slower on this path: any
+        //     second read of that line, before or after the copy, costs
+        //     ~9 ns under a flat-out producer.
+        //   - overwrite_active != 0: overwrite mode is live. Full seqlock
+        //     validation (index-coded, see namespace seqlock), plus the
+        //     stale-tail clamp, which a raw `tail` comparison cannot give
+        //     because a stale consumer store can move tail backwards.
+        // ANIMUS_SEQLOCK_STRICT=1 (automatic under ThreadSanitizer) disables
+        // the first route so every read takes the seqlock path.
+        //
+        // Structure matters: this function is only the cheap route and must
+        // stay small enough to inline into the caller's spin loop. The
+        // overwrite-mode route is try_pop_seqlock(), kept out of line so it
+        // cannot push this one past the inliner's threshold -- an
+        // out-of-line try_pop() is markedly slower than an inlined one for
+        // identical work.
         bool try_pop(T& out) noexcept {
-            const uint64_t tail = header_->tail.load(std::memory_order_relaxed);
+#if !ANIMUS_SEQLOCK_STRICT
+            const uint64_t tail = header_->tail.load(std::memory_order_acquire);
             const uint64_t head = header_->head.load(std::memory_order_acquire);
-            if (tail == head) return false; // empty
-            out = slots_[tail & header_->mask];
-            header_->tail.store(tail + 1, std::memory_order_release);
-            return true;
+            if (header_->overwrite_active.load(std::memory_order_relaxed) == 0) {
+                if (tail == head) return false; // empty
+                alignas(T) unsigned char snapshot[sizeof(T)];
+                std::memcpy(snapshot, &slots_[tail & header_->mask], sizeof(T));
+                std::atomic_thread_fence(std::memory_order_acquire);
+                if (header_->tail.load(std::memory_order_relaxed) == tail) {
+                    std::memcpy(&out, snapshot, sizeof(T));
+                    header_->tail.store(tail + 1, std::memory_order_release);
+                    return true;
+                }
+                // The producer's first-ever reclaim moved tail while we
+                // copied. overwrite_active is set by now (the producer
+                // stores it before it touches tail), so the seqlock route
+                // below takes over from a fresh read of the cursors.
+            }
+#endif
+            return try_pop_seqlock(out);
         }
 
         // Spin-polling variants: retry try_push/try_pop with
@@ -672,6 +985,41 @@ namespace ipc {
         ShmRing() noexcept = default;
 
         static constexpr uint64_t kDefaultMaxSpins = 200'000'000ull;
+
+        // try_pop()'s overwrite-mode route: full seqlock validation plus the
+        // stale-tail clamp. Reads the cursors itself, so it is also the
+        // correct continuation when try_pop()'s cheap route loses a race.
+        ANIMUS_SHM_NOINLINE bool try_pop_seqlock(T& out) noexcept {
+            const uint64_t capacity = header_->capacity;
+            uint64_t tail = header_->tail.load(std::memory_order_acquire);
+            for (unsigned attempt = 0; attempt < kMaxSeqlockAttempts; ++attempt) {
+                const uint64_t head = header_->head.load(std::memory_order_acquire);
+                // More than `capacity` unread means tail is stale (an old
+                // consumer store landed after the producer reclaimed past
+                // it); everything below head - capacity is already gone.
+                if (head - tail > capacity) tail = head - capacity;
+                if (tail == head) return false; // empty
+                alignas(T) unsigned char snapshot[sizeof(T)];
+                seqlock::load_slot(snapshot, &slots_[tail & header_->mask]);
+                std::atomic_thread_fence(std::memory_order_acquire);
+                if (!seqlock::lapped(header_->write_seq.load(std::memory_order_relaxed), tail, capacity)) {
+                    std::memcpy(&out, snapshot, sizeof(T));
+                    header_->tail.store(tail + 1, std::memory_order_release);
+                    return true;
+                }
+                ++tail; // reclaimed while we copied; move on to the next-oldest record
+            }
+            return false;
+        }
+
+        // Bound on try_pop()'s validate-and-skip loop. Each failed attempt
+        // means one record was reclaimed under the reader; a producer
+        // saturating a small ring can do that faster than any reader can
+        // copy, so without a bound try_pop() could loop for as long as the
+        // producer keeps pushing -- a "never blocks" function that doesn't
+        // return. 64 is far above anything a healthy ring produces.
+        static constexpr unsigned kMaxSeqlockAttempts = 64;
+        static constexpr int kMaxReclaimAttempts = 4; // push_overwrite()'s tail-CAS retry bound
 
         static uint64_t round_up_pow2(size_t v) noexcept {
             uint64_t p = 1;
@@ -802,6 +1150,10 @@ namespace ipc {
         alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> head{ 0 };
         std::atomic<uint64_t> producer_pid{ 0 };
         std::atomic<uint64_t> producer_heartbeat{ 0 };
+        // Seqlock guarding every broadcast() -- same protocol and same
+        // "took previously-unused padding, moved nothing" property as
+        // RingHeader::write_seq; see namespace seqlock.
+        std::atomic<uint64_t> write_seq{ 0 };
     };
 #if defined(_MSC_VER)
     #pragma warning(pop)
@@ -812,6 +1164,13 @@ namespace ipc {
     static_assert(sizeof(SpmcRingHeader) % ANIMUS_CACHE_LINE_SIZE == 0,
         "SpmcRingHeader must be a whole number of cache lines -- if this fails, a field was added "
         "that isn't respecting the alignas(ANIMUS_CACHE_LINE_SIZE) boundaries above");
+#if ANIMUS_CACHE_LINE_SIZE == 64
+    static_assert(offsetof(SpmcRingHeader, head) == 128 && offsetof(SpmcRingHeader, producer_pid) == 136 &&
+                  offsetof(SpmcRingHeader, producer_heartbeat) == 144 && offsetof(SpmcRingHeader, write_seq) == 152 &&
+                  sizeof(SpmcRingHeader) == 192,
+        "SpmcRingHeader's wire layout changed -- scripts/animus_stat.py hard-codes these offsets; "
+        "update it (and bump the wire version) before changing this");
+#endif
 
     // Single-producer/multi-consumer broadcast ring (Milestone 2). One
     // process creates and exclusively owns the shared `head` cursor
@@ -948,9 +1307,19 @@ namespace ipc {
         // this same call sequence ever wrote; header_->head itself is
         // still a proper atomic release-store, which is what every
         // consumer's acquire-load actually synchronizes against.
+        //
+        // Every broadcast runs inside the seqlock write section (see
+        // namespace seqlock): once the ring has wrapped, the slot written
+        // is always the oldest one, which any lagging consumer may be
+        // copying. Cost: two stores to the producer's own cache line, plus a
+        // release fence that is a compiler-only barrier on x86.
         void broadcast(const T& value) noexcept {
-            slots_[producer_head_ & header_->mask] = value;
-            header_->head.store(producer_head_ + 1, std::memory_order_release);
+            const uint64_t w = producer_head_;
+            header_->write_seq.store(seqlock::begin_value(w), std::memory_order_relaxed);
+            std::atomic_thread_fence(std::memory_order_release);
+            seqlock::store_slot(&slots_[w & header_->mask], value);
+            header_->write_seq.store(seqlock::end_value(w), std::memory_order_release);
+            header_->head.store(w + 1, std::memory_order_release);
             ++producer_head_;
         }
 
@@ -986,38 +1355,56 @@ namespace ipc {
         // overrun_count(). A consumer that never falls behind never
         // triggers this branch and pays only the one comparison's cost.
         //
-        // Torn-read note, same honest tradeoff ShmRing<T>::push_overwrite
-        // already documents for its own overwrite mode: the overrun check
-        // above uses one head snapshot taken at the start of this call: if
-        // an extremely fast producer advances head by another full
-        // capacity() or more DURING this call's copy loop (not just before
-        // it), a slot already validated as "within capacity() of head" at
-        // the top of this function could still be overwritten out from
-        // under the copy that follows. This is bounded by how much a
-        // single poll()/poll_spin() call can fall behind within its own
-        // duration, not by how far this consumer has fallen behind overall
-        // -- and is the same class of race push_overwrite() already
-        // accepts, not a new one. Pair poll() with a consumer that
-        // tolerates an occasional torn record at that boundary; a
-        // consumer that must never observe one needs a bounded-
-        // backpressure primitive (ShmRing<T>::try_push/push_spin) instead,
-        // which broadcast fan-out to multiple readers cannot offer by
-        // construction.
+        // Torn-read safety: the overrun check above uses one head snapshot
+        // taken at the start of this call, so a fast producer can still
+        // advance past capacity() DURING the copy loop and recycle a slot
+        // that was valid at the top. The whole batch is therefore validated
+        // against the seqlock (see namespace seqlock) after it is copied:
+        // records whose slots were recycled mid-copy are discarded and
+        // accounted into overrun_count()/last_poll_overran() exactly like
+        // records lost before the call -- a consumer never observes a torn
+        // record, only a counted gap. One read of write_seq covers the whole
+        // batch (the recycled records are always its oldest prefix, see
+        // seqlock::oldest_intact), so the cost is one extra load of the
+        // producer's line per call, not per record, and a producer
+        // broadcasting flat out never invalidates copies of records the
+        // reader has not yet reached. The conservation law is exact: for any
+        // consumer, cumulative records returned + overrun_count() +
+        // (head() - local_tail()) == head().
+        //
+        // `out` entries at index >= the returned count are scratch space and
+        // hold unspecified bytes after the call.
         size_t poll(T* out, size_t max_count) noexcept {
+            const uint64_t capacity = header_->capacity;
             const uint64_t head = header_->head.load(std::memory_order_acquire);
             last_poll_overran_ = false;
-            if (head - local_tail_ > header_->capacity) {
-                const uint64_t new_tail = head - header_->capacity;
+            if (head - local_tail_ > capacity) {
+                const uint64_t new_tail = head - capacity;
                 overrun_count_ += (new_tail - local_tail_);
                 local_tail_ = new_tail;
                 last_poll_overran_ = true;
             }
-            size_t n = 0;
-            while (n < max_count && local_tail_ < head) {
-                out[n++] = slots_[local_tail_ & header_->mask];
-                ++local_tail_;
+            const uint64_t available = head - local_tail_;
+            const size_t n = available < max_count ? static_cast<size_t>(available) : max_count;
+            if (n == 0) return 0;
+            const uint64_t first = local_tail_;
+            for (size_t i = 0; i < n; ++i) {
+                seqlock::load_slot(&out[i], &slots_[(first + i) & header_->mask]);
             }
-            return n;
+            std::atomic_thread_fence(std::memory_order_acquire);
+            const uint64_t intact_from = seqlock::oldest_intact(header_->write_seq.load(std::memory_order_relaxed), capacity);
+            size_t lapped = 0;
+            if (intact_from > first) {
+                const uint64_t gone = intact_from - first;
+                lapped = gone < n ? static_cast<size_t>(gone) : n;
+            }
+            local_tail_ = first + n;
+            if (lapped > 0) {
+                overrun_count_ += lapped; // recycled while we copied: a counted gap, not a torn record
+                last_poll_overran_ = true;
+                if (lapped < n) std::memmove(out, out + lapped, (n - lapped) * sizeof(T));
+            }
+            return n - lapped;
         }
 
         // Spin-polling variant: retries poll() with animus::cpu_relax()
