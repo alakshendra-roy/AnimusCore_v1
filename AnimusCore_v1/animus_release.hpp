@@ -5,7 +5,7 @@
 // GENERATED FILE -- do not edit directly. Produced by amalgamate.py from
 // the four source headers below; re-run `python amalgamate.py` after any
 // change to those originals and commit the regenerated output alongside.
-// Generated: 2026-09-12
+// Generated: 2026-10-01
 //
 // Sections:
 //   - animus.hpp (portable) -- Phase 1-7: Core Engine, Ring Buffer, Rule Engine, Broker/Execution Interop
@@ -1894,9 +1894,9 @@ extern "C" {
 // mTLS server calls into once a client certificate has already been
 // cryptographically verified.
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
-#include <deque>
 #include <unordered_map>
 #include <memory>
 #include <mutex>
@@ -1971,6 +1971,92 @@ namespace security {
         Permission permission;
         AuditOutcome outcome;
     };
+
+    // Compile-time capacity of each gateway's audit trail, in entries (32
+    // bytes each: 4096 -> 128 KiB per trail). Must be a power of two so slot
+    // selection is a mask. Override with -DANIMUS_AUDIT_LOG_CAPACITY=<2^k>.
+#ifndef ANIMUS_AUDIT_LOG_CAPACITY
+#define ANIMUS_AUDIT_LOG_CAPACITY 4096
+#endif
+    inline constexpr size_t AUDIT_LOG_CAPACITY = ANIMUS_AUDIT_LOG_CAPACITY;
+    static_assert(AUDIT_LOG_CAPACITY >= 2 && (AUDIT_LOG_CAPACITY & (AUDIT_LOG_CAPACITY - 1)) == 0,
+        "AUDIT_LOG_CAPACITY must be a power of two >= 2");
+
+    // Bounded, allocation-free audit trail. Replaces an unbounded
+    // std::deque<AuditEvent>, which grew without limit whenever nothing
+    // polled it (every gateway call appends one entry, allowed or denied) and
+    // heap-allocated on the hot path -- an OOM under sustained throughput.
+    //
+    // All storage is inline and pre-faulted at construction, so append() and
+    // drain() never allocate and never page-fault. When the trail is full the
+    // OLDEST unread entry is overwritten and dropped_count() is incremented:
+    // memory is constant and loss is explicit, never silent. (Trade-off worth
+    // knowing: a flood of calls can evict older entries before an auditor
+    // polls. The counter makes that visible; poll often enough, or raise the
+    // capacity, if the trail is evidence you cannot afford to lose.)
+    //
+    // Thread-safe (any number of appenders and drainers). The critical
+    // section is an O(1) 32-byte store; the timestamp is taken inside it so
+    // the trail's order is also timestamp order. Cache layout: the lock and
+    // cursors, the drop counter (read by monitors without the lock), and the
+    // entry array each start on their own line, so a monitor polling
+    // dropped_count() never contends with appenders for the lock's line.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable: 4324) // intentional cache-line padding (see above)
+#endif
+    class BoundedAuditLog {
+    public:
+        static constexpr size_t kCapacity = AUDIT_LOG_CAPACITY;
+        static constexpr size_t kMask = kCapacity - 1;
+
+        BoundedAuditLog() noexcept : entries_{} {}
+        BoundedAuditLog(const BoundedAuditLog&) = delete;
+        BoundedAuditLog& operator=(const BoundedAuditLog&) = delete;
+
+        void append(const AccessToken& token, Permission perm, AuditOutcome outcome) noexcept {
+            std::lock_guard<std::mutex> lock(mutex_);
+            entries_[write_ & kMask] = AuditEvent{
+                read_cycle_counter(), token.tenant_id, token.principal_id, perm, outcome };
+            ++write_;
+            if (write_ - read_ > kCapacity) {
+                ++read_; // the slot just written held the oldest unread entry
+                // Every writer holds mutex_, so a plain load+store is enough
+                // (no locked RMW); the atomic exists for lock-free readers.
+                dropped_.store(dropped_.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
+            }
+        }
+
+        // Moves up to max_count of the oldest unread entries into `out`, in
+        // order. Returns how many were moved.
+        size_t drain(AuditEvent* out, size_t max_count) noexcept {
+            if (!out) return 0;
+            std::lock_guard<std::mutex> lock(mutex_);
+            const uint64_t unread = write_ - read_;
+            const size_t count = unread < max_count ? static_cast<size_t>(unread) : max_count;
+            for (size_t i = 0; i < count; ++i) out[i] = entries_[(read_ + i) & kMask];
+            read_ += count;
+            return count;
+        }
+
+        size_t size() const noexcept {
+            std::lock_guard<std::mutex> lock(mutex_);
+            return static_cast<size_t>(write_ - read_);
+        }
+
+        // Entries overwritten before anyone read them. Lock-free.
+        uint64_t dropped_count() const noexcept { return dropped_.load(std::memory_order_relaxed); }
+
+    private:
+        alignas(kCachelineBytes) mutable std::mutex mutex_;
+        uint64_t write_ = 0; // entries ever appended
+        uint64_t read_ = 0;  // index of the oldest unread entry
+        alignas(kCachelineBytes) std::atomic<uint64_t> dropped_{ 0 };
+        alignas(kCachelineBytes) AuditEvent entries_[kCapacity];
+    };
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
     // Owns one isolated Engine per tenant: separate lock-free ring buffer,
     // separate rule set, separate persistence file. This makes isolation
@@ -2070,15 +2156,13 @@ namespace security {
             return allowed;
         }
 
-        size_t poll_audit_log(AuditEvent* out, size_t max_count) {
-            std::lock_guard<std::mutex> lock(audit_mutex_);
-            size_t count = 0;
-            while (count < max_count && !audit_log_.empty()) {
-                out[count++] = audit_log_.front();
-                audit_log_.pop_front();
-            }
-            return count;
+        size_t poll_audit_log(AuditEvent* out, size_t max_count) noexcept {
+            return audit_log_.drain(out, max_count);
         }
+
+        // Audit entries lost to the bounded trail overwriting its oldest
+        // unread entry (see BoundedAuditLog). 0 means nothing was ever lost.
+        uint64_t audit_dropped_count() const noexcept { return audit_log_.dropped_count(); }
 
     private:
         template <typename Fn>
@@ -2090,15 +2174,12 @@ namespace security {
             return ok;
         }
 
-        void append_audit(const AccessToken& token, Permission perm, AuditOutcome outcome) {
-            std::lock_guard<std::mutex> lock(audit_mutex_);
-            audit_log_.push_back(AuditEvent{
-                read_cycle_counter(), token.tenant_id, token.principal_id, perm, outcome });
+        void append_audit(const AccessToken& token, Permission perm, AuditOutcome outcome) noexcept {
+            audit_log_.append(token, perm, outcome);
         }
 
         TenantRegistry& registry_;
-        std::mutex audit_mutex_;
-        std::deque<AuditEvent> audit_log_;
+        BoundedAuditLog audit_log_;
     };
 
     // Authorization + tenant-routing facade over animus::ExecutionClient,
@@ -2187,15 +2268,12 @@ namespace security {
             return ok;
         }
 
-        size_t poll_execution_audit_log(AuditEvent* out, size_t max_count) {
-            std::lock_guard<std::mutex> lock(audit_mutex_);
-            size_t count = 0;
-            while (count < max_count && !audit_log_.empty()) {
-                out[count++] = audit_log_.front();
-                audit_log_.pop_front();
-            }
-            return count;
+        size_t poll_execution_audit_log(AuditEvent* out, size_t max_count) noexcept {
+            return audit_log_.drain(out, max_count);
         }
+
+        // Same meaning as SecureTelemetryGateway::audit_dropped_count().
+        uint64_t audit_dropped_count() const noexcept { return audit_log_.dropped_count(); }
 
     private:
         struct TenantExecution {
@@ -2203,17 +2281,14 @@ namespace security {
             std::unique_ptr<ExecutionClient> client;
         };
 
-        void append_audit(const AccessToken& token, Permission perm, AuditOutcome outcome) {
-            std::lock_guard<std::mutex> lock(audit_mutex_);
-            audit_log_.push_back(AuditEvent{
-                read_cycle_counter(), token.tenant_id, token.principal_id, perm, outcome });
+        void append_audit(const AccessToken& token, Permission perm, AuditOutcome outcome) noexcept {
+            audit_log_.append(token, perm, outcome);
         }
 
         TenantRegistry& registry_;
         std::mutex mutex_;
         std::unordered_map<uint32_t, TenantExecution> tenants_;
-        std::mutex audit_mutex_;
-        std::deque<AuditEvent> audit_log_;
+        BoundedAuditLog audit_log_;
         std::atomic<bool> require_license_{ false };
     };
 
