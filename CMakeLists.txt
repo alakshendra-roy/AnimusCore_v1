@@ -197,6 +197,45 @@ set_target_properties(test_telemetry PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
 )
 
+# test_shm_seqlock -- regression + stress harness for the seqlock guarding
+# ShmRing::push_overwrite() / SpmcRing::broadcast() (include/animus/shm_ipc.hpp):
+# self-verifying frames, concurrent readers, exact loss accounting. Usage:
+# test_shm_seqlock [--seconds N]. Build with -fsanitize=thread to check the
+# protocol itself (shm_ipc.hpp switches to its strict all-atomic route there).
+add_executable(test_shm_seqlock
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_shm_seqlock.cpp
+)
+target_include_directories(test_shm_seqlock PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+target_compile_features(test_shm_seqlock PRIVATE cxx_std_17)
+target_link_libraries(test_shm_seqlock PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(test_shm_seqlock PRIVATE rt)
+endif()
+set_target_properties(test_shm_seqlock PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+# test_audit_ring -- bounded audit trail (AnimusCore_v1/animus_security.hpp):
+# zero-allocation appends (counting operator new), drop-oldest accounting,
+# concurrent conservation. Its own executable because it replaces the global
+# operator new.
+add_executable(test_audit_ring
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_audit_ring.cpp
+)
+target_include_directories(test_audit_ring PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/AnimusCore_v1
+)
+target_compile_features(test_audit_ring PRIVATE cxx_std_17)
+target_link_libraries(test_audit_ring PRIVATE Threads::Threads)
+if(UNIX AND NOT APPLE)
+    target_link_libraries(test_audit_ring PRIVATE rt)
+endif()
+set_target_properties(test_audit_ring PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
 # animus_bench -- institutional zero-allocation ingestion benchmark harness
 # (C++20). Measures ingress-to-egress transit latency across the zero-copy
 # SPSC ring buffer (animus-eval-kit/include/spsc_ring_buffer.hpp) under
@@ -355,3 +394,5 @@ set_target_properties(cme_ingest_smoke_test PROPERTIES
 
 enable_testing()
 add_test(NAME cme_ingest_smoke_test COMMAND cme_ingest_smoke_test 20000)
+add_test(NAME test_shm_seqlock COMMAND test_shm_seqlock --seconds 1)
+add_test(NAME test_audit_ring COMMAND test_audit_ring)
