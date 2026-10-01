@@ -104,25 +104,27 @@ A standing CA/FEMA compliance retainer sits inside the Corporate Reserve & Legal
 
 ---
 
-## 3. Source Code Isolation & Contractor IP Protection
+## 3. Source Exposure & Contractor IP Protection
 
-### 3.1 Zero-Trust Repository Architecture
+### 3.1 Repository Exposure & Access Model
 
-The core lock-free ring buffer and low-latency hot-path implementation (`include/animus/shm_ipc.hpp`'s `ShmRing<T>` / `SpmcRing<T>` and their supporting concurrency primitives, per `ARCHITECTURE.md`) is segmented into a **protected, private submodule** with access restricted to the founder and any core engineer under a full IP-assignment agreement (Section 3.2). No contractor or integrator is granted access to this submodule as a matter of course, regardless of project deadline pressure.
+Animus Core is built and operated by a single founder; there is no employed engineering team and no private submodule. This section states what is actually exposed and how access would be controlled if a contractor were ever engaged, rather than describing controls that do not exist.
 
-External contractors and integrators — including those retained for the Institutional Enterprise / OEM-Redistribution wire-schema and integration engineering described in `COMMERCIAL.md` §2 — receive access strictly to:
+**What is public.** The source repository (`github.com/alakshendra-roy/AnimusCore_v1`) is publicly readable, and that includes the lock-free ring primitives — `include/animus/broadcast_ring.hpp` (`BroadcastRing<T>`), `include/animus/spsc_queue.hpp` (`SpscQueue<T>`), the legacy `ShmRing<T>` / `SpmcRing<T>` in `include/animus/shm_ipc.hpp` — the C-ABI engine sources, and the benchmark and test harnesses. Public visibility is under the evaluation-only Community Grant in [`LICENSE`](LICENSE); it is not a production license, and production use requires the executed terms in [`LEGAL_EULA.md`](LEGAL_EULA.md) and an order form. The protection for this material is therefore **copyright and contract**, not secrecy: the data-structure designs and layouts in the public repository cannot be claimed as trade secrets, and the order forms' trade-secret language applies only to material that is not public.
 
-- The **public ABI headers** (`AnimusCore_v1/animus.hpp`) defining the stable C-ABI surface;
-- **Integration stubs and mock implementations** sufficient to build and test against the public interface without the hot-path implementation;
-- **Test harnesses** (`scripts/run_benchmarks.sh` / `.ps1`, `tests/`) that exercise the compiled binary rather than the source of the ring buffer itself.
+**What is not public.** The RSA private signing key and license-issuing tooling (`AnimusCore_v1/license_tools/private/`, git-ignored and never committed), customer-specific license files, unsigned commercial and legal drafts, customer data, and any unreleased work. These are held only by the founder. The offline license design means customers never receive the signing key: they receive a signed, hardware-bound `.lic` token (`COMMERCIAL.md` §3.3).
 
-| Access tier | Repository scope | Personnel |
+**What customers and evaluators receive.** Prospective customers receive compiled binaries plus a `.lic` file under `LEGAL_EULA.md` §2; production customers receive the deliverables listed in their order form. Source beyond the public repository is available only under the source-access terms of the relevant tier in `COMMERCIAL.md` §2 (escrow, or NDA-gated audit access).
+
+**If a contractor is engaged.** No contractor currently has access to anything beyond the public repository. Before any private material or write access is shared, the contractor must execute an agreement based on the Section 3.2 template (reviewed by counsel first), and access is granted per the written statement of work:
+
+| Access tier | Scope | Who holds it today |
 |---|---|---|
-| Core | Private submodule (ring buffer, lock-free hot path, license-verification internals) | Founder; core engineers under Section 3.2 IP assignment, reviewed quarterly |
-| Integration | Public ABI headers, stubs, test harnesses, public repository | Retained contractors, integration partners |
-| Evaluation | Compiled binaries + `.lic` file only | Prospective customers under `LEGAL_EULA.md` §2 |
+| Founder | Everything, including the signing key and license-issuing tooling | Founder only |
+| Contractor / integration partner (only if engaged) | Public repository and any specific non-public files named in the statement of work; never the signing key | No one currently |
+| Evaluation / customer | Compiled binaries and `.lic` file per `LEGAL_EULA.md` §2 and the order form | Prospects and customers under executed terms |
 
-Git access at the Core tier is logged and reviewed quarterly; a contractor never transits from Integration to Core tier without an executed Section 3.2 agreement predating, not following, any access grant.
+The Section 3.2 template is sequenced so that it is executed before access is provisioned, not after.
 
 ### 3.2 Contractor IP Assignment & NDA — Standard Template
 
@@ -138,7 +140,7 @@ Every contractor signs the following before repository access of any kind is gra
 >
 > **3. Confidentiality.** Contractor shall hold in confidence, and not disclose to any third party, any source code, architecture, benchmark methodology, or business information of Company disclosed in the course of the engagement, using no less than a reasonable standard of care, for so long as such information remains non-public.
 >
-> **4. Repository Access Scope.** Contractor acknowledges that repository access is granted strictly per the tier defined in the engagement's statement of work, and that accessing, copying, or retaining any repository content outside that scope — including the Core-tier submodule described in Section 3.1 of `COMPLIANCE_AND_RISK_MITIGATION.md` — is a material breach of this Agreement independent of any separate breach of the underlying services agreement.
+> **4. Repository Access Scope.** Contractor acknowledges that repository access is granted strictly per the scope defined in the engagement's statement of work, and that accessing, copying, or retaining any repository content outside that scope — including the Core-tier submodule described in Section 3.1 of `COMPLIANCE_AND_RISK_MITIGATION.md` — is a material breach of this Agreement independent of any separate breach of the underlying services agreement.
 >
 > **5. Return/Destruction on Termination.** Upon termination of the engagement for any reason, Contractor shall immediately cease all access to Company repositories, and shall destroy or return, at Company's election, all copies of any Company source code, credentials, or confidential materials in Contractor's possession or control.
 >
