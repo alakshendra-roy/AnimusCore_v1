@@ -154,6 +154,50 @@ overrun, either — capacity is fixed at construction.
 
 ---
 
+## Dual-Primitive Shared-Memory Transport
+
+Across processes, the engine uses two single-header primitives, one per delivery
+contract, rather than one ring stretched to cover both:
+
+| | `BroadcastRing<T>` ([`include/animus/broadcast_ring.hpp`](include/animus/broadcast_ring.hpp)) | `SpscQueue<T>` ([`include/animus/spsc_queue.hpp`](include/animus/spsc_queue.hpp)) |
+|---|---|---|
+| Use | Telemetry / market-tick fan-out | Execution / order command path |
+| Shape | 1 writer → N independent readers | 1 producer → 1 consumer |
+| When full / lagging | Writer never waits; a reader that falls more than `capacity - 1` behind detects it, counts the loss and snaps forward | Strict backpressure: `try_push()` refuses, nothing is ever overwritten |
+| Shared-memory writes by readers | None (cursors live in each reader's own memory) | Consumer writes only its own `tail` line |
+
+Invariants both primitives hold, each covered by a test in this repository:
+
+- **Torn reads are never delivered.** `BroadcastRing` validates every copied
+  record against the writer's cursor after the copy and discards it if the
+  writer could have been recycling that slot; it deliberately uses a plain
+  `memcpy` for speed (a documented formal data race that the fences make safe on
+  the CPUs targeted -- see the header comment). `tests/stress_broadcast_ring.cpp`
+  laps a deliberately slow reader thousands of times and requires 0 torn, 0
+  mixed-lap and 0 mis-accounted records (`received + dropped == produced`).
+- **Lock-free by construction, not by hope.** Each cursor has exactly one
+  writer: one release store publishes, one acquire load observes. No mutex, no
+  CAS, no retry loop, and `static_assert(std::atomic<uint64_t>::is_always_lock_free)`
+  because the state lives in shared memory where a mutex fallback would be invalid.
+- **64-byte cache-line ownership.** The read-only descriptor, the producer-owned
+  cursor and the consumer-owned cursor each sit on their own line
+  (`static_assert`ed offsets), so a steady stream touches the peer's line once
+  per batch, not once per record.
+- **Zero runtime heap allocation.** Both operate on caller-supplied memory and
+  make no OS or allocator calls. The security audit trail is the same:
+  `BoundedAuditLog` (`AnimusCore_v1/animus_security.hpp`) is a fixed 4,096-entry
+  drop-oldest ring; `tests/test_audit_ring.cpp` counts `operator new` across
+  millions of appends and requires zero.
+
+Measured 2026-10-01 (10M events, 1,048,576-slot ring, two OS processes; MSVC
+Release on an i7-14650HX workstation): `BroadcastRing` publishes at **29.75 M
+events/sec, p50 14.9 ns**; `SpscQueue` delivers **10,000,000 / 10,000,000 with 0
+drops and 0 sequence gaps** at 1.35 M events/sec, a rate bounded by the pure-Python
+reference consumer rather than by the queue. Full tables, the Linux CI cross-check
+and caveats: [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md).
+
+---
+
 ## Reproducible Harness Output
 
 `bench/hotpath_bench.cpp` runs three phases against `animus::SpscRingBuffer<uint64_t>`

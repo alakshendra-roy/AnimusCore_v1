@@ -15,6 +15,7 @@
 * **Lock-free MPMC ring buffer.** `animus::LockFreeRingBuffer<T>` implements the Vyukov multi-producer/multi-consumer algorithm — the same ring `EngineImpl`'s telemetry path uses internally. Verified correct under real contention: an 8-producer-thread run pushing 1,600,000 records drains back out exactly once per push, with the benchmark harness hard-failing on any mismatch rather than assuming correctness.
 * **Cache-line-aware layout.** Hot counters and ring slots are padded to cache-line boundaries to eliminate false sharing between contending threads. Measured impact: **4.55x** throughput improvement from padding alone, on an otherwise-identical two-thread contention benchmark (see §3).
 * **Shared-memory IPC option.** `SharedMemorySegment` (POSIX `shm_open`/Windows equivalent) exposes a cross-process ring for deployments that need to fan telemetry out to a separate consumer process without a socket or broker in the loop.
+* **Dual-primitive shared-memory transport.** Two purpose-built single-header primitives, one per delivery contract, instead of one ring bent to serve both: `BroadcastRing<T>` (`include/animus/broadcast_ring.hpp`) is a lossy 1-writer → N-reader ring for telemetry and market ticks -- the writer never waits and readers never write shared memory, so a slow reader can only lose its own data, never stall the feed or any other reader; `SpscQueue<T>` (`include/animus/spsc_queue.hpp`) is a lossless 1 → 1 queue for the execution/order path -- a full queue refuses the push (strict backpressure), it never overwrites. Both run on caller-supplied cache-line-aligned memory with no OS calls, no locks, no CAS and no heap allocation after construction. See §3 "Cross-process dual-primitive harness" for measured figures.
 * **Optional hardware-locked feature gating.** CPU core pinning and similar tail-latency tuning knobs are gated by an offline, RSA-2048-verified license — fail-closed by design, with zero effect on the core ingestion path when unlicensed.
 
 ---
@@ -167,6 +168,26 @@ A different question again from the cross-core SPSC figures above: not thread-to
 | Wall time | 0.722 s (10,000,000 events) |
 
 *A single representative run, not yet averaged across multiple runs the way the C++23 harness above is — this is the first real Linux execution of this transport, reported as measured rather than held back for more samples. Verified two ways: the CI run's own build/binary/wheel inspection steps (confirmed a genuine ELF executable and `linux_x86_64` wheel tags, not a cross-compiled or misidentified artifact), and independently by downloading the produced tarball (`gh run download 33806378357`) and recomputing its SHA-256 locally, which matched the checksum CI itself reported byte-for-byte (`24f0902f0b28eda5d34ed05cd686765ff39b3bca02ff5a35c1c12675aa1ba1fd`). This same CI run is what caught and fixed a real bug in `include/animus/shm_ipc.hpp`'s POSIX consumer-attach path — see `AnimusCore_v1/BENCHMARKS.md`'s Phase 29 for the full account.*
+
+### Cross-process dual-primitive harness — `BroadcastRing` and `SpscQueue` (2026-10-01)
+
+*Source: `benchmarks/harness_benchmark.cpp` (`--mode overwrite` → `BroadcastRing<ExecutionEvent>`, `--mode backpressure` → `SpscQueue<ExecutionEvent>`), 10,000,000 events, 1,048,576-slot ring, 40-byte `ExecutionEvent`, lfence-serialized RDTSC timing calibrated against `steady_clock` (2.4192 raw-units/ns). Two independent OS processes in every row. Reproduce with `scripts/run_benchmarks.ps1` / `.sh` (overwrite) and `docs/technical_eval/EVALUATION_KIT.md` §2.3 (backpressure).*
+
+| | `BroadcastRing` (overwrite) | `SpscQueue` (backpressure) |
+|---|---|---|
+| Contract | Lossy; writer never waits; newest `capacity - 1` records readable | Lossless; producer waits on a full queue |
+| Windows 11 / MSVC Release / i7-14650HX — throughput | 29.751 M events/sec | 1.348 M events/sec (consumer-bound) |
+| — enqueue p50 / p90 / p99 / p99.9 | 14.9 / 16.1 / 21.9 / 576.2 ns | 590.7 / 997.4 / 1,129.7 / 4,790.0 ns |
+| — loss | n/a (readers count their own; live `verify_stream.py` run: gaps == reader `dropped_count`, integrity OK) | 0 dropped, 0 sequence gaps, integrity OK |
+| Linux `ubuntu-22.04` GitHub runner (CI) — throughput | 14.253 M events/sec | 0.701 M events/sec (consumer-bound) |
+| — enqueue p50 / p99 | 30.3 / 40.1 ns | 1,432.5 / 2,725.1 ns |
+| — loss | n/a | 0 dropped, 0 sequence gaps, integrity OK |
+
+How to read the backpressure column: the producer is only as fast as the consumer that guarantees zero loss, and the reference consumer is the pure-stdlib Python reader `benchmarks/consumer.py` (~1.2 M ticks/sec on CPython 3.14, ~0.66 M ticks/sec on the CPython 3.10 CI runner). The enqueue latency there includes time spent waiting for that Python consumer, so it is a statement about the consumer, not the queue. The compiled nanobind `SpscQueue.open()` binding (still driven by a Python `try_pop()` loop) drained a 3,000,000-event run at 3.0 M events/sec with 0 gaps on the same host; a fully native C++ consumer is the natural next measurement and is not claimed here. The `max` column is omitted on purpose: in a two-process run it is dominated by the interval before the consumer attaches.
+
+**Hostile multi-core stress (`tests/stress_broadcast_ring.cpp`).** One producer, two reader threads with independent cursors -- one greedy, one deliberately lagging so the writer laps it thousands of times -- over a 4,096-slot ring of 64-byte self-checking records, 10,000,000 events. Every accepted record is checked for torn reads (`price_sum == bid + ask`), mixed-lap stitching, position, ordering, timestamp monotonicity, and exact accounting (`received + dropped == cursor` after every poll). Result on both compilers (MSVC `/O2` and g++ 15.2 `-O3`): **0 torn reads, 0 corrupted records, 0 accounting errors; received + dropped == 10,000,000 for both readers**; producer 16.2 M (MSVC) / 16.9 M (g++) events/sec with both readers racing it. A run that never lapped the lagging reader is reported as a failure, not a pass.
+
+**Bounded audit trail (`tests/test_audit_ring.cpp`).** `BoundedAuditLog` (`AnimusCore_v1/animus_security.hpp`) is a fixed 4,096-entry drop-oldest ring: **5,000,000 direct appends and 4,000,000 gateway calls with zero heap allocations** (measured by a replaced global `operator new`), memory bounded at `sizeof(BoundedAuditLog)` = 131,200 bytes, `dropped_count()` accounts for every overwritten entry, and under concurrent producers `drained + dropped == appended` exactly.
 
 ### Python zero-copy interop — drain() vs. full decode
 

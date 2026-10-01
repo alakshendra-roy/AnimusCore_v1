@@ -12,20 +12,22 @@
 
 ### 1.1 High-Throughput / Overwrite Telemetry
 
-Decoupled overwrite mode (`--mode overwrite`) — the producer never waits on a consumer, matching the design intent for a market-data feed where the newest tick matters more than every historical one. The harness now publishes this mode into a lossy single-writer `BroadcastRing` (see §1.3); the figures below were captured before that change, on the earlier SPSC `push_overwrite` path, and have not been re-measured.
+Decoupled overwrite mode (`--mode overwrite`) — the producer never waits on a consumer, matching the design intent for a market-data feed where the newest tick matters more than every historical one. The harness publishes this mode into a lossy single-writer `BroadcastRing` (see §1.3). Figures below were re-measured on 2026-10-01 (MSVC Release build, Windows host, Intel i7-14650HX) against the shipping `BroadcastRing` path; the earlier ~16.1 M events/sec / 35.1 ns p50 figures were from the superseded SPSC `push_overwrite` path and are retired.
 
 | Metric | Result |
 |---|---|
 | Events | 10,000,000 |
-| **Throughput** | **16.127 M events/sec** (0.620 s wall) |
-| **p50 (median)** | **35.1 ns** |
-| **p90** | **36.8 ns** |
-| **p99** | **47.9 ns** |
-| p99.9 | 684.1 ns |
-| max | 389,731.0 ns |
-| Dropped (overwritten before consumption) | 8,951,424 / 10,000,000 (89.51%) |
+| **Throughput** | **29.751 M events/sec** (0.336 s wall) |
+| **p50 (median)** | **14.9 ns** |
+| **p90** | **16.1 ns** |
+| **p99** | **21.9 ns** |
+| p99.9 | 576.2 ns |
+| max | 432,888.8 ns |
+| Overwritten (no longer readable; readers count their own drops) | 8,951,425 / 10,000,000 (89.51%) |
 
-*The 89.51% drop figure is expected, not a defect: this run has no consumer attached, so once the 1,048,576-slot ring fills (after roughly 1/9.5 of the run), every subsequent push overwrites an unread slot by design. This table measures raw producer-side enqueue latency and throughput under saturation — it is not a delivery-guarantee measurement. See §1.3 for when that distinction matters.*
+*Independent cross-check on a genuine Linux host (GitHub Actions `ubuntu-22.04` runner, the CI harness step): 14.253 M events/sec, p50 30.3 ns, p99 40.1 ns, same 8,951,425 writer-side overwrite bound. A shared cloud runner is a noisier, slower environment than the workstation above; both are informative, neither is a CPU-isolated bare-metal figure.*
+
+*The 89.51% figure is expected, not a defect: this run has no consumer attached, so once the 1,048,576-slot ring fills (after roughly 1/9.5 of the run), every subsequent publish overwrites an unread slot by design -- the writer-side bound is everything beyond the newest `capacity - 1` records. This table measures raw producer-side enqueue latency and throughput under saturation — it is not a delivery-guarantee measurement. See §1.3 for when that distinction matters.*
 
 *Source: `./build/bench-release/harness_benchmark --events 10000000 --capacity 1048576 --mode overwrite`, reproducible end-to-end via `./scripts/run_benchmarks.sh` (default `--events 10000000`).*
 
@@ -39,10 +41,11 @@ Lossless backpressure mode (`--mode backpressure`, a `SpscQueue<T>`) with `bench
 | **Drops** | **0** |
 | **Sequence gaps** | **0** |
 | Data integrity | OK (monotonic, no repeats/reversals) |
-| Producer p50 / p99 enqueue latency | 3,144.4 ns / 5,187.2 ns |
-| Producer throughput (this configuration) | 0.356 M events/sec |
+| Producer p50 / p99 enqueue latency (includes waiting on the consumer) | 590.7 ns / 1,129.7 ns |
+| Producer throughput (this configuration) | 1.348 M events/sec (7.42 s wall) |
+| Reference consumer throughput (`benchmarks/consumer.py`, CPython 3.14) | ~1.2 M ticks/sec |
 
-*Read the last two rows carefully: this run's throughput and latency are bounded by the pure-Python reference consumer's decode loop (`benchmarks/consumer.py`, ~0.31 M ticks/sec on its own), not by the native engine. That is the correct reading of a backpressure run — the producer is, by construction, only as fast as whatever is required to guarantee zero loss against whatever is consuming. Do not average this table against §1.1's: they measure different things (raw saturation speed vs. a delivery guarantee against a specific consumer), exactly the kind of methodology conflation `../../BENCHMARK_DATASHEET.md` §2 explicitly warns against. A native C++ consumer in place of the Python reference implementation would close most of this throughput gap while keeping the zero-loss guarantee — that reproduction is a natural next step for your own evaluation, not something this kit asserts a number for.*
+*Read the last two rows carefully: this run's throughput and latency are bounded by the pure-Python reference consumer's decode loop (`benchmarks/consumer.py`, ~1.2 M ticks/sec on CPython 3.14 on the workstation above; ~0.66 M ticks/sec on the CPython 3.10 GitHub runner, which measured 0.70 M events/sec producer throughput and p50 1,432.5 ns), not by the native engine. That is the correct reading of a backpressure run — the producer is, by construction, only as fast as whatever is required to guarantee zero loss against whatever is consuming. Do not average this table against §1.1's: they measure different things (raw saturation speed vs. a delivery guarantee against a specific consumer), exactly the kind of methodology conflation `../../BENCHMARK_DATASHEET.md` §2 explicitly warns against. A native C++ consumer in place of the Python reference implementation would close most of this throughput gap while keeping the zero-loss guarantee — that reproduction is a natural next step for your own evaluation, not something this kit asserts a number for.*
 
 *Source: `harness_benchmark --mode backpressure` run concurrently with `python3 benchmarks/consumer.py`, both attached to the same named shared-memory segment — see §2.3 for the exact reproduction steps (this specific pairing is not wired into `run_benchmarks.sh` itself).*
 

@@ -36,6 +36,7 @@ $producer = Start-Process -FilePath $exe -ArgumentList @(
     "--mode", "backpressure",
     "--unlink-when-done"
 ) -NoNewWindow -PassThru
+$null = $producer.Handle  # cache the process handle now: Windows PowerShell 5.1 otherwise returns a blank ExitCode after WaitForExit()
 
 Start-Sleep -Milliseconds 500  # let the producer create the segment before the consumer attaches
 
@@ -46,3 +47,4 @@ Write-Host "Waiting for producer to finish..."
 $producer.WaitForExit()
 $producer.Refresh()
 Write-Host "Producer exit code: $($producer.ExitCode)"
+if ($producer.ExitCode -ne 0) { exit $producer.ExitCode }

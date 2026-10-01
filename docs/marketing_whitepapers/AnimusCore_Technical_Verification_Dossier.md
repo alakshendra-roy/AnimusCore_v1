@@ -104,7 +104,9 @@ The producer's line and the consumer's line are physically separated. A producer
 
 **Verification note:** these two numbers are *not* the same claim measured twice — they are two different benchmark implementations (different counter increment counts, different thread-pinning, different compilers) that both isolate the same physical effect and both land solidly in "padding wins, by more than 25%" territory. Citing a single universal multiplier ("Nx faster") would overstate precision this system doesn't have; the honest claim is: **cache-line padding eliminates a measured, reproducible throughput penalty, and the magnitude is workload- and hardware-dependent** — run `benchmarks/generate_benchmark_report.py` or the `animus_sandbox` harness on your own target box for the number that matters for your deployment.
 
-### 2.2 Concurrency: Bounded SPSC/SPMC (shipped transport) + Lock-Free MPMC (internal telemetry ring)
+### 2.2 Concurrency: Dual-Primitive Transport (`BroadcastRing` + `SpscQueue`) + Lock-Free MPMC (internal telemetry ring)
+
+> **Architecture update, 2026-10-01.** The shipped cross-process transport is now a pair of purpose-built single-header primitives, one per delivery contract: **`BroadcastRing<T>`** (`include/animus/broadcast_ring.hpp`) -- lossy, 1 writer → N independent readers, the writer never waits and readers never write shared memory -- and **`SpscQueue<T>`** (`include/animus/spsc_queue.hpp`) -- lossless, 1 → 1, a full queue refuses the push. The C-ABI handles, the nanobind module (`BroadcastRing`/`SpscQueue` classes), `harness_benchmark` (`--mode overwrite` / `--mode backpressure`) and the evaluation kit all use them. The legacy `ShmRing<T>`/`SpmcRing<T>` (`include/animus/shm_ipc.hpp`) remain in the tree for the wire-schema tests and the ITCH adapter, but are no longer the transport the engine ships; the `ShmRing`-specific discussion and the Part III measurements that follow were taken on that earlier primitive and are kept as the verification record of it. The current primitives' invariants and measurements are in §3.4 and the Technical White Paper §8. The rendered HTML/PDF copies of this dossier predate this update.
 
 This is a precision point worth stating exactly, because "MPMC" is sometimes used loosely: **the shared-memory IPC primitive AnimusCore ships to a producer/consumer pair, `ShmRing<T>`, is Single-Producer/Single-Consumer**, with a broadcast **Single-Producer/Multi-Consumer** sibling (`SpmcRing<T>`) for one writer fanning out to many independent readers. There is no general multi-writer MPMC ring in the shipped SDK "in this milestone" (`ARCHITECTURE.md` §2.3's own wording). Separately, the **engine's own internal telemetry ring** (`animus::LockFreeRingBuffer<TelemetryPayload>`) *is* a genuine lock-free MPMC design (Vyukov-style, per-slot sequence numbers), and it is this component — plus an equivalent standalone MPMC queue in the `animus_sandbox` reproduction package — that the multi-producer throughput figures in Part III were measured against.
 
@@ -365,6 +367,23 @@ SOAK_FINAL {"total_elapsed_s":9529.1,"total_produced":51623591903,"total_consume
 
 ---
 
+### 3.4 Dual-Primitive Verification — `BroadcastRing` and `SpscQueue` (2026-10-01)
+
+Run end to end on this document's test hardware (Windows 11, MSVC Release via CMake, plus g++ 15.2 `-O3` for the C++ test suites), with the Linux figures taken from the GitHub Actions `ubuntu-22.04` CI run of the same commit.
+
+| Check | Result |
+|---|---|
+| Full MSVC Release build, all CMake targets | 0 errors, 0 warnings |
+| CTest (`cme_ingest_smoke_test`, `test_shm_seqlock`, `test_audit_ring`) | 3/3 passed |
+| `tests/stress_broadcast_ring.cpp` (10M events, 4,096 slots, greedy + lagging reader) -- MSVC `/O2` and g++ `-O3` | PASS on both: 0 torn reads, 0 corrupted records, 0 accounting errors; received + dropped == 10,000,000 for both readers; the lagging reader lapped (dropped 7.7M / 9.8M) so the wrap path was exercised |
+| `tests/test_audit_ring.cpp` -- `BoundedAuditLog` | ALL PASSED: zero heap allocations across 5,000,000 appends and 4,000,000 gateway calls; exact `drained + dropped == appended` under concurrent producers |
+| `test_shm_seqlock`, `test_telemetry`, `test_spmc` (3 processes), `test_dynamic_schema` (both schemas, cross-schema rejection) | All passed |
+| Python suite (`pytest`, rebuilt nanobind extensions + real engine DLL) | 173 passed, 1 skipped (a deliberate missing-numpy-path test), 0 failed |
+| `BroadcastRing` end to end: 10M standalone + live `verify_stream.py` attach | Producer 29.75 M events/s, p50 14.9 ns; reader: gaps == `dropped_count`, integrity OK |
+| `SpscQueue` end to end: 10M events with `consumer.py` | 10,000,000 / 10,000,000, **0 dropped, 0 sequence gaps**, integrity OK, both processes exit 0 (Linux CI: same) |
+
+The one real defect this pass surfaced, as opposed to environment staleness: the Windows evaluation-kit backpressure launcher printed a blank producer exit code (Windows PowerShell 5.1 drops `ExitCode` unless the process handle is cached); fixed, and the launcher now fails on a non-zero producer exit.
+
 ---
 
 ## Part IV — Reproducibility & Methodology Appendix
@@ -377,6 +396,7 @@ Every figure in Part III should be treated as a claim until reproduced on your o
 | §3.1.2 ingestion sustained/burst | `cmake --build build --target animus_bench --config Release` then run with `--rate 10000000 --duration 5s` / `--burst --duration 5s` |
 | §3.1.3 tick-to-trade & cache locality | `python benchmarks/generate_benchmark_report.py` |
 | §3.2 sustained producer+consumer | `animus_sandbox/` — `make && ./benchmark_harness` (see `AnimusCore_Technical_WhitePaper.md` §7) |
+| §3.4 dual-primitive stress / audit / end-to-end | `g++ -O3 -std=c++17 -pthread -Iinclude tests/stress_broadcast_ring.cpp` (MSVC: `cl /std:c++17 /O2 /EHsc`); `g++ -O3 -std=c++17 -Iinclude -IAnimusCore_v1 tests/test_audit_ring.cpp -pthread`; `harness_benchmark --mode overwrite` + `eval_kit/scripts/verify_stream.py`; `harness_benchmark --mode backpressure` + `benchmarks/consumer.py` (`docs/technical_eval/EVALUATION_KIT.md` §2.3) |
 | §3.3 multi-hour soak | `benchmarks/soak_test_engine.py` driving `animus_sandbox/soak_harness.cpp` built with `-fsanitize=address -fsanitize=undefined` — a multi-hour run, not a quick check |
 
 **Standing caveats that apply to every number above, stated once here rather than repeated:**
@@ -398,6 +418,9 @@ Every figure in Part III should be treated as a claim until reproduced on your o
 | Fast-path push latency is single-digit-to-low-double-digit nanoseconds at p50/p90 | **Yes** | §3.1.1 — P50 41–49 cycles (16.9–20.3 ns), P90 45–57 cycles (18.6–23.6 ns) across 4 fresh runs |
 | P99 tail is stable in the tens-of-nanoseconds without core isolation | **No** — measured, not overstated | §3.1.1 — P99 ranged 162–736 ns run-to-run on this shared, non-isolated dev machine; isolated/pinned/RT-scheduled deployment is required to hold a tighter P99, and is not what this run configured |
 | Multi-hour continuous operation with no correctness or memory-safety degradation | **Yes** | §3.3 — 2h38m49s, ASan/UBSan clean, exact correctness, zero allocations, shrinking (not growing) in-flight deficit |
+| No torn record is ever delivered by the lossy broadcast path | **Yes**, with the mechanism stated precisely: racy reads can occur but are always detected and discarded (a documented, deliberate formal data race made safe by fences) | §3.4 -- 10M-event, two-reader hostile stress on both MSVC and g++: 0 torn, 0 corrupted, exact accounting; `broadcast_ring.hpp` header comment |
+| Lossless delivery on the execution path | **Yes** | §3.4 -- `SpscQueue`: 10,000,000 / 10,000,000, 0 drops, 0 gaps (Windows and Linux CI) |
+| Bounded audit trail with zero runtime heap allocation | **Yes** -- instrumented | §3.4 -- `BoundedAuditLog`: 0 allocations across 9M calls, fixed 131,200-byte footprint, exact drop accounting |
 | Zero-copy Python/NumPy interop | **Yes**, range not a fixed constant | §2.4 — 22–66 ns/event measured, clustering mid-20s–low-30s, consistent with the ~34.5 ns reference figure |
 
 ---

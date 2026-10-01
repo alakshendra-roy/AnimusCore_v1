@@ -13,11 +13,12 @@
 
 Animus Core is a low-latency telemetry and execution engine written in modern C++17, exposed to Python through a zero-copy nanobind bridge rather than a conventional serialize-and-copy interop layer. The design goal is narrow and specific: remove every avoidable cost between "an event exists in memory" and "a Python-side consumer can see it" — no heap allocation on the hot path, no serialization step, no lock contention on the transport itself.
 
-Three architectural decisions carry most of that weight, and each is independently verifiable rather than asserted:
+Four architectural decisions carry most of that weight, and each is independently verifiable rather than asserted:
 
 - **Cache-line-aligned payloads** (`alignas(64)`) so that concurrent producers and consumers never invalidate each other's cache lines through unrelated data sharing the same line.
 - **A lock-free MPMC ring buffer** using per-slot sequence-number coordination (the Vyukov design), so producers and consumers each make progress via a single CAS on their own cursor, not a shared lock.
 - **Invariant-TSC hardware cycle timing** on the hot path instead of a system clock call, eliminating syscall/vDSO overhead from latency measurements themselves.
+- **Two purpose-built shared-memory primitives, one per delivery contract** -- `BroadcastRing` (lossy 1-writer → N-reader, the writer never waits) and `SpscQueue` (lossless 1 → 1, strict backpressure) -- documented in Section 8, with their invariants and the latest measured figures.
 
 The sections below document each of these with the actual measurement methodology, not just the headline number — and Section 7 gives you the exact commands to reproduce every number here on your own hardware.
 
@@ -161,3 +162,36 @@ A CMake path (`cmake -B build && cmake --build build --config Release`) is also 
 Full details, including the optional Python bridge setup, are documented in `animus_sandbox/README.md`.
 
 The Section 4 multi-hour soak figures are reproduced separately via `benchmarks/soak_test_engine.py` driving `animus_sandbox/soak_harness.cpp` built with `-fsanitize=address -fsanitize=undefined` — a multi-hour run, not a two-command quick check, so it is not part of this two-step protocol. See `SOAK_TEST_AUDIT_REPORT.html` for the full run configuration.
+
+---
+
+---
+
+## 8. Production Transport Primitives — `BroadcastRing` and `SpscQueue`
+
+Sections 2–3 describe the in-process MPMC ring that EngineImpl's telemetry path uses. Between *processes* the engine uses two single-header primitives (`include/animus/broadcast_ring.hpp`, `include/animus/spsc_queue.hpp`), split by delivery contract instead of one ring being asked to serve both:
+
+| | `BroadcastRing<T>` | `SpscQueue<T>` |
+|---|---|---|
+| Contract | Lossy. 1 writer → N independent readers; the writer never waits | Lossless. 1 producer → 1 consumer; a full queue refuses the push |
+| Intended path | Telemetry and market-tick fan-out, where the newest tick matters most | Execution / order commands, where losing a message is a correctness bug |
+| Slow consumer | Only that reader loses data; it counts the loss and snaps forward. Feed and other readers unaffected | Producer waits (strict backpressure); nothing is overwritten |
+
+**Invariants.** Each is enforced in code and exercised by a test in the repository, not just described here.
+
+- **No torn record is ever delivered.** A `BroadcastRing` reader copies a record, then re-reads the writer's cursor and discards the copy if the writer could have started recycling that slot (`c2 - i < capacity` is the proof of an intact read; a release fence ahead of each slot write makes the proof hold on weakly-ordered CPUs). The slot copy is a plain `memcpy`, a documented, deliberate formal data race: discarded reads of a racing location are undefined behaviour in the C++ memory model, and ThreadSanitizer will report them, but the fences make it correct on every compiler/CPU targeted -- the same trade every production seqlock makes. The practical claim is therefore "a torn record can be read but is always detected and never returned", not "the race does not exist". `tests/stress_broadcast_ring.cpp` is the evidence: a greedy and a deliberately lagging reader race one writer over a 4,096-slot ring until the laggard has been lapped thousands of times, and every accepted record is checked for torn reads, mixed-lap stitching, position, ordering and exact accounting.
+- **Lock-free by single-writer cursors.** Every index has exactly one writer: the producer's `head` (or the ring's `cursor`) is published with one release store and observed with one acquire load; the consumer's `tail` likewise. No mutex, no CAS, no retry loop. `static_assert(std::atomic<uint64_t>::is_always_lock_free)` guards the shared-memory case, where a mutex fallback would be invalid across processes.
+- **64-byte cache-line ownership.** The read-only descriptor, the producer-owned cursor and the consumer-owned cursor each occupy a separate cache line (`static_assert`ed offsets and `sizeof`), and slots start on a line boundary. A view caches the peer's index in its own memory and re-reads the shared one only when the cached value says full/empty, so a steady stream touches the peer's line once per batch rather than once per record.
+- **Zero runtime heap allocation.** Both primitives operate on caller-supplied memory (a heap block or a shared-memory mapping) and make no OS or allocator calls after construction. The audit trail follows the same rule: `BoundedAuditLog` is a fixed 4,096-entry drop-oldest ring (`sizeof` = 131,200 bytes) that replaced an unbounded `std::deque`. `tests/test_audit_ring.cpp` replaces global `operator new` with a counting allocator and requires **zero allocations across 5,000,000 direct appends and 4,000,000 gateway calls**, bounded memory with exact `dropped_count()` accounting, drop-oldest ordering, and `drained + dropped == appended` under concurrent producers.
+
+**Measured results (2026-10-01).** 10,000,000 events, 1,048,576-slot ring, 40-byte `ExecutionEvent`, two independent OS processes, lfence-serialized RDTSC calibrated against `steady_clock`. Test hardware as in the header (i7-14650HX, Windows 11, MSVC Release); the Linux column is the GitHub Actions `ubuntu-22.04` runner from CI.
+
+| Metric | `BroadcastRing` Windows | `BroadcastRing` Linux CI | `SpscQueue` Windows | `SpscQueue` Linux CI |
+|---|---|---|---|---|
+| Throughput | 29.751 M events/s | 14.253 M events/s | 1.348 M events/s | 0.701 M events/s |
+| Enqueue p50 | 14.9 ns | 30.3 ns | 590.7 ns | 1,432.5 ns |
+| Enqueue p99 | 21.9 ns | 40.1 ns | 1,129.7 ns | 2,725.1 ns |
+| Enqueue p99.9 | 576.2 ns | 2,775.0 ns | 4,790.0 ns | 15,318.8 ns |
+| Loss | readers count their own (live run: gaps == `dropped_count`, integrity OK) | -- | **0 dropped, 0 gaps** | **0 dropped, 0 gaps** |
+
+**Read the `SpscQueue` columns correctly.** A backpressure producer is, by design, only as fast as the consumer that guarantees zero loss, and the reference consumer here is the pure-stdlib Python reader `benchmarks/consumer.py` (~1.2 M ticks/sec on CPython 3.14, ~0.66 M on the CPython 3.10 CI runner). The enqueue latency includes time spent waiting for that consumer, so the 13.6 ns minimum (a push that never had to wait) is the closest the run comes to the queue's own cost, not the p50. The `BroadcastRing` Windows column is a producer-side figure with no reader attached; its overwrite fraction (8,951,425 of 10,000,000, i.e. everything beyond the newest `capacity - 1` records) is the expected writer-side bound, not a defect. Under the two-reader hostile stress above the producer sustains 16.2 M (MSVC) / 16.9 M (g++) events/sec with 0 torn reads and exact accounting. These are single runs on a general-purpose host, not CPU-isolated bare-metal figures; cite your own numbers from your own hardware using the Section 7 protocol and `docs/technical_eval/EVALUATION_KIT.md` §2.3.
