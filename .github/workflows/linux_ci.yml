@@ -50,12 +50,14 @@ jobs:
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
             ./build/harness_benchmark_sanitized --name ci_asan_overwrite --events 200000 --capacity 4096 --unlink-when-done
 
-      - name: ASan/UBSan target -- bounded backpressure mode (with a live consumer)
+      # Lossless SpscQueue path: consumer.py is a stdlib parser of the
+      # SpscQueue segment layout and exits non-zero on any gap or short count.
+      - name: ASan/UBSan target -- lossless backpressure mode (SpscQueue, with a live consumer)
         working-directory: benchmarks
         shell: bash
         run: |
           ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-            ./build/harness_benchmark_sanitized --name ci_asan_backpressure --events 200000 --capacity 4096 --backpressure &
+            ./build/harness_benchmark_sanitized --name ci_asan_backpressure --events 200000 --capacity 4096 --mode backpressure &
           producer_pid=$!
           sleep 0.5
           python3 consumer.py --name ci_asan_backpressure --events 200000 --idle-timeout-s 5
@@ -259,12 +261,17 @@ jobs:
       # integrity end to end. Uses the release build, not the sanitized
       # one, so the numbers reflect real performance, not instrumented
       # overhead.
+      #
+      # Backpressure mode writes a lossless SpscQueue<ExecutionEvent> segment
+      # (include/animus/spsc_queue.hpp); consumer.py reads that layout and
+      # refuses any other ring kind. Zero loss is asserted on both sides: the
+      # consumer's own counts, and the producer's JSON report.
       - name: Cross-process 10,000,000-event harness (backpressure, zero-loss)
         working-directory: benchmarks
         shell: bash
         run: |
           ./build/harness_benchmark --name ci_harness_10m --events 10000000 --capacity 1048576 \
-            --backpressure --json harness_10m.json &
+            --mode backpressure --json harness_10m.json &
           producer_pid=$!
           sleep 0.5
           python3 consumer.py --name ci_harness_10m --events 10000000 --idle-timeout-s 10 | tee consumer_10m.log
@@ -275,6 +282,9 @@ jobs:
           grep -q "events consumed:     10000000" consumer_10m.log
           grep -q "sequence gaps seen:  0 " consumer_10m.log
           grep -q "data integrity:      OK (monotonic, no repeats/reversals)" consumer_10m.log
+          grep -q '"ring_type": "SpscQueue"' harness_10m.json
+          grep -q '"events_pushed": 10000000' harness_10m.json
+          grep -q '"events_dropped": 0,' harness_10m.json
           [ "$producer_status" -eq 0 ] && [ "$consumer_status" -eq 0 ]
 
       # Standalone decoupled-overwrite run at full scale (no live consumer)

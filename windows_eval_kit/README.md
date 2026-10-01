@@ -18,7 +18,7 @@ info, no embedded PDB path, no internal source paths.
 3. Run `.\bin\animus_bench_saturation.ps1` to reproduce the ~16.1M events/sec
    decoupled-overwrite saturation numbers (`docs/technical_eval/EVALUATION_KIT.md` §1.1).
 4. Run `.\bin\animus_bench_backpressure.ps1` to verify zero packet drops
-   under bounded-retry backpressure mode against the bundled Python
+   under lossless SpscQueue backpressure mode against the bundled Python
    consumer (`docs/technical_eval/EVALUATION_KIT.md` §1.2).
 
 > **Note on the license step:** core event ingestion and both benchmarks
@@ -34,15 +34,15 @@ bin/       animus_bench_saturation.ps1, animus_bench_backpressure.ps1 --
            thin launchers around the one real stripped producer binary,
            harness_benchmark.exe, pinning the arguments that reproduce
            each documented benchmark mode.
-include/   animus/*.hpp -- public ShmRing<T> transport headers
-           (include/animus/shm_ipc.hpp and its own dependencies) for
+include/   animus/*.hpp -- public shared-memory transport headers
+           (BroadcastRing<T>, SpscQueue<T>, SharedMemoryRegion) for
            building your own native producer/consumer against the same
            shared-memory ring.
 lib/       AnimusNative.dll (stripped) + AnimusNative.lib (import library)
            -- the C-ABI shim, for the ctypes/Python SDK integration path.
 python/    consumer.py -- reference zero-copy Python reader: attaches to
            the named shared-memory segment a producer created and decodes
-           records directly against the ShmRing header layout, no
+           records directly against the SpscQueue header layout, no
            serialization step.
 scripts/   get_fingerprint.ps1 -- read-only hardware fingerprint utility
            for the license-activation flow above.

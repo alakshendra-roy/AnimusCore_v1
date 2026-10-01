@@ -2,8 +2,9 @@
 #
 # Same underlying stripped harness_benchmark.exe as animus_bench_saturation.ps1,
 # run in --mode backpressure instead. Unlike overwrite mode, backpressure mode
-# blocks (bounded-retry) once the ring fills, so it needs a consumer actually
-# draining the ring concurrently to complete -- on Windows, the named
+# writes a lossless SpscQueue and waits once it fills, so it needs a consumer
+# actually draining the queue concurrently to complete (the producer aborts
+# non-zero if none drains it within --stall-timeout-s, default 30 s) -- on Windows, the named
 # shared-memory segment does not reliably outlive the producer process the
 # way a POSIX /dev/shm node does, so producer and consumer must be started
 # together, not sequentially (see docs/EVALUATION_KIT.md §2.3). This script

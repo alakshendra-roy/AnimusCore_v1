@@ -209,8 +209,9 @@ Where they are used: the C-ABI `animus_shm_ring_*` exports wrap
 `SpscQueue<OrderRequest>`; the nanobind module exposes `BroadcastRing` and
 `SpscQueue` directly (§3.3); `benchmarks/harness_benchmark` publishes its
 default `--mode overwrite` into a `BroadcastRing<ExecutionEvent>`. Its
-`--mode backpressure` stays on the legacy `ShmRing<T>`, because a broadcast
-ring has no backpressure by design.
+`--mode backpressure` publishes into a `SpscQueue<ExecutionEvent>`
+(`benchmarks/consumer.py` is a stdlib parser of that segment layout), because a
+broadcast ring has no backpressure by design.
 
 ---
 

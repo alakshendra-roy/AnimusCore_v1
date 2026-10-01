@@ -31,7 +31,7 @@ Decoupled overwrite mode (`--mode overwrite`) — the producer never waits on a 
 
 ### 1.2 Zero-Loss / Backpressure Telemetry
 
-Bounded-retry backpressure mode (`--mode backpressure`) with `benchmarks/consumer.py` attached and draining concurrently — the mode built for guaranteed message delivery rather than raw producer speed.
+Lossless backpressure mode (`--mode backpressure`, a `SpscQueue<T>`) with `benchmarks/consumer.py` attached and draining concurrently — the mode built for guaranteed message delivery rather than raw producer speed.
 
 | Metric | Result |
 |---|---|
@@ -48,15 +48,15 @@ Bounded-retry backpressure mode (`--mode backpressure`) with `benchmarks/consume
 
 ### 1.3 Architectural Distinction — Overwrite vs. Backpressure
 
-These are two deliberately different contracts, not two implementations of the same thing. Overwrite mode publishes into a `BroadcastRing<T>` (`include/animus/broadcast_ring.hpp`): a lossy single-writer ring whose readers keep their own cursors and count their own drops. Backpressure mode stays on the legacy `ShmRing<T>` (`include/animus/shm_ipc.hpp`), because a broadcast ring has no backpressure by design:
+These are two deliberately different contracts, not two implementations of the same thing. Overwrite mode publishes into a `BroadcastRing<T>` (`include/animus/broadcast_ring.hpp`): a lossy single-writer ring whose readers keep their own cursors and count their own drops. Backpressure mode publishes into a `SpscQueue<T>` (`include/animus/spsc_queue.hpp`), a lossless single-producer/single-consumer queue that refuses a push when full instead of overwriting, because a broadcast ring has no backpressure by design:
 
 | | Overwrite (`--mode overwrite`) | Backpressure (`--mode backpressure`) |
 |---|---|---|
-| Producer behavior when the ring is full | Overwrites the oldest slot and continues — never blocks; only the newest `capacity - 1` records are readable | Bounded-retry `push_spin()`: waits for the consumer to free a slot, up to a retry budget |
-| Delivery guarantee | None — newest data wins, oldest unread data is silently lost | Every event is delivered, provided the consumer keeps pace within the retry budget |
+| Producer behavior when the ring is full | Overwrites the oldest slot and continues — never blocks; only the newest `capacity - 1` records are readable | `try_push()` spin: waits for the consumer to free a slot; aborts non-zero after `--stall-timeout-s` (default 30 s) if no consumer ever drains the queue |
+| Delivery guarantee | None — newest data wins, oldest unread data is silently lost | Every event is delivered — the producer waits rather than overwrite |
 | Producer speed ceiling | Bounded only by the engine's own enqueue cost (§1.1) | Bounded by whichever is slower: the engine, or the attached consumer (§1.2) |
 | Intended use case | Market-data / telemetry feeds where the latest tick matters more than a complete history — an order book snapshot, a live price feed | Anything where losing a message is a correctness bug, not a tolerable staleness — trade confirmations, risk-check signals, audit/compliance event streams |
-| What a dropped event means operationally | Expected and by design under load — size the ring and choose overwrite deliberately for feeds where this is acceptable | A protocol violation — investigate the consumer's pace or the retry budget, don't treat it as normal |
+| What a dropped event means operationally | Expected and by design under load — size the ring and choose overwrite deliberately for feeds where this is acceptable | A protocol violation — investigate the consumer, don't treat it as normal |
 
 **The wedge for evaluation:** pick the mode that matches what you're actually building before you compare numbers against a competitor's or your own in-house transport. A vendor benchmark quoting overwrite-mode throughput against your backpressure-mode requirement (or vice versa) is not a fair comparison — this kit deliberately runs and reports both so you don't have to take that distinction on faith.
 

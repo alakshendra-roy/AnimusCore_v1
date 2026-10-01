@@ -4,7 +4,7 @@
 # Linux and needs a Linux build environment). Assembles the client-facing
 # tarball a Windows systems engineer downloads and runs: the stripped
 # AnimusNative.dll + harness_benchmark.exe Release binaries, the public
-# ShmRing<T> headers, the reference zero-copy Python consumer, the
+# shared-memory ring headers, the reference zero-copy Python consumer, the
 # hardware-fingerprint licensing utility, two mode-specific benchmark
 # launchers, and the docs the numbers they reproduce are sourced from.
 #

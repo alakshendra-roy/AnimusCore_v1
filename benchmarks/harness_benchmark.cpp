@@ -20,20 +20,24 @@
 // events are no longer readable once the run ends (everything beyond the
 // newest capacity - 1).
 //
-// --backpressure switches to the legacy animus::sys::ipc::ShmRing<
-// ExecutionEvent> (include/animus/shm_ipc.hpp) and its bounded-retry
-// push_spin(), for measuring true end-to-end throughput with consumer.py
-// running concurrently and nothing lost. A broadcast ring has no
-// backpressure by design, so that mode cannot move to it; consumer.py and the
-// CI zero-loss check read the legacy segment layout, and stay on it until they
-// are migrated to the lossless SpscQueue (include/animus/spsc_queue.hpp).
+// --mode backpressure (or --backpressure) switches to the lossless
+// animus::sys::ipc::SpscQueue<ExecutionEvent> (include/animus/spsc_queue.hpp):
+// try_push() refuses a full queue instead of overwriting, and this binary spins
+// until the consumer frees a slot, for measuring true end-to-end throughput
+// with consumer.py running concurrently and nothing lost. A broadcast ring has
+// no backpressure by design, which is why the two modes sit on different
+// containers. SpscQueue's header carries no pid or heartbeat, so a dead
+// consumer is detected by a stall timeout (--stall-timeout-s) rather than by
+// pid liveness: the producer gives up and exits non-zero instead of spinning
+// forever.
 //
 // Timestamping follows telemetry_benchmark.cpp's own methodology: a
 // serialized RDTSC read (x86, calibrated against std::chrono::steady_clock
 // over a dedicated window rather than an assumed base clock) or
 // clock_gettime(CLOCK_MONOTONIC_RAW) on non-x86, taken immediately before
 // and after each push call, so the recorded latency is exactly the cost of
-// that one push -- ring-transport cost in backpressure mode, or the
+// that one push -- ring-transport cost (plus any wait for the consumer to
+// free a slot) in backpressure mode, or the
 // (deliberately near-constant, near-zero) cost of a write-plus-branch in
 // overwrite mode. Both are real, reportable numbers, not a benchmark
 // artifact to explain away.
@@ -41,6 +45,7 @@
 #include "animus/broadcast_ring.hpp"
 #include "animus/shm_ipc.hpp"
 #include "animus/shm_lifecycle.hpp"
+#include "animus/spsc_queue.hpp"
 #include "animus/execution_event.hpp"
 
 #include <algorithm>
@@ -51,7 +56,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
-#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -88,22 +92,24 @@ using animus::kExecutionEventWireFormat;
 constexpr const char* kWireFormat = kExecutionEventWireFormat;
 
 using Broadcast = animus::sys::ipc::BroadcastRing<ExecutionEvent>; // overwrite mode
-using LegacyRing = animus::sys::ipc::ShmRing<ExecutionEvent>;      // backpressure mode only
+using Queue = animus::sys::ipc::SpscQueue<ExecutionEvent>;         // backpressure mode
 using Region = animus::sys::ipc::SharedMemoryRegion;
 
 // Allocates the named segment for at least `requested_capacity` slots
-// (rounded up to a power of two, minimum 2, as ShmRing::create did) and
-// initialises the writer's view of it. False on a name collision, an OS
-// failure, or a capacity whose byte size would overflow size_t.
-bool create_broadcast(const char* name, size_t requested_capacity, Region& region, Broadcast& writer) {
-    const size_t max_capacity = (SIZE_MAX - Broadcast::required_bytes(0)) / sizeof(ExecutionEvent);
+// (rounded up to a power of two, minimum 2) and initialises the writer's view
+// of it, for either container (BroadcastRing and SpscQueue share the
+// required_bytes()/init() shape). False on a name collision, an OS failure,
+// or a capacity whose byte size would overflow size_t.
+template <typename Ring>
+bool create_segment(const char* name, size_t requested_capacity, Region& region, Ring& writer) {
+    const size_t max_capacity = (SIZE_MAX - Ring::required_bytes(0)) / sizeof(ExecutionEvent);
     size_t capacity = 2;
     while (capacity < requested_capacity) {
         if (capacity > max_capacity / 2) return false;
         capacity <<= 1;
     }
-    if (!Region::create(name, Broadcast::required_bytes(capacity), region)) return false;
-    if (!Broadcast::init(region.data(), region.size(), capacity, writer)) {
+    if (!Region::create(name, Ring::required_bytes(capacity), region)) return false;
+    if (!Ring::init(region.data(), region.size(), capacity, writer)) {
         region.close();
         Region::unlink(name); // don't leave a half-built segment behind
         return false;
@@ -175,6 +181,27 @@ ExecutionEvent make_synthetic_event(uint64_t sequence) noexcept {
     return ev;
 }
 
+enum class PushResult { Ok, Shutdown, Stalled };
+
+// Backpressure push: spins until the consumer frees a slot. SpscQueue offers
+// no liveness signal, so the wait is bounded by wall time instead -- the clock
+// is only read every kClockCheckMask + 1 failed attempts so the common case
+// (a slot is free, or frees within a few spins) never touches it.
+PushResult push_blocking(Queue& queue, const ExecutionEvent& ev, double stall_timeout_s) noexcept {
+    constexpr uint64_t kClockCheckMask = (1u << 14) - 1;
+    if (queue.try_push(ev)) return PushResult::Ok;
+    const auto wait_start = std::chrono::steady_clock::now();
+    for (uint64_t spins = 1;; ++spins) {
+        animus::cpu_relax();
+        if (queue.try_push(ev)) return PushResult::Ok;
+        if ((spins & kClockCheckMask) != 0) continue;
+        if (animus::sys::lifecycle::SignalGuard::shutdown_requested()) return PushResult::Shutdown;
+        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - wait_start).count() > stall_timeout_s) {
+            return PushResult::Stalled;
+        }
+    }
+}
+
 struct Options {
     std::string name = "animus_harness_shm";
     uint64_t event_count = 10'000'000ull;
@@ -182,6 +209,7 @@ struct Options {
     int producer_core = -1;
     bool backpressure = false;
     bool unlink_when_done = false;
+    double stall_timeout_s = 30.0; // backpressure only: give up if one push waits this long
     std::string json_path = "harness_benchmark.json";
 };
 
@@ -212,19 +240,22 @@ Options parse_args(int argc, char** argv) {
             }
         }
         else if (arg == "--unlink-when-done") o.unlink_when_done = true;
+        else if (arg == "--stall-timeout-s") o.stall_timeout_s = std::strtod(next("--stall-timeout-s").c_str(), nullptr);
         else if (arg == "--json") o.json_path = next("--json");
         else if (arg == "--help") {
             std::printf(
                 "usage: harness_benchmark [--name NAME] [--events N] [--capacity SLOTS]\n"
                 "                          [--core CPU] [--mode overwrite|backpressure] [--unlink-when-done]\n"
-                "                          [--json PATH]\n"
+                "                          [--stall-timeout-s SECONDS] [--json PATH]\n"
                 "  --name             shared-memory segment name the consumer must match (default: animus_harness_shm)\n"
                 "  --events           synthetic events to inject (default: 10000000)\n"
                 "  --capacity         ring capacity in slots, rounded up to a power of two (default: 1048576)\n"
                 "  --mode             'overwrite' (default): lossy BroadcastRing, self-contained, read it with\n"
-                "                     eval_kit/scripts/verify_stream.py; or 'backpressure': legacy ShmRing with\n"
-                "                     bounded-retry push_spin(), needs a live benchmarks/consumer.py\n"
+                "                     eval_kit/scripts/verify_stream.py; or 'backpressure': lossless SpscQueue,\n"
+                "                     blocks while full, needs a live benchmarks/consumer.py\n"
                 "  --backpressure     shorthand for --mode backpressure\n"
+                "  --stall-timeout-s  backpressure: abort (exit 1) if one push waits this long for the consumer,\n"
+                "                     since SpscQueue has no pid to detect a dead one (default: 30)\n"
                 "  --unlink-when-done destroy the segment after the run (default: leave it for consumer.py)\n");
             std::exit(0);
         } else {
@@ -248,7 +279,7 @@ int main(int argc, char** argv) {
     std::printf("Segment name:      %s\n", opt.name.c_str());
     std::printf("Events:            %llu\n", static_cast<unsigned long long>(opt.event_count));
     std::printf("Ring capacity:     %zu slots (%zu bytes/slot)\n", opt.ring_capacity, sizeof(ExecutionEvent));
-    std::printf("Mode:              %s\n", opt.backpressure ? "backpressure (legacy ShmRing, push_spin)"
+    std::printf("Mode:              %s\n", opt.backpressure ? "backpressure (lossless SpscQueue, try_push spin)"
                                                            : "decoupled overwrite (BroadcastRing, publish)");
     std::printf("Clock source:      %s\n", clock_source_name());
     if (opt.producer_core >= 0) {
@@ -257,14 +288,14 @@ int main(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // Exactly one of these is live: `legacy` in backpressure mode, otherwise
-    // `region` (owns the mapping) + `broadcast` (the writer's view over it).
-    std::unique_ptr<LegacyRing> legacy;
+    // `region` owns the mapping; exactly one of `queue` (backpressure) or
+    // `broadcast` (overwrite) is the writer's live view over it.
     Region region;
+    Queue queue;
     Broadcast broadcast;
     const bool created = opt.backpressure
-        ? static_cast<bool>(legacy = LegacyRing::create(opt.name.c_str(), opt.ring_capacity))
-        : create_broadcast(opt.name.c_str(), opt.ring_capacity, region, broadcast);
+        ? create_segment(opt.name.c_str(), opt.ring_capacity, region, queue)
+        : create_segment(opt.name.c_str(), opt.ring_capacity, region, broadcast);
     if (!created) {
         std::fprintf(stderr,
             "error: creating the '%s' segment failed -- a segment with this name may already "
@@ -272,14 +303,13 @@ int main(int argc, char** argv) {
             "shared-memory allocation.\n", opt.name.c_str());
         return 1;
     }
-    if (legacy) legacy->mark_producer_attached();
-    const size_t ring_capacity = legacy ? legacy->capacity() : broadcast.capacity();
+    const size_t ring_capacity = opt.backpressure ? queue.capacity() : broadcast.capacity();
 
     // Milestone 2: install signal handling before the hot loop so Ctrl+C
     // (SIGINT) or a supervisor's SIGTERM detaches this process's view
-    // cleanly (breaks the loop below, unmaps via legacy.reset()/region.close()) rather than
+    // cleanly (breaks the loop below, unmaps via region.close()) rather than
     // being caught mid-push by the default handler and killing the process
-    // with the segment's producer_pid still pointing at a corpse. Note
+    // part-way through a write. Note
     // this process's own destructor path does NOT unlink by default (see
     // --unlink-when-done) -- the segment survives so a consumer already
     // attached, or about to attach, is never left holding a mapping to a
@@ -292,8 +322,8 @@ int main(int argc, char** argv) {
     std::vector<uint64_t> latency_samples_raw;
     latency_samples_raw.reserve(static_cast<size_t>(opt.event_count));
 
-    const uint64_t dropped_before = legacy ? legacy->dropped_count() : 0;
     uint64_t pushed = 0;
+    bool stalled = false;
     const auto wall_start = steady_clock::now();
 
     for (uint64_t i = 0; i < opt.event_count; ++i) {
@@ -304,29 +334,39 @@ int main(int argc, char** argv) {
         }
         const ExecutionEvent ev = make_synthetic_event(i);
         const uint64_t t0 = sample_clock();
-        if (legacy) {
-            // Bounded retry, not an unbounded blocking wait -- see
-            // ShmRing::push_spin's own doc comment (shm_ipc.hpp). A
-            // consumer that has died is detectable via
-            // legacy->is_producer_alive()/is_consumer_alive() rather than
-            // this call hanging forever.
-            legacy->push_spin(ev);
+        if (opt.backpressure) {
+            // Bounded by wall time, not an unbounded wait -- see push_blocking.
+            const PushResult r = push_blocking(queue, ev, opt.stall_timeout_s);
+            if (r == PushResult::Shutdown) {
+                std::printf("\nShutdown requested (SIGINT/SIGTERM) while waiting on the consumer -- "
+                            "detaching cleanly after %llu/%llu events.\n",
+                            static_cast<unsigned long long>(i), static_cast<unsigned long long>(opt.event_count));
+                break;
+            }
+            if (r == PushResult::Stalled) {
+                std::fprintf(stderr,
+                    "\nerror: the queue stayed full for %.1f s at event %llu/%llu -- no consumer is "
+                    "draining '%s' (not attached, or it died). Aborting.\n",
+                    opt.stall_timeout_s, static_cast<unsigned long long>(i),
+                    static_cast<unsigned long long>(opt.event_count), opt.name.c_str());
+                stalled = true;
+                break;
+            }
         } else {
             broadcast.publish(ev);
         }
         const uint64_t t1 = sample_clock();
         latency_samples_raw.push_back(t1 - t0);
         ++pushed;
-        if (legacy) legacy->producer_heartbeat();
     }
 
     const auto wall_end = steady_clock::now();
-    // Legacy ring: the writer itself counts every overwrite. Broadcast ring:
-    // readers own their drop counts, so report the writer-side bound instead --
-    // everything beyond the newest capacity - 1 records is no longer readable.
+    // Backpressure: the queue refuses rather than overwrites, so nothing is
+    // ever dropped. Broadcast ring: readers own their drop counts, so report
+    // the writer-side bound instead -- everything beyond the newest
+    // capacity - 1 records is no longer readable.
     const uint64_t readable = ring_capacity - 1;
-    const uint64_t dropped = legacy ? legacy->dropped_count() - dropped_before
-                                    : (pushed > readable ? pushed - readable : 0);
+    const uint64_t dropped = opt.backpressure ? 0 : (pushed > readable ? pushed - readable : 0);
 
     const PercentileReportNs report = summarize_ns(latency_samples_raw, units_per_ns);
     const double wall_seconds = duration<double>(wall_end - wall_start).count();
@@ -342,8 +382,8 @@ int main(int argc, char** argv) {
     std::printf("\nThroughput:        %.3f M events/sec (%llu events, %.3f s wall)\n",
                 events_per_sec / 1'000'000.0, static_cast<unsigned long long>(pushed), wall_seconds);
     std::printf("%s: %llu / %llu (%.4f%%)\n",
-                legacy ? "Dropped (overwritten before consumption)"
-                       : "Overwritten (no longer readable; each reader counts its own drops)",
+                opt.backpressure ? "Dropped (lossless queue: always 0)"
+                                 : "Overwritten (no longer readable; each reader counts its own drops)",
                 static_cast<unsigned long long>(dropped), static_cast<unsigned long long>(pushed),
                 pushed ? 100.0 * static_cast<double>(dropped) / static_cast<double>(pushed) : 0.0);
 
@@ -353,7 +393,7 @@ int main(int argc, char** argv) {
                  << "  \"benchmark\": \"animus_shm_harness_producer\",\n"
                  << "  \"segment_name\": \"" << opt.name << "\",\n"
                  << "  \"mode\": \"" << (opt.backpressure ? "backpressure" : "overwrite") << "\",\n"
-                 << "  \"ring_type\": \"" << (legacy ? "ShmRing" : "BroadcastRing") << "\",\n"
+                 << "  \"ring_type\": \"" << (opt.backpressure ? "SpscQueue" : "BroadcastRing") << "\",\n"
                  << "  \"events_requested\": " << opt.event_count << ",\n"
                  << "  \"events_pushed\": " << pushed << ",\n"
                  << "  \"events_dropped\": " << dropped << ",\n"
@@ -379,17 +419,16 @@ int main(int argc, char** argv) {
     }
 
     if (opt.unlink_when_done) {
-        legacy.reset(); // detach this process's own view first
-        region.close();
+        region.close(); // detach this process's own view first
         Region::unlink(opt.name.c_str());
         std::printf("Segment '%s' unlinked.\n", opt.name.c_str());
     } else {
         std::printf("Segment '%s' left intact for %s -- run:\n"
                     "  python %s --name %s --events %llu\n",
                     opt.name.c_str(),
-                    legacy ? "consumer.py" : "verify_stream.py",
-                    legacy ? "consumer.py" : "scripts/verify_stream.py",
+                    opt.backpressure ? "consumer.py" : "verify_stream.py",
+                    opt.backpressure ? "consumer.py" : "scripts/verify_stream.py",
                     opt.name.c_str(), static_cast<unsigned long long>(pushed));
     }
-    return 0;
+    return stalled ? 1 : 0;
 }

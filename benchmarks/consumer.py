@@ -2,7 +2,7 @@
 
 Consumer half of harness_benchmark.cpp's `--mode backpressure` evaluation
 harness. Attaches to the exact same named OS shared-memory segment
-(animus::sys::ipc::ShmRing<ExecutionEvent>, include/animus/shm_ipc.hpp)
+(animus::sys::ipc::SpscQueue<ExecutionEvent>, include/animus/spsc_queue.hpp)
 that binary creates and pushes into, decodes records directly with
 `struct` against a hardcoded byte layout mirroring that C++ header
 byte-for-byte, and drains it with no serialization step and no dependency
@@ -10,74 +10,76 @@ beyond the standard library -- consistent with this project's
 zero-dependency ctypes/stdlib SDK path (animus/shm.py takes the same
 "mirror the C++ layout by hand" approach for its own, different, wire
 format; see that module's docstring for the same rationale applied there).
+It needs no compiled extension, which is what lets CI and the evaluation kit
+run it anywhere a Python interpreter exists.
+
+SpscQueue is lossless: the producer is refused when the queue is full and
+waits for this reader, nothing is ever overwritten. So unlike the old
+overwrite-capable ring, any sequence gap seen here is a real loss, and this
+script exits non-zero on one -- as it does on a short count, a backwards or
+repeated sequence number, or a segment that is not an SpscQueue of
+ExecutionEvent records.
 
 Layout assumption: this hardcodes ANIMUS_CACHE_LINE_SIZE == 64
-(thread_affinity.hpp's default on every target except ARM64, where it's
-128 -- see that header). harness_benchmark.cpp and this script must both
-run on a 64-byte-cache-line target for the header offsets below to agree;
-that covers essentially all x86_64 evaluation hardware this harness is
-meant for.
+(spsc_queue.hpp's default on every target except ARM64, where it's 128).
+harness_benchmark.cpp and this script must both run on a 64-byte-cache-line
+target for the header offsets below to agree; that covers essentially all
+x86_64 evaluation hardware this harness is meant for. A 128-byte build is
+refused at attach (the magic/size checks fail) rather than misread.
 
-Only the legacy ShmRing<T> layout is understood. harness_benchmark's default
+Only the SpscQueue<T> layout is understood. harness_benchmark's default
 `--mode overwrite` publishes into a BroadcastRing<ExecutionEvent>
 (include/animus/broadcast_ring.hpp), whose header is a different shape; this
 script refuses such a segment with a ValueError rather than misreading it --
 read those with eval_kit/scripts/verify_stream.py (the nanobind
 BroadcastRing binding) instead.
 
-Usage (after running harness_benchmark --mode backpressure --name NAME,
-without --unlink-when-done):
+SpscQueue's header carries no producer pid or heartbeat, so this reader cannot
+tell "the producer exited" from "the producer is momentarily behind"; it
+stops when the queue has stayed empty for --idle-timeout-s, and treats
+having consumed fewer than --events by then as a failure.
+
+Usage (after starting harness_benchmark --mode backpressure --name NAME;
+this script retries the attach for --attach-timeout-s, so start order is not
+critical):
 
     python consumer.py --name animus_harness_shm --events 10000000
 """
 from __future__ import annotations
 
 import argparse
-import ctypes
-import ctypes.wintypes
-import os
 import struct
 import sys
 import time
 from multiprocessing import shared_memory
 from typing import NamedTuple, Optional
 
-# --- Header layout: must match ShmRing<ExecutionEvent>::RingHeader exactly -
-# (include/animus/shm_ipc.hpp). Milestone 1 grew the header with a
-# read-only wire-schema descriptor (schema_version_hash/payload_size/
-# stride/wire_format) ahead of the cursor lines, and Milestone 2 added one
-# more field (ring_kind, distinguishing this SPSC header from
-# SpmcRingHeader) ahead of that -- on a 64-byte-cache-line target the
-# whole descriptor is 2 full lines (128 bytes: 48 bytes of
-# capacity/mask/ring_kind/schema_version_hash/payload_size/stride + an
-# 80-byte wire_format buffer), so head/tail still land at 128/192 (the
-# descriptor's total size hasn't changed since Milestone 1, only which
-# bytes within it are which field). Four 64-byte cache lines total.
-_HEADER_SIZE = 256
-_CAPACITY_OFF = 0
-_MASK_OFF = 8
-_RING_KIND_OFF = 16
-_SCHEMA_VERSION_HASH_OFF = 24
-_PAYLOAD_SIZE_OFF = 32
-_STRIDE_OFF = 40
-_WIRE_FORMAT_OFF = 48
-_WIRE_FORMAT_SIZE = 80
-_RING_KIND_SPSC = 0
-_HEAD_OFF = 128
-_DROPPED_COUNT_OFF = 136
-_PRODUCER_PID_OFF = 144
-_PRODUCER_HEARTBEAT_OFF = 152
-_TAIL_OFF = 192
-_CONSUMER_PID_OFF = 200
-_CONSUMER_HEARTBEAT_OFF = 208
+# --- Header layout: must match SpscQueueHeader exactly ----------------------
+# (include/animus/spsc_queue.hpp). Three 64-byte cache lines: a read-only
+# descriptor, then the producer-owned `head` line, then the consumer-owned
+# `tail` line; slots follow immediately, back to back. This reader is the
+# sole writer of `tail`.
+_CACHE_LINE = 64
+_MAGIC_OFF = 0
+_CAPACITY_OFF = 8
+_MASK_OFF = 16
+_PAYLOAD_SIZE_OFF = 24
+_HEAD_OFF = _CACHE_LINE
+_TAIL_OFF = 2 * _CACHE_LINE
+_HEADER_SIZE = 3 * _CACHE_LINE
+_MAGIC = 0x5350534351554555  # SpscQueue<T>::kMagic, "SPSCQUEU"
 
-# --- Record layout: must match harness_benchmark.cpp's ExecutionEvent ------
+# --- Record layout: must match animus::ExecutionEvent -----------------------
+# (include/animus/execution_event.hpp)
 # sequence(u64), dispatch_ts_raw(u64), price_ticks(i64), quantity(i64),
-# instrument_id(u32), flags(u32) -- 40 bytes, no padding (that file
+# instrument_id(u32), flags(u32) -- 40 bytes, no padding (that header
 # static_asserts this on the C++ side).
 _RECORD_FORMAT = "<QQqqII"
 _RECORD_SIZE = struct.calcsize(_RECORD_FORMAT)
 assert _RECORD_SIZE == 40
+
+_U64 = struct.Struct("<Q")
+_RECORD = struct.Struct(_RECORD_FORMAT)
 
 
 class ExecutionEvent(NamedTuple):
@@ -89,188 +91,183 @@ class ExecutionEvent(NamedTuple):
     flags: int
 
 
-def _read_u64(buf, offset: int) -> int:
-    return struct.unpack_from("<Q", buf, offset)[0]
+class SegmentNotReady(Exception):
+    """The segment exists but its header is not initialised yet (the producer
+    creates the mapping before it writes the magic): worth retrying."""
 
 
-def _write_u64(buf, offset: int, value: int) -> None:
-    struct.pack_into("<Q", buf, offset, value)
-
-
-def is_process_alive(pid: int) -> bool:
-    """Zero-dependency cross-platform pid liveness check -- the Python-side
-    twin of animus::sys::lifecycle::is_process_alive (shm_lifecycle.hpp),
-    used the same way here: to tell "the producer is gone" apart from "the
-    producer is just behind", without depending on any wait that could
-    itself hang if the producer never comes back.
-    """
-    if pid == 0:
-        return False
-    if sys.platform == "win32":
-        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-        STILL_ACTIVE = 259
-        handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if not handle:
-            return False
-        try:
-            exit_code = ctypes.wintypes.DWORD()
-            ok = ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-            return bool(ok) and exit_code.value == STILL_ACTIVE
-        finally:
-            ctypes.windll.kernel32.CloseHandle(handle)
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True  # exists, just not ours to signal -- still alive
-
-
-class ShmExecutionConsumer:
-    """SPSC consumer over a ShmRing<ExecutionEvent> segment created by
-    harness_benchmark.cpp. Consumer-side only: mirrors that struct's
-    try_pop() exactly (relaxed tail read, acquire-equivalent head read,
-    release-equivalent tail publish) -- plain 8-byte-aligned loads/stores
-    are atomic on x86/x64 hardware, the same reasoning animus/shm.py's own
+class SpscQueueConsumer:
+    """Consumer view over a SpscQueue<ExecutionEvent> segment created by
+    harness_benchmark.cpp. Consumer-side only: mirrors that class's try_pop()
+    exactly -- `tail` is read from a process-local copy (this side is its only
+    writer), `head` is re-read from shared memory only when the cached value
+    says the queue is empty, and `tail` is published after the slot has been
+    copied out so the producer can reuse it. Plain 8-byte-aligned loads and
+    stores are atomic on x86/x64 hardware with the ordering the C++ side's
+    acquire/release pair needs, the same reasoning animus/shm.py's own
     SharedTelemetryRing documents for its unrelated wire format.
     """
 
     def __init__(self, name: str):
-        self._shm = shared_memory.SharedMemory(name=name, create=False)
-        self.capacity = _read_u64(self._shm.buf, _CAPACITY_OFF)
-        self.mask = _read_u64(self._shm.buf, _MASK_OFF)
-        # Milestone 2 check, mirroring ShmRing<T>::open()'s own ring_kind
-        # validation: refuse to attach to an SpmcRing<T> broadcast segment
-        # (include/animus/shm_ipc.hpp) -- its header is a different shape
-        # past this point (no shared tail at all), so misreading one as an
-        # SPSC RingHeader would silently decode the wrong bytes as
-        # head/dropped_count/tail instead of failing loudly here.
-        ring_kind = _read_u64(self._shm.buf, _RING_KIND_OFF)
-        if ring_kind != _RING_KIND_SPSC:
-            raise ValueError(
-                f"segment '{name}' has ring_kind={ring_kind}, expected {_RING_KIND_SPSC} (SPSC) -- "
-                f"this script only understands the legacy ShmRing<T> single-producer/single-consumer "
-                f"layout, not SpmcRing<T>, BroadcastRing<T> or SpscQueue<T> segments (for a "
-                f"BroadcastRing from harness_benchmark's --mode overwrite, use "
-                f"eval_kit/scripts/verify_stream.py)")
-        # Milestone 1 schema check, mirroring ShmRing<T>::open()'s own
-        # payload_size validation (shm_ipc.hpp) on the C++ side: refuse to
-        # attach if the segment's stamped record size doesn't match this
-        # script's hardcoded 40-byte ExecutionEvent layout, rather than
-        # silently misreading whatever the producer actually wrote.
-        payload_size = _read_u64(self._shm.buf, _PAYLOAD_SIZE_OFF)
-        if payload_size != _RECORD_SIZE:
-            raise ValueError(
-                f"segment '{name}' has payload_size={payload_size}, expected {_RECORD_SIZE} "
-                f"(this script only understands animus::ExecutionEvent) -- wire_format='{self.wire_format}'")
-        _write_u64(self._shm.buf, _CONSUMER_PID_OFF, os.getpid())
-        _write_u64(self._shm.buf, _CONSUMER_HEARTBEAT_OFF, 1)
+        shm = _attach(name)
+        try:
+            buf = shm.buf
+            if len(buf) < _HEADER_SIZE:
+                raise SegmentNotReady(f"segment '{name}' is {len(buf)} bytes, smaller than the {_HEADER_SIZE}-byte header")
+            magic = _U64.unpack_from(buf, _MAGIC_OFF)[0]
+            if magic == 0:
+                raise SegmentNotReady(f"segment '{name}' header not initialised yet")
+            if magic != _MAGIC:
+                raise ValueError(
+                    f"segment '{name}' has magic {magic:#018x}, expected {_MAGIC:#018x} (SpscQueue) -- "
+                    f"this script only understands the lossless SpscQueue<T> layout that "
+                    f"harness_benchmark's --mode backpressure writes, not the BroadcastRing<T> "
+                    f"from --mode overwrite (use eval_kit/scripts/verify_stream.py for that) "
+                    f"or a legacy ShmRing<T> segment left by an older build")
+            capacity, mask, payload_size = (_U64.unpack_from(buf, off)[0]
+                                            for off in (_CAPACITY_OFF, _MASK_OFF, _PAYLOAD_SIZE_OFF))
+            if payload_size != _RECORD_SIZE:
+                raise ValueError(
+                    f"segment '{name}' has payload_size={payload_size}, expected {_RECORD_SIZE} "
+                    f"(this script only understands animus::ExecutionEvent)")
+            if capacity < 2 or capacity & (capacity - 1) or mask != capacity - 1:
+                raise ValueError(f"segment '{name}' has an invalid header: capacity={capacity} mask={mask}")
+            if len(buf) < _HEADER_SIZE + capacity * _RECORD_SIZE:
+                raise ValueError(
+                    f"segment '{name}' is {len(buf)} bytes, too small for capacity={capacity} "
+                    f"({_HEADER_SIZE + capacity * _RECORD_SIZE} bytes needed)")
+        except BaseException:
+            shm.close()
+            raise
+        self._shm = shm
+        self._buf = shm.buf
+        self.capacity = capacity
+        self._mask = mask
+        self._tail = _U64.unpack_from(self._buf, _TAIL_OFF)[0]
+        self._cached_head = self._tail
 
-    @property
-    def wire_format(self) -> str:
-        raw = bytes(self._shm.buf[_WIRE_FORMAT_OFF:_WIRE_FORMAT_OFF + _WIRE_FORMAT_SIZE])
-        return raw.split(b"\x00", 1)[0].decode("ascii", errors="replace")
-
-    def heartbeat(self) -> None:
-        hb = _read_u64(self._shm.buf, _CONSUMER_HEARTBEAT_OFF)
-        _write_u64(self._shm.buf, _CONSUMER_HEARTBEAT_OFF, hb + 1)
-
-    def producer_pid(self) -> int:
-        return _read_u64(self._shm.buf, _PRODUCER_PID_OFF)
-
-    def producer_alive(self) -> bool:
-        pid = self.producer_pid()
-        return pid == 0 or is_process_alive(pid)
-
-    def dropped_count(self) -> int:
-        return _read_u64(self._shm.buf, _DROPPED_COUNT_OFF)
-
-    def pop(self) -> Optional[ExecutionEvent]:
-        tail = _read_u64(self._shm.buf, _TAIL_OFF)
-        head = _read_u64(self._shm.buf, _HEAD_OFF)
-        if tail == head:
-            return None
-        slot = tail & self.mask
-        offset = _HEADER_SIZE + slot * _RECORD_SIZE
-        rec = struct.unpack_from(_RECORD_FORMAT, self._shm.buf, offset)
-        _write_u64(self._shm.buf, _TAIL_OFF, tail + 1)
+    def try_pop(self) -> Optional[ExecutionEvent]:
+        """Backpressure-side pop: returns None at once when the queue is empty."""
+        tail = self._tail
+        if tail == self._cached_head:
+            self._cached_head = _U64.unpack_from(self._buf, _HEAD_OFF)[0]
+            if tail == self._cached_head:
+                return None
+        rec = _RECORD.unpack_from(self._buf, _HEADER_SIZE + (tail & self._mask) * _RECORD_SIZE)
+        self._tail = tail + 1
+        _U64.pack_into(self._buf, _TAIL_OFF, tail + 1)  # retires the slot for reuse
         return ExecutionEvent(*rec)
 
     def close(self) -> None:
+        self._buf = None  # release the exported memoryview or close() raises BufferError
         self._shm.close()
+
+
+def _attach(name: str) -> shared_memory.SharedMemory:
+    """Open an existing segment without taking ownership of it. On POSIX
+    before Python 3.13, SharedMemory registers every attach with the resource
+    tracker, which would shm_unlink the producer's segment when this process
+    exits -- undo that, the producer owns the name."""
+    try:
+        return shared_memory.SharedMemory(name=name, create=False, track=False)  # 3.13+
+    except TypeError:
+        pass
+    shm = shared_memory.SharedMemory(name=name, create=False)
+    if sys.platform != "win32":
+        try:
+            from multiprocessing import resource_tracker
+            resource_tracker.unregister(shm._name, "shared_memory")  # type: ignore[attr-defined]
+        except Exception:
+            pass  # best effort: worst case is the pre-3.13 behaviour described above
+    return shm
+
+
+def _attach_with_retry(name: str, timeout_s: float) -> SpscQueueConsumer:
+    """Waits for the producer to create and initialise the segment, so start
+    order doesn't matter. A wrong-kind segment fails immediately (ValueError)."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        try:
+            return SpscQueueConsumer(name)
+        except (FileNotFoundError, SegmentNotReady):
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--name", default="animus_harness_shm", help="segment name harness_benchmark created")
-    parser.add_argument("--events", type=int, default=10_000_000, help="target event count to consume before stopping")
+    parser.add_argument("--events", type=int, default=10_000_000, help="event count to consume before stopping")
     parser.add_argument("--idle-timeout-s", type=float, default=2.0,
-                         help="stop early if the ring stays empty this long AND the producer has exited")
+                         help="stop (and fail if short of --events) once the queue has stayed empty this long")
+    parser.add_argument("--attach-timeout-s", type=float, default=10.0,
+                         help="how long to wait for the producer to create the segment")
     args = parser.parse_args()
 
     try:
-        ring = ShmExecutionConsumer(args.name)
-    except FileNotFoundError:
-        print(f"error: no shared-memory segment named '{args.name}' -- "
-              f"start harness_benchmark first (without --unlink-when-done)", file=sys.stderr)
+        ring = _attach_with_retry(args.name, args.attach_timeout_s)
+    except (FileNotFoundError, SegmentNotReady):
+        print(f"error: no usable shared-memory segment named '{args.name}' after {args.attach_timeout_s:.1f}s -- "
+              f"start harness_benchmark --mode backpressure first (without --unlink-when-done)", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
         return 1
 
     print("Animus Engine -- Cross-Process SHM Consumer")
     print("============================================")
     print(f"Segment name:   {args.name}")
-    print(f"Ring capacity:  {ring.capacity} slots")
-    print(f"Target events:  {args.events}")
-    print(f"Producer pid:   {ring.producer_pid() or '(not yet attached)'}\n")
+    print(f"Queue capacity: {ring.capacity} slots (SpscQueue, lossless)")
+    print(f"Target events:  {args.events}\n")
 
     consumed = 0
     gaps = 0
-    last_sequence: Optional[int] = None
+    # -1, not None: the producer numbers events from 0, so treating the first
+    # record as following a virtual sequence -1 makes anything lost before this
+    # reader's first record count as a gap too, instead of going unnoticed.
+    last_sequence = -1
     integrity_ok = True
-    idle_since: Optional[float] = None
-    t_start = time.perf_counter()
+    idle_since = time.perf_counter()
+    t_start = idle_since
 
+    try_pop = ring.try_pop
     while consumed < args.events:
-        rec = ring.pop()
+        rec = try_pop()
         if rec is None:
-            if not ring.producer_alive():
-                if idle_since is None:
-                    idle_since = time.perf_counter()
-                elif time.perf_counter() - idle_since > args.idle_timeout_s:
-                    print(f"\nProducer has exited and the ring has been empty for "
-                          f"{args.idle_timeout_s:.1f}s -- stopping at {consumed}/{args.events} "
-                          f"(the remainder were lost to overwrite, if the producer ran in that mode).")
-                    break
+            if time.perf_counter() - idle_since > args.idle_timeout_s:
+                print(f"\nQueue has been empty for {args.idle_timeout_s:.1f}s with the producer silent -- "
+                      f"stopping at {consumed}/{args.events}.")
+                break
             time.sleep(0.0001)  # brief backoff -- this is a Python consumer, not a native busy-spin
             continue
-        idle_since = None
+        idle_since = time.perf_counter()
         consumed += 1
-        ring.heartbeat()
 
-        if last_sequence is not None:
-            if rec.sequence <= last_sequence:
-                print(f"INTEGRITY FAILURE: sequence went backwards or repeated "
-                      f"({rec.sequence} after {last_sequence})", file=sys.stderr)
-                integrity_ok = False
-            else:
-                gaps += rec.sequence - last_sequence - 1
+        if rec.sequence <= last_sequence:
+            print(f"INTEGRITY FAILURE: sequence went backwards or repeated "
+                  f"({rec.sequence} after {last_sequence})", file=sys.stderr)
+            integrity_ok = False
+        else:
+            gaps += rec.sequence - last_sequence - 1
         last_sequence = rec.sequence
 
     t_end = time.perf_counter()
     wall_seconds = t_end - t_start
     throughput = consumed / wall_seconds if wall_seconds > 0 else 0.0
+    complete = consumed >= args.events
 
     print("Consumption summary:")
     print(f"  events consumed:     {consumed}")
-    print(f"  sequence gaps seen:  {gaps} (expected to match the producer's dropped_count under overwrite mode)")
-    print(f"  producer dropped_count: {ring.dropped_count()}")
+    print(f"  sequence gaps seen:  {gaps} (lossless queue: must be 0)")
     print(f"  wall time:           {wall_seconds:.3f} s")
     print(f"  throughput:          {throughput:,.0f} ticks/sec ({throughput / 1_000_000:.3f} M ticks/sec)")
     print(f"  data integrity:      {'OK (monotonic, no repeats/reversals)' if integrity_ok else 'FAILED -- see above'}")
+    if not complete:
+        print(f"FAILURE: consumed {consumed} of {args.events} events", file=sys.stderr)
 
     ring.close()
-    return 0 if integrity_ok else 1
+    return 0 if (integrity_ok and gaps == 0 and complete) else 1
 
 
 if __name__ == "__main__":
