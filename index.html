@@ -276,11 +276,11 @@ tailwind.config = {
       <dl class="divide-y divide-border font-mono text-sm">
         <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
           <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Core</dt>
-          <dd class="text-slate-200 md:col-span-3">Lock-free Single-Producer Single-Consumer (SPSC) ring buffer (<code class="text-cyan">animus::ShmRing&lt;T&gt;</code>) &mdash; C++17 core, built with a C++20-or-newer toolchain.</dd>
+          <dd class="text-slate-200 md:col-span-3">Two lock-free shared-memory primitives, one per delivery contract: <code class="text-cyan">animus::sys::ipc::BroadcastRing&lt;T&gt;</code> (lossy, one writer to many readers, the writer never waits) and <code class="text-cyan">animus::sys::ipc::SpscQueue&lt;T&gt;</code> (lossless, one to one, strict backpressure) &mdash; C++17 core, built with a C++20-or-newer toolchain.</dd>
         </div>
         <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
           <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Cache Line Optimization</dt>
-          <dd class="text-slate-200 md:col-span-3">Strict 64-byte alignment (<code class="text-emerald">alignas(64)</code>) on x86-64 &mdash; auto-widens to 128 bytes on ARM64 targets with larger cache lines &mdash; to eliminate false sharing between the ring's head/tail cursors.</dd>
+          <dd class="text-slate-200 md:col-span-3">Strict 64-byte alignment (<code class="text-emerald">alignas(64)</code>) on x86-64 &mdash; auto-widens to 128 bytes on ARM64 targets with larger cache lines &mdash; to eliminate false sharing between the ring's producer-owned and consumer-owned cursors.</dd>
         </div>
         <div class="grid md:grid-cols-4 gap-2 md:gap-6 p-5">
           <dt class="text-slate-500 uppercase tracking-wider text-xs md:col-span-1">Memory Model</dt>
@@ -302,14 +302,18 @@ tailwind.config = {
   <section id="quickstart" class="py-16 px-6 max-w-7xl mx-auto border-t border-border">
     <div class="text-center mb-8">
       <h2 class="text-3xl font-bold text-white font-sans">Technical Quickstart</h2>
-      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Attaching a consumer to an existing ring is three lines in either language &mdash; no schema compiler, no broker, no connection handshake.</p>
+      <p class="text-slate-400 text-sm mt-2 max-w-2xl mx-auto">Attaching a consumer to an existing queue is a handful of lines in either language &mdash; no schema compiler, no broker, no connection handshake.</p>
     </div>
     <div class="grid md:grid-cols-2 gap-6">
       <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--cyan)">
         <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">C++20 &middot; consumer.cpp</div>
-        <pre class="font-mono text-[13px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-purple-400">auto</span> ring = animus::ShmRing&lt;TelemetryEvent&gt;::open(<span class="text-cyan">"animus_telemetry"</span>);
-TelemetryEvent evt;
-<span class="text-purple-400">while</span> (ring-&gt;try_pop(evt)) { <span class="text-slate-500">/* handle evt, zero-copy */</span> }</code></pre>
+        <pre class="font-mono text-[13px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code>animus::sys::ipc::SharedMemoryRegion region;
+animus::sys::ipc::SpscQueue&lt;animus::ExecutionEvent&gt; queue;
+<span class="text-purple-400">if</span> (animus::sys::ipc::SharedMemoryRegion::open(<span class="text-cyan">"animus_orders"</span>, region) &amp;&amp;
+    animus::sys::ipc::SpscQueue&lt;animus::ExecutionEvent&gt;::attach(region.data(), region.size(), queue)) {
+    animus::ExecutionEvent evt;
+    <span class="text-purple-400">while</span> (queue.try_pop(evt)) { <span class="text-slate-500">/* handle evt, lossless */</span> }
+}</code></pre>
       </div>
       <div class="corner-card bg-panel border border-border rounded-md overflow-hidden" style="--accent: var(--emerald)">
         <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">Python 3.8+ &middot; consumer.py</div>

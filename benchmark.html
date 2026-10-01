@@ -4,13 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Technical Specification &amp; Empirical Latency Evaluation | Animus Infrastructure</title>
-<meta name="description" content="Animus Infrastructure technical benchmark specification: zero-allocation SPSC ring architecture measured at 30.3ns median enqueue latency, with reproducible hardware config, empirical percentile data, and a hot-path integration blueprint.">
+<meta name="description" content="Animus Infrastructure technical benchmark specification: zero-allocation lock-free shared-memory ring architecture (lossy BroadcastRing, lossless SpscQueue) measured at 30.3ns median enqueue latency, with reproducible hardware config, empirical percentile data, and a hot-path integration blueprint.">
 <meta name="author" content="Alakshendra Roy">
 <meta property="og:site_name" content="Animus Infrastructure">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://animusinfra.com/benchmark">
 <meta property="og:title" content="Animus Infrastructure | Low-Latency C++ Telemetry & IPC Systems">
-<meta property="og:description" content="Zero-allocation SPSC ring architecture measured at 30.3ns median enqueue latency, with reproducible hardware config and empirical percentile data.">
+<meta property="og:description" content="Zero-allocation lock-free shared-memory ring architecture (BroadcastRing and SpscQueue) measured at 30.3ns median enqueue latency, with reproducible hardware config and empirical percentile data.">
 <link rel="icon" type="image/png" href="/animus-logo.png">
 <link rel="shortcut icon" type="image/png" href="/animus-logo.png">
 <link rel="apple-touch-icon" href="/animus-logo.png">
@@ -134,7 +134,7 @@ tailwind.config = {
         On the critical execution path &mdash; order dispatch, tick ingestion, telemetry capture &mdash; the dominant latency cost is rarely the business logic itself. It is the serialization and IPC overhead surrounding it: marshalling a struct into a wire format, crossing a kernel syscall boundary, and copying the payload two to four times between producer and consumer. Conventional logging and messaging layers (synchronous file I/O, JSON/Protobuf encoding, socket-mediated queues) impose this cost on every single event, and that cost compounds directly into tail latency once thousands of events per second traverse the same path.
       </p>
       <p class="mt-4 text-sm leading-relaxed">
-        <span class="text-white font-bold">Animus Core</span> removes that overhead structurally rather than optimizing around it: <code class="text-cyan">animus::sys::ipc::ShmRing&lt;T&gt;</code> is a zero-allocation, lock-free single-producer/single-consumer (SPSC) ring buffer placed directly in shared memory. A producer writes a trivially-copyable record straight into a pre-sized slot &mdash; no heap allocation, no encode step, no syscall &mdash; and a consumer in a separate process reads that same memory directly. There is no wire format to parse because there is no wire; the struct layout in shared memory <em>is</em> the interchange format.
+        <span class="text-white font-bold">Animus Core</span> removes that overhead structurally rather than optimizing around it: two zero-allocation, lock-free primitives placed directly in shared memory, one per delivery contract: <code class="text-cyan">animus::sys::ipc::BroadcastRing&lt;T&gt;</code>, a lossy one-writer-to-many-readers ring for telemetry and market data whose writer never waits, and <code class="text-cyan">animus::sys::ipc::SpscQueue&lt;T&gt;</code>, a lossless one-to-one queue for the execution and order path that refuses a push when full instead of overwriting. A producer writes a trivially-copyable record straight into a pre-sized slot &mdash; no heap allocation, no encode step, no syscall &mdash; and a consumer in a separate process reads that same memory directly. There is no wire format to parse because there is no wire; the struct layout in shared memory <em>is</em> the interchange format.
       </p>
       <p class="mt-4 text-sm leading-relaxed">
         Measured on the reference configuration in Section 2, this architecture sustains a <span class="text-emerald font-bold">30.3ns median (p50) per-event enqueue latency</span> under a decoupled, non-blocking producer workload &mdash; see Section 3 for the full percentile distribution, methodology, and exact source citation; Section 4 for the separate MPMC/soak transport axis; and Section 5 for the integration surface.
@@ -162,7 +162,7 @@ tailwind.config = {
             <tr class="border-b border-border/60"><td class="p-3 text-slate-500">CPU isolation</td><td class="p-3 text-danger">Not applied on this run &mdash; <code class="text-slate-400">isolcpus</code>/<code class="text-slate-400">nohz_full</code> exclusive core reservation is a documented gap on the current reference rig, not a claimed feature of the numbers below (see Section 3 caveats)</td></tr>
             <tr class="border-b border-border/60"><td class="p-3 text-slate-500">Timestamp source</td><td class="p-3">Serialized RDTSC (<code class="text-cyan">_mm_lfence()</code> immediately before/after <code class="text-cyan">__rdtsc()</code>), converted to nanoseconds via a 200ms wall-clock calibration performed once at process startup &mdash; not an assumed or "rated" clock frequency</td></tr>
             <tr class="border-b border-border/60"><td class="p-3 text-slate-500">TSC invariance</td><td class="p-3">Not independently verified on this runner; per-run wall-clock calibration is used specifically because a rated/assumed frequency cannot be trusted under cloud-CI turbo/power-state variance</td></tr>
-            <tr><td class="p-3 text-slate-500">Transport under test</td><td class="p-3"><code class="text-cyan">animus::sys::ipc::ShmRing&lt;ExecutionEvent&gt;</code>, decoupled overwrite mode (<code class="text-cyan">push_overwrite()</code>), cross-process over POSIX <code class="text-cyan">/dev/shm</code></td></tr>
+            <tr><td class="p-3 text-slate-500">Transport under test</td><td class="p-3">Run 33806378357: <code class="text-cyan">animus::sys::ipc::ShmRing&lt;ExecutionEvent&gt;</code>, decoupled overwrite mode (<code class="text-cyan">push_overwrite()</code>), the transport that run measured. 2026-10-01 re-run (commit 349cb0c, <code class="text-cyan">g++ -O3 -march=native</code>, same hosted-runner class): <code class="text-cyan">animus::sys::ipc::BroadcastRing&lt;ExecutionEvent&gt;</code>, decoupled overwrite mode (<code class="text-cyan">publish()</code>), the shipped overwrite path. Both cross-process over POSIX <code class="text-cyan">/dev/shm</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -175,7 +175,7 @@ tailwind.config = {
     <section id="benchmark-data" class="mt-14 pt-10 border-t border-border">
       <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">3. Empirical Benchmark Data</h2>
       <p class="mt-4 text-sm leading-relaxed">
-        Per-event enqueue latency, decoupled/non-blocking overwrite mode, 10,000,000 synthetic <code class="text-cyan">ExecutionEvent</code> records. The Animus Core Engine row below is measured directly on the reference configuration in Section 2 &mdash; source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code>, Phase 29. The Legacy Logging (spdlog) and Standard Async Ring rows are representative industry baselines for a synchronous file-backed logger and a typical allocating/lock-based async queue respectively &mdash; illustrative of the class of transport, not a measurement of a specific third-party deployment on this hardware.
+        Per-event enqueue latency, decoupled/non-blocking overwrite mode, 10,000,000 synthetic <code class="text-cyan">ExecutionEvent</code> records. The Animus Core Engine rows below are measured directly on the reference configuration in Section 2 (the first on the earlier <code class="text-cyan">ShmRing</code> overwrite path, the second a 2026-10-01 re-run on the shipped <code class="text-cyan">BroadcastRing</code>, 10,000,000 events, max observed 204,291 ns, same hosted-runner class but not the same machine) &mdash; source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code>, Phase 29. The Legacy Logging (spdlog) and Standard Async Ring rows are representative industry baselines for a synchronous file-backed logger and a typical allocating/lock-based async queue respectively &mdash; illustrative of the class of transport, not a measurement of a specific third-party deployment on this hardware.
       </p>
       <div class="mt-4 overflow-x-auto border border-border rounded-sm">
         <table class="w-full text-xs min-w-[640px]">
@@ -214,6 +214,14 @@ tailwind.config = {
               <td class="p-3 text-right text-emerald font-bold">2,695.2 ns</td>
               <td class="p-3 text-right text-emerald font-bold">13.856M msgs/sec</td>
             </tr>
+            <tr class="bg-emerald/5">
+              <td class="p-3 flex items-center gap-2 text-white font-bold"><span class="w-2 h-2 rounded-full bg-emerald"></span>Animus Core Engine &mdash; BroadcastRing, 2026-10-01 re-run (measured)</td>
+              <td class="p-3 text-right text-emerald font-bold">30.3 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">30.3 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">40.1 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">2,775.0 ns</td>
+              <td class="p-3 text-right text-emerald font-bold">14.253M msgs/sec</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -226,7 +234,7 @@ tailwind.config = {
     <section id="mpmc-soak" class="mt-14 pt-10 border-t border-border">
       <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">4. MPMC Throughput &amp; Multi-Hour Soak Verification</h2>
       <p class="mt-4 text-sm leading-relaxed">
-        A separate transport axis from Sections 2&ndash;3's SPSC ring: <code class="text-cyan">animus::LockFreeRingBuffer&lt;T&gt;</code>, a lock-free multi-producer/multi-consumer (MPMC) ring, under real 8-producer/8-consumer contention and a multi-hour continuous soak run. Source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code> &middot; full soak chronology: <code class="text-slate-400">SOAK_TEST_AUDIT_REPORT.html</code>.
+        A separate transport axis from Sections 2&ndash;3's shared-memory rings: <code class="text-cyan">animus::LockFreeRingBuffer&lt;T&gt;</code>, a lock-free multi-producer/multi-consumer (MPMC) ring, under real 8-producer/8-consumer contention and a multi-hour continuous soak run. Source: <code class="text-slate-400">AnimusCore_v1/BENCHMARKS.md</code> &middot; full soak chronology: <code class="text-slate-400">SOAK_TEST_AUDIT_REPORT.html</code>.
       </p>
       <p class="mt-4 text-sm leading-relaxed">
         Test hardware: Intel Core i7-14650HX &mdash; 16 cores / 24 logical threads (8 Performance-cores w/ Hyper-Threading + 8 Efficiency-cores, confirmed by per-core isolation probe rather than vendor spec alone). 64-byte cache-line isolation (<code class="text-cyan">alignas(64)</code>) on producer/consumer cursors, measured at a 4.55x throughput gain (4.21x&ndash;4.99x across 5 A/B runs) over an unpadded, false-sharing layout.
@@ -257,19 +265,25 @@ tailwind.config = {
     <section id="integration-blueprint" class="mt-14 pt-10 border-t border-border">
       <h2 class="text-lg font-bold text-white font-mono uppercase tracking-wider border-b border-border pb-2">5. Hot-Path Integration Blueprint</h2>
       <p class="mt-4 text-sm leading-relaxed">
-        The producer-side integration is two calls: create the ring once at startup, then call <code class="text-cyan">push_overwrite()</code> on the hot path. It never allocates, never blocks, and never refuses a write &mdash; a full ring reclaims its oldest unread slot and increments a deterministic drop counter instead of applying backpressure to the caller. This is the real API surface from <code class="text-slate-400">include/animus/shm_ipc.hpp</code> and <code class="text-slate-400">include/animus/execution_event.hpp</code>, not a simplified pseudocode stand-in.
+        The producer-side integration is two steps: create and initialise the ring once at startup, then call <code class="text-cyan">publish()</code> on the hot path. It never allocates, never blocks, and never refuses a write &mdash; the writer does not know its readers exist, and a reader that falls more than <code class="text-slate-400">capacity - 1</code> records behind detects it, counts the loss itself and snaps forward, instead of applying backpressure to the writer. For the execution path, <code class="text-cyan">SpscQueue&lt;T&gt;</code> offers the opposite contract: <code class="text-cyan">try_push()</code> returns false on a full queue and nothing is ever overwritten. This is the real API surface from <code class="text-slate-400">include/animus/broadcast_ring.hpp</code>, <code class="text-slate-400">include/animus/spsc_queue.hpp</code> and <code class="text-slate-400">include/animus/execution_event.hpp</code>, not a simplified pseudocode stand-in.
       </p>
       <div class="corner-card bg-panel border border-border rounded-md overflow-hidden mt-5" style="--accent: var(--cyan)">
         <div class="px-4 py-2.5 border-b border-border bg-black/40 text-[11px] font-mono text-slate-500">C++17 &middot; telemetry_record.cpp</div>
-        <pre class="font-mono text-[12.5px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-slate-500">// One-time setup: a 40-byte, trivially-copyable wire record and a</span>
-<span class="text-slate-500">// zero-allocation SPSC ring placed directly in shared memory.</span>
-<span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/shm_ipc.hpp"</span>
+        <pre class="font-mono text-[12.5px] text-slate-300 leading-relaxed p-5 overflow-x-auto"><code><span class="text-slate-500">// One-time setup: a 40-byte, trivially-copyable wire record and a lossy</span>
+<span class="text-slate-500">// broadcast ring placed directly in shared memory (no OS calls in the ring itself).</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/broadcast_ring.hpp"</span>
+<span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/shm_ipc.hpp"</span>           <span class="text-slate-500">// SharedMemoryRegion</span>
 <span class="text-purple-400">#include</span> <span class="text-emerald-400">"animus/execution_event.hpp"</span>
 
 <span class="text-purple-400">using</span> animus::ExecutionEvent;
-<span class="text-purple-400">using</span> animus::sys::ipc::ShmRing;
+<span class="text-purple-400">using</span> animus::sys::ipc::BroadcastRing;
+<span class="text-purple-400">using</span> animus::sys::ipc::SharedMemoryRegion;
 
-<span class="text-purple-400">auto</span> ring = ShmRing&lt;ExecutionEvent&gt;::create(<span class="text-cyan">"animus_telemetry"</span>, <span class="text-cyan">4096</span>);
+<span class="text-purple-400">constexpr size_t</span> kCapacity = <span class="text-cyan">4096</span>;              <span class="text-slate-500">// power of two; newest kCapacity - 1 records readable</span>
+SharedMemoryRegion region;
+BroadcastRing&lt;ExecutionEvent&gt; ring;
+SharedMemoryRegion::create(<span class="text-cyan">"animus_telemetry"</span>, BroadcastRing&lt;ExecutionEvent&gt;::required_bytes(kCapacity), region);
+BroadcastRing&lt;ExecutionEvent&gt;::init(region.data(), region.size(), kCapacity, ring);
 
 <span class="text-slate-500">// Hot path: zero heap allocation, never blocks, never refuses a write.</span>
 <span class="text-purple-400">void</span> record_execution_event(<span class="text-purple-400">uint64_t</span> seq, <span class="text-purple-400">int64_t</span> price_ticks, <span class="text-purple-400">int64_t</span> qty, <span class="text-purple-400">uint32_t</span> instrument_id) {
@@ -280,14 +294,14 @@ tailwind.config = {
     evt.quantity        = qty;
     evt.instrument_id   = instrument_id;
 
-    ring-&gt;push_overwrite(evt);                <span class="text-slate-500">// non-blocking; drops oldest unread slot if full</span>
+    ring.publish(evt);                        <span class="text-slate-500">// non-blocking; the writer never waits on any reader</span>
 }
 
-<span class="text-slate-500">// Deterministic loss visibility &mdash; always 0 if the consumer keeps pace.</span>
-<span class="text-purple-400">uint64_t</span> dropped = ring-&gt;dropped_count();</code></pre>
+<span class="text-slate-500">// Loss is counted by each reader, in its own memory &mdash; the writer cannot know</span>
+<span class="text-slate-500">// what any one reader missed. A reader attaches, polls, and reads its own drop count.</span></code></pre>
       </div>
       <p class="mt-4 text-xs text-slate-500 leading-relaxed">
-        A consumer in a separate process &mdash; C++ via <code class="text-cyan">ShmRing&lt;ExecutionEvent&gt;::open()</code>, or Python via the nanobind binding in <code class="text-slate-400">bindings/animus_shm_py.cpp</code> &mdash; attaches to the same named segment and reads the identical struct layout with no decode step in between.
+        A consumer in a separate process &mdash; C++ via <code class="text-cyan">BroadcastRing&lt;ExecutionEvent&gt;::attach()</code>, or Python via the nanobind binding in <code class="text-slate-400">bindings/animus_shm_py.cpp</code> &mdash; attaches to the same named segment and reads the identical struct layout with no decode step in between.
       </p>
     </section>
 
