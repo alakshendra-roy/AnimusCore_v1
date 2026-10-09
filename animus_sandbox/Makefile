@@ -10,7 +10,7 @@
 # CXX/CXXFLAGS can be overridden on the command line, e.g.:
 #   make CXX=clang++
 CXX      ?= g++
-CXXFLAGS := -O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic -pthread
+CXXFLAGS := -O3 -march=native -std=c++17 -Wall -Wextra -Wpedantic -Werror -pthread
 LDFLAGS  := -pthread
 
 .PHONY: all run soak clean

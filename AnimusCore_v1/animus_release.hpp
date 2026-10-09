@@ -375,12 +375,15 @@ namespace animus {
     // __has_include<new>, and fall back to the conservative,
     // universally-safe 64-byte assumption everywhere the macro is absent.
 #if defined(__cpp_lib_hardware_interference_size)
-#if defined(__GNUC__) || defined(__clang__)
+    // -Winterference-size exists only in GCC. Clang defines __GNUC__ too, but
+    // rejects the unknown group (-Wunknown-warning-option), which -Werror turns
+    // into a build failure -- hence the explicit !__clang__.
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Winterference-size"
 #endif
     inline constexpr size_t kCachelineBytes = std::hardware_destructive_interference_size;
-#if defined(__GNUC__) || defined(__clang__)
+#if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
 #else

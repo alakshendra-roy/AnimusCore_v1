@@ -1,0 +1,33 @@
+Animus Engine -- Telemetry Dispatch Benchmark (C++23)
+=========================================================
+Warm-up events:        1000000
+Latency-phase events:  1000000 (depth-1, waits for receipt before next dispatch)
+Throughput-phase events: 9000000 (unthrottled flood)
+Ring capacity:         16384 slots (64 bytes/slot, 64-byte aligned)
+Requested affinity:    producer=core 4, consumer=core 6
+Clock source:          RDTSC (lfence-serialized, calibrated)
+
+Calibration:            2.4192 raw-units/ns (~2.419 GHz-equivalent)
+
+
+End-to-end dispatch latency (producer enqueue -> consumer receipt):
+  ---------------------------------------------
+  min             134.8 ns
+  p50             177.7 ns
+  p90             196.8 ns
+  p99             226.9 ns
+  p99.9          2484.7 ns
+  max         1731349.1 ns
+  ---------------------------------------------
+Note: max/p99.9 reflect OS scheduling noise (context switches, timer
+interrupts) on the pinned cores as much as the transport itself -- p50/p90/p99
+are the steady-state figures; run on an isolated/tickless core set for a
+tighter tail.
+
+Sustained throughput:
+  ---------------------------------------------
+  throughput                 21.026 M msgs/sec
+  wall time                   0.428 s
+  ---------------------------------------------
+
+JSON report written to: msvc_sep_4-6_run1.json

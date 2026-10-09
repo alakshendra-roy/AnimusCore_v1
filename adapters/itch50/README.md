@@ -145,7 +145,7 @@ verbatim with no swap -- see the field's own decode note in
 Both rows below are one real `bench_itch_ingest --messages 10000000` run
 each, captured on the same physical development machine (not a dedicated,
 CPU-isolated benchmark rig -- no `isolcpus`/`nohz_full`/real-time scheduling;
-see `docs/technical_eval/PILOT_EVAL_CHECKLIST.md` §2 for what that tuning buys). As with
+see `docs/technical_eval/COMPATIBILITY_TUNING_GUIDE.md` for what that tuning buys). As with
 every other benchmark in this repository, these are real, reproducible
 numbers from an actual run, not projected or hand-typed figures --
 reproduce them yourself with the command in §5. Tail latency (p99.9, max)

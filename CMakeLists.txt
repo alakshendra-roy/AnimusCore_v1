@@ -14,6 +14,28 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# ---------------------------------------------------------------------------
+# Build policy switches (applied to every target at the bottom of this file).
+#
+#   -DANIMUS_STRICT_WARNINGS=ON   GCC/Clang: -Wall -Wextra -Werror
+#                                 MSVC:      /W4 /WX /wd4324  (4324 is the intentional
+#                                            cache-line padding the headers exist for)
+#   -DANIMUS_NATIVE_ARCH=ON       -march=native, executables only. Never the shared
+#                                 library: animus_native ships to customer machines
+#                                 whose CPU is not this one.
+#   -DANIMUS_SANITIZE=address;undefined   (or: thread)   executables only -- a
+#                                 sanitized shared library cannot be dlopen()ed by an
+#                                 unsanitized host such as CPython.
+#
+# The reference verification configuration (Linux, g++/clang++) is:
+#   cmake -S . -B build-verify -DCMAKE_BUILD_TYPE=Release \
+#         -DANIMUS_STRICT_WARNINGS=ON -DANIMUS_NATIVE_ARCH=ON
+# i.e. -std=c++17 -O3 -march=native -pthread -lrt -Wall -Wextra -Werror.
+# ---------------------------------------------------------------------------
+option(ANIMUS_STRICT_WARNINGS "Compile every target with -Wall -Wextra -Werror (MSVC: /W4 /WX)" OFF)
+option(ANIMUS_NATIVE_ARCH "Compile executables with -march=native" OFF)
+set(ANIMUS_SANITIZE "" CACHE STRING "Sanitizers for executables: 'address;undefined' or 'thread'")
+
 add_library(animus_native SHARED
     ${CMAKE_CURRENT_SOURCE_DIR}/AnimusCore_v1/animus_engine.cpp
 )
@@ -97,23 +119,31 @@ endforeach()
 # A per-target language standard (cxx_std_23) rather than the project-wide
 # CMAKE_CXX_STANDARD above, so this doesn't force C++23 onto animus_native,
 # which stays on the C++17 the exported C-ABI shim is built against.
-add_executable(telemetry_benchmark
-    ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/telemetry_benchmark.cpp
-)
-target_compile_features(telemetry_benchmark PRIVATE cxx_std_23)
+#
+# It needs the C++20 <format> header, which libstdc++ ships from GCC 13. On an
+# older GCC (Ubuntu 22.04's default, RHEL 9) the target is skipped with a
+# message instead of failing the whole build; everything else here is C++17.
 find_package(Threads REQUIRED)
-target_link_libraries(telemetry_benchmark PRIVATE Threads::Threads)
-if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # libstdc++'s <print> ships its Windows/POSIX terminal-writing backend
-    # (std::__open_terminal / std::__write_to_terminal) in the separate
-    # "experimental" static library until the TS support stabilizes --
-    # without this, linking fails with undefined references to those two
-    # symbols on any GCC (including MinGW) new enough to have <print> at all.
-    target_link_libraries(telemetry_benchmark PRIVATE stdc++exp)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+    message(STATUS "telemetry_benchmark skipped: needs <format> (GCC >= 13); found GCC ${CMAKE_CXX_COMPILER_VERSION}")
+else()
+    add_executable(telemetry_benchmark
+        ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/telemetry_benchmark.cpp
+    )
+    target_compile_features(telemetry_benchmark PRIVATE cxx_std_23)
+    target_link_libraries(telemetry_benchmark PRIVATE Threads::Threads)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        # libstdc++'s <print> ships its Windows/POSIX terminal-writing backend
+        # (std::__open_terminal / std::__write_to_terminal) in the separate
+        # "experimental" static library until the TS support stabilizes --
+        # without this, linking fails with undefined references to those two
+        # symbols on any GCC (including MinGW) new enough to have <print> at all.
+        target_link_libraries(telemetry_benchmark PRIVATE stdc++exp)
+    endif()
+    set_target_properties(telemetry_benchmark PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    )
 endif()
-set_target_properties(telemetry_benchmark PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-)
 
 # harness_benchmark -- cross-process shared-memory producer harness
 # (Milestone 4). C++17 (matching include/animus/shm_ipc.hpp's own
@@ -392,7 +422,129 @@ set_target_properties(cme_ingest_smoke_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
+# ---------------------------------------------------------------------------
+# Verification suite (build/bin/): ShmRingMpmc regression, the 10M-iteration
+# fast-path latency harness, the 8-producer / 8-consumer saturation soak, and
+# the static zero-allocation audit. See docs/institutional/verification_report.html
+# for the commands and the recorded results.
+# ---------------------------------------------------------------------------
+# GNU ld, gold and lld redirect malloc-family references with --wrap; Apple's ld64 cannot.
+set(ANIMUS_CAN_WRAP_MALLOC FALSE)
+if((UNIX AND NOT APPLE) OR MINGW)
+    set(ANIMUS_CAN_WRAP_MALLOC TRUE)
+endif()
+
+# WRAP_ALLOC: link the counting allocator's malloc-level layer (tests/alloc_guard.hpp).
+function(animus_add_verification_tool name source)
+    cmake_parse_arguments(ARG "WRAP_ALLOC" "" "" ${ARGN})
+    add_executable(${name} ${CMAKE_CURRENT_SOURCE_DIR}/${source})
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(${name} PRIVATE cxx_std_17)
+    target_link_libraries(${name} PRIVATE Threads::Threads)
+    if(UNIX AND NOT APPLE)
+        target_link_libraries(${name} PRIVATE rt)
+    endif()
+    if(MSVC)
+        target_compile_options(${name} PRIVATE /wd4324)
+    else()
+        target_compile_options(${name} PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3>)
+    endif()
+    if(MINGW)
+        # The harnesses replace the global operator new/delete. A dynamically loaded
+        # libstdc++-6.dll keeps its own allocator, and if the DLL search picks a
+        # different MinGW flavour than the one the program was built against, the two
+        # disagree about which CRT heap owns a block (STATUS_HEAP_CORRUPTION). A static
+        # runtime removes the ambiguity -- and makes the replacement cover the
+        # library's own allocations too.
+        target_link_options(${name} PRIVATE -static)
+    endif()
+    if(ARG_WRAP_ALLOC AND ANIMUS_CAN_WRAP_MALLOC)
+        target_compile_definitions(${name} PRIVATE ANIMUS_WRAP_MALLOC=1)
+        set(_wrap malloc calloc realloc free)
+        if(WIN32)
+            list(APPEND _wrap _aligned_malloc _aligned_free)
+        else()
+            list(APPEND _wrap posix_memalign aligned_alloc)
+        endif()
+        foreach(_w IN LISTS _wrap)
+            target_link_options(${name} PRIVATE "LINKER:--wrap=${_w}")
+        endforeach()
+    endif()
+    set_target_properties(${name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+endfunction()
+
+animus_add_verification_tool(test_shm_mpmc tests/test_shm_mpmc.cpp)
+animus_add_verification_tool(eval_harness tests/eval_harness.cpp WRAP_ALLOC)
+animus_add_verification_tool(soak_shm_mpmc tests/soak_shm_mpmc.cpp WRAP_ALLOC)
+# The hostile BroadcastRing harness (10M events, greedy + lagging reader) that previously had no CMake target.
+animus_add_verification_tool(stress_broadcast_ring tests/stress_broadcast_ring.cpp)
+# Linux only: page-fault and backing accounting for each shm create/map strategy (kernel counters, no timing).
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    animus_add_verification_tool(posix_shm_fault_probe tests/posix_shm_fault_probe.cpp)
+endif()
+
 enable_testing()
 add_test(NAME cme_ingest_smoke_test COMMAND cme_ingest_smoke_test 20000)
 add_test(NAME test_shm_seqlock COMMAND test_shm_seqlock --seconds 1)
 add_test(NAME test_audit_ring COMMAND test_audit_ring)
+# test_shm_mpmc includes a real cross-process run (it re-executes itself as child processes).
+add_test(NAME test_shm_mpmc COMMAND test_shm_mpmc)
+# Short smoke runs of the two harnesses. The reference figures use the defaults
+# (10,000,000 timed iterations; 64,000,000 soak frames) -- see the verification report.
+add_test(NAME eval_harness_smoke COMMAND eval_harness --iters 200000 --warmup 20000 --floor-samples 100000 --mode both)
+add_test(NAME soak_shm_mpmc_smoke COMMAND soak_shm_mpmc --frames 4000000 --label ctest)
+add_test(NAME stress_broadcast_ring COMMAND stress_broadcast_ring)
+
+# Static zero-allocation audit: disassemble the hot-path probe object and fail if any
+# allocator or exception entry point is reachable (scripts/audit_hotpath_symbols.py).
+# GNU binutils output only -- MSVC objects are covered by the runtime layers above.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
+    find_program(ANIMUS_OBJDUMP NAMES objdump llvm-objdump)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(ANIMUS_OBJDUMP AND Python3_Interpreter_FOUND)
+        add_library(hotpath_audit_probe OBJECT ${CMAKE_CURRENT_SOURCE_DIR}/tests/hotpath_audit_probe.cpp)
+        target_include_directories(hotpath_audit_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        target_compile_features(hotpath_audit_probe PRIVATE cxx_std_17)
+        target_compile_options(hotpath_audit_probe PRIVATE $<$<NOT:$<CONFIG:Debug>>:-O3>)
+        add_test(NAME hotpath_symbol_audit
+            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/scripts/audit_hotpath_symbols.py
+                    --object $<TARGET_OBJECTS:hotpath_audit_probe> --objdump ${ANIMUS_OBJDUMP})
+    endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Apply the build policy switches from the top of this file to every target.
+# ---------------------------------------------------------------------------
+function(animus_apply_build_policy target)
+    get_target_property(_type ${target} TYPE)
+    if(ANIMUS_STRICT_WARNINGS)
+        if(MSVC)
+            target_compile_options(${target} PRIVATE /W4 /WX /wd4324)
+        else()
+            target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
+        endif()
+    endif()
+    # Executables (and the audit's object library, so it matches the benchmark's
+    # code generation) only: the shared library must stay portable and loadable.
+    if(_type STREQUAL "EXECUTABLE" OR _type STREQUAL "OBJECT_LIBRARY")
+        if(ANIMUS_NATIVE_ARCH AND NOT MSVC)
+            target_compile_options(${target} PRIVATE -march=native)
+        endif()
+    endif()
+    if(_type STREQUAL "EXECUTABLE" AND ANIMUS_SANITIZE)
+        if(MSVC)
+            if("address" IN_LIST ANIMUS_SANITIZE)
+                target_compile_options(${target} PRIVATE /fsanitize=address /Zi)
+            endif()
+        else()
+            string(REPLACE ";" "," _san "${ANIMUS_SANITIZE}")
+            target_compile_options(${target} PRIVATE -fsanitize=${_san} -fno-omit-frame-pointer -fno-sanitize-recover=all)
+            target_link_options(${target} PRIVATE -fsanitize=${_san})
+        endif()
+    endif()
+endfunction()
+
+get_directory_property(_animus_all_targets BUILDSYSTEM_TARGETS)
+foreach(_t IN LISTS _animus_all_targets)
+    animus_apply_build_policy(${_t})
+endforeach()

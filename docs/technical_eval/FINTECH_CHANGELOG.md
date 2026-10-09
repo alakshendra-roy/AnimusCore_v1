@@ -83,7 +83,7 @@ interpolated.
 | Path (payload) | p50 | p90 | p99 | p99.9 | Source |
 |---|---|---|---|---|---|
 | SPSC ring push, in-process, decoupled overwrite (`TelemetryPayload`, 24B) | 30.3 ns | 40.1 ns | 40.1 ns | 2,695.2 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 27 |
-| Cross-process lockstep round trip, `animus::sys::ipc::ShmRing<T>`, depth-1 (cross-core) | 53.3 ns | 57.9 ns | 64.9 ns | 111.6 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 20/26, "Cross-Process Lockstep Latency" |
+| Cross-process lockstep round trip, `animus::sys::ipc::ShmRing<T>`, depth-1 (two processes, each pinned to a distinct core; whether those were separate physical cores was not recorded) | 37.6 ns | -- | 45.5 ns | 51.3 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 20, "Cross-Process Lockstep Latency" (representative run of 5) |
 | Tick-to-trade, `MarketDataFeed` -> `ExecutionClient::submit()` | 100.0 ns | -- | 100.0 ns | 200.0 ns | `AnimusCore_v1/BENCHMARKS.md`, Phase 19 |
 | ITCH 5.0 parse + enqueue, 64B normalized `ItchFrame` (Linux / Windows) | 70 ns / 82 ns | -- | 130 ns / 98 ns | -- | "Verified Benchmark Telemetry" table below; `adapters/itch50/README.md` |
 
@@ -224,14 +224,14 @@ ITCH 5.0 technical reference.
 
 ## Quick Start
 
-```bash
+```bash
 # Install sdk bindings in editable mode
 pip install -e .
 
 # Run SDK validation
 python test_sdk.py
 
-3 Run production benchmark suite
+# Run production benchmark suite
 python benchmark_suite.py
 
 # Compare native vs. pure-Python ingestion, including batched ingestion
@@ -255,14 +255,8 @@ distributed Raft-lite cluster, enterprise licensing, market data feed
 adapters, and a generic shared-memory IPC ring) covering every way to
 consume Animus Core.
 
-Running a pilot evaluation? See [`Pilot_Kit/`](../../Pilot_Kit/PILOT_README.md)
-for a minimal customer-facing quickstart -- setup, a runnable
-sub-microsecond ingestion example, and how 30-day evaluation licenses work.
-
-Evaluating on Linux, or specifically the shared-memory IPC ring above?
-See [`eval_kit/`](../../eval_kit/README.md) instead -- a turnkey tarball with a
-prebuilt binary and both Python wheels bundled in, running end to end via
-`./run_demo.sh` with no compiler on the evaluation machine.
+Evaluating? Start with [`EVALUATION_GUIDE.md`](EVALUATION_GUIDE.md): a free,
+self-serve check that needs no license.
 
 ## Verified Benchmark Telemetry
 
@@ -513,7 +507,7 @@ Animus Dual-License Gateway (see `LICENSE`): the Community Grant covers
 evaluation, benchmarking, and non-commercial research with no signed
 agreement required, but a hardware-locked license gate is what stands
 between that and commercial/production use -- see `COMMERCIAL.md` for
-the licensing tiers this gate enforces and `LEGAL_EULA.md` for the
+the production license this gate enforces and `LEGAL_EULA.md` for the
 governing terms.
 
 * **Offline, no phone-home:** `animus_verify_license(path)` (`AnimusCore_v1/animus.hpp`

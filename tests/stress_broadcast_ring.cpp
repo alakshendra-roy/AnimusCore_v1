@@ -194,6 +194,11 @@ bool report_reader(const char* name, const ReaderStats& st, bool must_have_dropp
 
 int main() {
     const std::string name = "animus_stress_broadcast_" + std::to_string(now_ns());
+    // A std::string's c_str() is never null, but once create() is inlined GCC 15
+    // follows create()'s own `if (!name) return false` branch into the error
+    // message below and reports a null %s (-Werror=format-overflow). Saying so
+    // explicitly keeps the build warning-clean without suppressing the diagnostic.
+    if (name.c_str() == nullptr) return 2;
 
     animus::sys::ipc::SharedMemoryRegion region;
     if (!animus::sys::ipc::SharedMemoryRegion::create(name.c_str(), Ring::required_bytes(kCapacity), region)) {

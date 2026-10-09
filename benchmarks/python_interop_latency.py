@@ -1,11 +1,11 @@
 """Amortized per-event latency of the Python zero-copy interop layer
 (bindings/animus_py.cpp's nanobind TelemetryStream, wrapped by
 animus/consumer.py's TelemetryConsumer) -- the source this repo's own
-outreach material (docs/PILOT_PROGRAM.md SS4, docs/OUTREACH_TEMPLATES.md)
+documentation
 cites for its "~4.5 ns/event (amortized) drain() only" and "~560 ns/event
 full decode" claims. Those two figures previously had no reproduction
 command or benchmark artifact anywhere in this repo, unlike every other
-number in this project's outreach material -- this script closes that gap
+number in this project's documentation -- this script closes that gap
 with a real, re-runnable measurement.
 
 Two amortized costs, measured separately, matching the two rows those
@@ -159,7 +159,7 @@ def main() -> None:
     print()
     print(
         "Note: 'full decode' includes drain() itself, not just the incremental decode\n"
-        "cost -- this matches how docs/PILOT_PROGRAM.md SS4 and docs/OUTREACH_TEMPLATES.md\n"
+        "cost -- this matches how the project's documentation\n"
         "present the two figures (two alternative end-to-end paths, not a base + delta)."
     )
 

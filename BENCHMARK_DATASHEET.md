@@ -3,7 +3,7 @@
 **Architecture specifications and measured performance for the C++ telemetry engine**
 
 > **Audience:** Lead Quant Developers, Systems Architects, and C++ Performance Engineers.
-> **Companion document:** [`COMMERCIAL_OVERVIEW.md`](COMMERCIAL_OVERVIEW.md) — business case and pilot onboarding.
+> **Companion document:** [`README.md`](README.md) — project overview and how to reproduce these figures.
 >
 > Every number in this document is reproducible from source. Sources and exact commands are cited inline rather than asserted — run them yourself before you trust them.
 
@@ -28,7 +28,7 @@
 
 **2.2 Profiling methodology (used for the cross-core SPSC figures in §3).** Cycle-accurate timestamps via `__rdtsc()`, serialized with `_mm_lfence()` immediately before/after each read (an unserialized RDTSC read can retire out of order relative to the instructions it's meant to bracket, which understates true latency), calibrated against `std::chrono::steady_clock` rather than an assumed clock speed. Each reported run follows a warm-up burst (representative sample sizes and phase separation — depth-1 latency vs. unthrottled throughput — are documented per-benchmark in §3, since they differ by harness) before the measured window starts, so first-touch page faults and branch-predictor/cache warm-up don't contaminate the reported percentiles. Every reproduction command is cited inline in §3 — this is not a black-box number.
 
-**2.3 Recommended production deployment profile (not yet measured — applied to *your* hardware during a paid pilot, per `docs/operations_legal/PILOT_PROGRAM.md`, not asserted as our own test bench).** For a client evaluating this on server-class hardware, the tuning pass we bring to Week 3 of the pilot typically includes: CPU-vendor-appropriate server parts (e.g. AMD EPYC 7763 or Intel Xeon Gold generations, in place of the laptop part in §2.1), Linux `isolcpus=`/`nohz_full=` kernel boot parameters to reserve producer/consumer cores exclusively (closing exactly the gap §2.1 documents), 2MB/1GB HugePages for the ring-buffer allocation, `numactl --membind`/`--cpunodebind` to pin memory to the same NUMA node as the pinned cores, the `performance` CPU frequency governor locked for the duration of the run, and `-O3 -march=native` (or a specific `-march=` target matching your deployment CPU) at build time. We do not claim these will reproduce a specific number in advance — that is what Week 3's tail-latency characterization on your own hardware is for (`docs/operations_legal/PILOT_PROGRAM.md` §3), and `AnimusCore_v1/BENCHMARKS.md`'s own Phase 14 finding above is a reason for that caution, not against it.
+**2.3 Recommended production deployment profile (not yet measured — applied to *your* hardware, not asserted as my own test bench).** For a client evaluating this on server-class hardware, the tuning pass for a server-class host typically includes: CPU-vendor-appropriate server parts (e.g. AMD EPYC 7763 or Intel Xeon Gold generations, in place of the laptop part in §2.1), Linux `isolcpus=`/`nohz_full=` kernel boot parameters to reserve producer/consumer cores exclusively (closing exactly the gap §2.1 documents), 2MB/1GB HugePages for the ring-buffer allocation, `numactl --membind`/`--cpunodebind` to pin memory to the same NUMA node as the pinned cores, the `performance` CPU frequency governor locked for the duration of the run, and `-O3 -march=native` (or a specific `-march=` target matching your deployment CPU) at build time. I do not claim these will reproduce a specific number in advance — that is what a run on your own hardware is for, and `AnimusCore_v1/BENCHMARKS.md`'s own Phase 14 finding above is a reason for that caution, not against it.
 
 ---
 
@@ -101,27 +101,44 @@ Single-threaded, sequential ingest → poll → execute loop (`MarketDataFeed` t
 
 ### Cross-core SPSC dispatch latency — C++23 telemetry harness
 
-*Source: `benchmarks/telemetry_benchmark.cpp`, representative run out of 3. Reproduce with `cl /std:c++latest /EHsc /O2 /DNDEBUG /Fe:telemetry_benchmark.exe benchmarks\telemetry_benchmark.cpp && telemetry_benchmark.exe` (MSVC) or `g++ -std=c++23 -O3 -DNDEBUG -pthread -o telemetry_benchmark benchmarks/telemetry_benchmark.cpp -lstdc++exp && ./telemetry_benchmark` (GCC/Clang+libstdc++).*
+> **Correction, 4 October 2026.** This section originally published p50 53.3 ns / p99 64.9 ns / 47.306 M msgs/sec as the cross-core result. The harness's default cores are logical processors 0 and 1, which on the Intel Core i7-14650HX are the **two hyperthreads of one physical core**, so those were same-core figures. The harness was re-run with the cores chosen explicitly. On genuinely separate physical Performance cores the result is about three times the latency and less than half the flood throughput, below. The earlier figures are kept, relabelled, in the same-core table. Raw outputs, topology and the statistics tool: `benchmarks/reports/telemetry_rerun_2026-10-04/`.
 
-A different methodology layer from every table above: one producer thread and one consumer thread, pinned to separate physical cores, handing off cache-line-aligned (64-byte) `TelemetryEvent`s through a lock-free SPSC ring. Timestamps are lfence-serialized RDTSC reads, calibrated against `std::chrono::steady_clock` (not assumed from the advertised clock speed), giving sub-100ns resolution the `QueryPerformanceCounter`-quantized figures elsewhere in this document cannot show. Two separate phases, not one flooded run: a depth-1 latency phase (1,000,000 events; the producer waits for the consumer's receipt ack before dispatching the next one, so a sample is real transport cost, not queueing backlog) and an unthrottled throughput phase (9,000,000 events, maximum sustained rate) — conflating the two would report queueing delay under saturation as "dispatch latency."
+*Source: `benchmarks/telemetry_benchmark.cpp`, 30 runs on separate physical cores plus 10 same-core reference runs, 4 October 2026. Reproduce with `telemetry_benchmark <producer> <consumer>` after building with `cl /std:c++latest /EHsc /O2 /DNDEBUG /Fe:telemetry_benchmark.exe benchmarks\telemetry_benchmark.cpp` (MSVC) or `g++ -std=c++23 -O3 -DNDEBUG -pthread -o telemetry_benchmark benchmarks/telemetry_benchmark.cpp -lstdc++exp` (GCC/Clang+libstdc++). Choose two logical processors on different physical cores (on Windows, `GetLogicalProcessorInformationEx(RelationProcessorCore)` lists which share a core); with no arguments the harness uses logical processors 0 and 1.*
 
-**Latency (depth-1 phase, producer→consumer, cross-core):**
+A different methodology layer from every table above: one producer thread and one consumer thread, pinned to the logical processors given on the command line, handing off cache-line-aligned (64-byte) `TelemetryEvent`s through a lock-free SPSC ring. Timestamps are lfence-serialized RDTSC reads, calibrated against `std::chrono::steady_clock` (not assumed from the advertised clock speed), giving sub-100ns resolution the `QueryPerformanceCounter`-quantized figures elsewhere in this document cannot show. Two separate phases, not one flooded run: a depth-1 latency phase (1,000,000 events; the producer waits for the consumer's receipt ack before dispatching the next one, so a sample is real transport cost, not queueing backlog) and an unthrottled throughput phase (9,000,000 events, maximum sustained rate) — conflating the two would report queueing delay under saturation as "dispatch latency."
 
-| Percentile | Latency | Range across 3 runs |
+**Machine and protocol.** Intel Core i7-14650HX (8 Performance cores with Hyper-Threading + 8 Efficiency cores), Windows, on AC power. **Not an isolated or tickless core set** (Chrome, Edge and Visual Studio were running), so the tail is scheduler noise. 40 runs back to back: 2 builds (MinGW-w64 g++ 15.2.0 and MSVC 19.51) x 4 core pairs x 5 runs. Separate physical cores: logical 0/2, 4/6 and 8/10 (30 runs). Same-core reference: logical 0/1 (10 runs).
+
+**Latency (depth-1 phase, producer→consumer, cross-core: separate physical Performance cores):**
+
+| Percentile | Median across 30 runs | Range across 30 runs |
 |---|---|---|
-| min | 45.5 ns | 39.7 – 45.5 ns |
-| **p50 (median)** | **53.3 ns** | 52.5 – 53.3 ns |
-| p90 | 57.9 ns | 56.6 – 57.9 ns |
-| p99 | 64.9 ns | 62.4 – 64.9 ns |
-| p99.9 | 111.6 ns | 88.5 – 113.7 ns |
+| **p50 (median)** | **152.7 ns** | 102.9 – 184.8 ns |
+| p90 | 186.0 ns | 134.8 – 241.8 ns |
+| p99 | 219.7 ns | 158.3 – 289.4 ns |
+| p99.9 | 2,479 ns | 2,388 – 2,572 ns |
 
-**Throughput (unthrottled flood phase):**
+**Throughput (unthrottled flood phase, separate physical cores):**
 
-| Metric | Representative run | Range across 3 runs |
+| Metric | Median across 30 runs | Range across 30 runs |
 |---|---|---|
-| **Sustained throughput** | **47.306 M msgs/sec** | 47.306 – 49.497 M msgs/sec |
+| **Sustained throughput** | **21.5 M msgs/sec** | 17.8 – 27.6 M msgs/sec |
 
-*This is SPSC (one producer, one consumer, zero compare-exchange contention) with a consumer actively draining concurrently — not directly comparable to the 8-producer MPMC contention figure above (different contention model) or the single-threaded, no-cross-core-hop figures elsewhere in this document (different workload entirely). Max latency runs into the hundreds of microseconds across all 3 runs, reflecting OS scheduling noise (context switches, timer interrupts) on the pinned cores rather than the transport itself; p50/p90/p99 are the steady-state figures.*
+Per-build, per-core-pair breakdowns (for example the 8/10 pair reads a median p50 of 121.1 ns and the 0/2 pair 172.8 ns) are in the report folder; the spread across pairs and runs is real, which is why this section quotes medians and ranges, not one representative run. Throughput varies from run to run.
+
+**Same-core reference (the two hyperthreads of one physical core, logical 0/1; 10 runs, both builds): NOT a cross-core figure.**
+
+| Percentile | Median across 10 runs | Range across 10 runs |
+|---|---|---|
+| p50 | 48.4 ns | 41.3 – 57.5 ns |
+| p90 | 54.4 ns | 46.3 – 68.6 ns |
+| p99 | 62.8 ns | 53.3 – 78.5 ns |
+| p99.9 | 149 ns | 109 – 284 ns |
+| Sustained throughput | 47.2 M msgs/sec | 46.6 – 48.5 M msgs/sec |
+
+*The figures first published in this section (p50 53.3 ns, p90 57.9 ns, p99 64.9 ns, p99.9 111.6 ns, 47.306 M msgs/sec, one representative run of 3) were measured on this same-core pair and are reproduced by it. Two hyperthreads share an L1 cache and execution resources, so the handoff never crosses cores: that is a legitimate measurement of something, and the wrong one to quote as cross-core latency.*
+
+*This is SPSC (one producer, one consumer, zero compare-exchange contention) with a consumer actively draining concurrently — not directly comparable to the 8-producer MPMC contention figure above (different contention model) or the single-threaded, no-cross-core-hop figures elsewhere in this document (different workload entirely). The p99.9 of about 2.4 to 2.6 µs and the maxima in the hundreds of microseconds reflect OS scheduling noise (context switches, timer interrupts) on cores that were not isolated, rather than the transport itself; p50/p90/p99 are the steady-state figures.*
 
 ### Standalone hot-path harness — WSL2 baseline (bare-metal packaging target)
 
@@ -145,7 +162,7 @@ Same binary, same VM, two scheduling conditions:
 
 Calibrated TSC frequency: 2.4192 GHz on both runs. Heap allocation check: **PASS — zero heap allocations** (1,000,000 timed `push()` calls, both runs).
 
-*These figures sit well above the 53.3 ns p50 the C++23 telemetry harness measures cross-core on bare-metal Windows above ("Cross-core SPSC dispatch latency") — not because this is a different or slower ring (it is the same `SpscRingBuffer<T>`-style SPSC design measured with the same lfence-serialized-RDTSC methodology), but because a hypervisor-virtualized guest adds cost this harness is reporting honestly rather than hiding: an `RDTSC` read is subject to a VM-exit trap unless the hypervisor exposes an enlightened/passthrough TSC, and the guest's cache residency competes with the host and anything else scheduled on the physical package — both effects land directly in the numbers above, and pinning to two logical CPUs (`taskset`) tightened the tail without closing that gap, because `taskset` narrows *which* logical CPUs the guest scheduler can use, not whether the underlying physical cores are exclusively reserved outside the VM. Bare-metal Linux with `isolcpus=`/`nohz_full=` kernel boot parameters reserving the producer/consumer cores exclusively — the same tuning pass §2.3 describes for a production pilot — eliminates both the hypervisor TSC trap and that cache-eviction pressure; we have not yet measured this specific harness on such a rig. That gap is exactly what `bench/build_bench.sh` / `build_bench.bat` is packaged to close: a trading desk can build and run it in under a minute, with zero external dependencies beyond `g++`/`clang++` and pthreads, directly on their own bare-metal (or properly isolated) Linux box and get a number that reflects their hardware, not a virtualized dev laptop.*
+*Read these against the cross-core figures above (a median p50 of about 153 ns on separate physical Performance cores, natively on Windows), not against the same-core figure: the WSL2 `push()` p50 of 124 to 191 ns is the same order of magnitude. They are different measurements (a timed `push()` against a concurrently draining consumer, rather than a depth-1 round trip), so they are not interchangeable. The guest also adds cost this harness reports rather than hides: an `RDTSC` read is subject to a VM-exit trap unless the hypervisor exposes an enlightened/passthrough TSC, and the guest's cache residency competes with the host and anything else scheduled on the physical package. Pinning to two logical CPUs (`taskset`) narrowed *which* logical CPUs the guest scheduler can use, not whether the underlying physical cores are exclusively reserved outside the VM. Bare-metal Linux with `isolcpus=`/`nohz_full=` kernel boot parameters reserving the producer/consumer cores exclusively — the same tuning pass §2.3 describes for a production pilot — removes the hypervisor TSC trap and that cache-eviction pressure; this specific harness has not yet been measured on such a rig. `bench/build_bench.sh` / `build_bench.bat` is packaged so a trading desk can build and run it in under a minute, with zero external dependencies beyond `g++`/`clang++` and pthreads, directly on their own bare-metal (or properly isolated) Linux box and get a number that reflects their hardware, not a virtualized dev laptop.*
 
 ### Cross-process shared-memory producer — real Linux CI verification
 
@@ -200,7 +217,7 @@ A different question from every table above: not the native ring's own throughpu
 | **`drain()` only** — zero-copy view, no per-event Python object | **26.4 ns/event** | 25.4 – 27.3 ns/event |
 | **Full decode** — `drain()` + `animus.consumer.decode()` (real copy + per-record `struct.unpack`) | **538.8 ns/event** | 537.4 – 542.8 ns/event |
 
-*This is the same distinction `docs/operations_legal/PILOT_PROGRAM.md` §4 and `docs/operations_legal/OUTREACH_TEMPLATES.md` cite in outbound material — see those documents for how these two figures are used in a pitch. An earlier version of both cited "~4.5 ns/event" for `drain()` only, asserted with no benchmark script or reproduction command behind it anywhere in this repo; measured here for the first time, the real number is ~6x higher. The "full decode" figure they cited (~560 ns/event) was close to what this benchmark actually measures.*
+*An earlier version of this project's documentation cited "~4.5 ns/event" for `drain()` only, asserted with no benchmark script or reproduction command behind it anywhere in this repo; measured here for the first time, the real number is ~6x higher. The "full decode" figure it cited (~560 ns/event) was close to what this benchmark actually measures.*
 
 ### Public, no-NDA evaluation package — `animus_sandbox/run_benchmark.sh`
 
@@ -208,7 +225,7 @@ A different question from every table above: not the native ring's own throughpu
 
 A different audience from every table above: not a claim for this document, but a small, public, source-visible package a prospect can run **before signing an NDA** (`docs/operations_legal/ANIMUS_ENTERPRISE_TERMSHEET.md` §4 "Stage 0") to sanity-check the three architectural claims underneath everything else here — `alignas(64)` false-sharing elimination, invariant-TSC hot-path timestamping, and nanobind zero-copy. This uses a general-purpose MPMC ring buffer under real 8-producer/8-consumer contention (a different, harder queueing regime than the isolated 1-producer/1-consumer SPSC harness in "Cross-core SPSC dispatch latency" above — do not compare the two tables directly), sampled 1-in-64 after a fixed 1.5s warm-up so scheduler ramp-up and ring fill-to-steady-state don't get counted as transport latency.
 
-**Environment this was run on (this document's own authoring session, not a production or even a Linux rig):** Windows 11, MSYS2 `g++ 15.2.0`, the same Intel i7-14650HX laptop as §2.1, **unpinned** (`taskset` is Linux-only; `run_benchmark.sh` runs unpinned and says so when it can't pin), and — unlike every other measurement in this document — taken during an ordinary interactive session with an IDE, browser, and this Claude Code session itself all running concurrently, not an isolated benchmark rig. That load shows up directly in the spread between the two runs below; it is reported, not smoothed over.
+**Environment this was run on (this document's own authoring session, not a production or even a Linux rig):** Windows 11, MSYS2 `g++ 15.2.0`, the same Intel i7-14650HX laptop as §2.1, **unpinned** (`taskset` is Linux-only; `run_benchmark.sh` runs unpinned and says so when it can't pin), and — unlike every other measurement in this document — taken during an ordinary interactive session with an IDE and a browser open and standard OS workstation background processes active concurrently, not an isolated benchmark rig. That load shows up directly in the spread between the two runs below; it is reported, not smoothed over.
 
 10,000,000-event target (actual: ~10.4M–23.2M events, since the stop check polls every 200ms and 8 unthrottled producer threads keep publishing between polls):
 

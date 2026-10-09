@@ -1,4 +1,4 @@
-# Animus Core v1.2.0 — System Architecture
+# Animus Core v1.4.0 — System Architecture
 
 Audience: engineers evaluating Animus for production integration into a
 low-latency ingestion, market-data, or telemetry-fan-out path. This
@@ -7,7 +7,7 @@ implemented in `include/animus/{shm_ipc,broadcast_ring,spsc_queue,
 shm_lifecycle,schema,telemetry,thread_affinity}.hpp`,
 `bindings/animus_shm_py.cpp`, `animus/*.py`, and `scripts/animus_stat.py`. Every claim below is traceable to a specific
 file and, where useful, a line-level construct in this repository as of
-the v1.2.0 tag — nothing here is aspirational.
+the v1.4.0-prod tag — nothing here is aspirational.
 
 Scope note: Animus ships two long-standing IPC primitives that are easy to
 conflate (a newer pair, `BroadcastRing<T>`/`SpscQueue<T>` — the primitives
@@ -717,15 +717,15 @@ What survives the crash, mechanically:
 
 ### Q: How does Animus compare to traditional shared-memory rings (e.g. LMAX Disruptor port, Boost.Interprocess, Aeron IPC)?
 
-| | **Animus `ShmRing`/`SpmcRing`** | **LMAX Disruptor** | **Boost.Interprocess** | **Aeron IPC** |
+| | **Animus `ShmRing`/`SpmcRing`/`ShmRingMpmc`** | **LMAX Disruptor** | **Boost.Interprocess** | **Aeron IPC** |
 |---|---|---|---|---|
 | Process boundary | Real OS shared memory (`mmap`/`CreateFileMapping`) — genuinely cross-process | In-process (JVM heap) — no cross-process story of its own | Cross-process, general-purpose managed segments | Cross-process via a memory-mapped log buffer, driven by a separate media-driver process |
-| Producer/consumer topology | SPSC (`ShmRing<T>`) or SP, unbounded-MC broadcast (`SpmcRing<T>`) — no MPMC in this milestone | MPMC via sequence barriers and configurable `WaitStrategy` | Whatever you build on its primitives — typically mutex/condvar-guarded containers, not lock-free by default | SPSC/MPSC framed streams with publication limits and flow control |
+| Producer/consumer topology | SPSC (`ShmRing<T>`), SP, unbounded-MC broadcast (`SpmcRing<T>`), or N-producer/M-consumer lossless (`ShmRingMpmc<T>`, a bounded Vyukov queue: lock-free, not wait-free, not crash-tolerant) | MPMC via sequence barriers and configurable `WaitStrategy` | Whatever you build on its primitives — typically mutex/condvar-guarded containers, not lock-free by default | SPSC/MPSC framed streams with publication limits and flow control |
 | Backpressure | Explicit per-mode choice: bounded refusal (`try_push`) or deterministic lossy overwrite (`push_overwrite`) with a counted drop; SPMC has none by design | Configurable `WaitStrategy` (busy-spin / yield / blocking) applied uniformly | OS-level blocking (mutex/condition variable) in typical usage — pays a futex/syscall on contention | Publication back-pressure via term-buffer limits; driver-mediated flow control |
 | Wait strategy | Fixed: bounded busy-spin with `cpu_relax()` (`_mm_pause`/`yield`) between attempts, no configurable backoff/blocking tier | Pluggable per use case | Typically OS wait primitives, not spin-poll | Configurable idle strategies in the client, driver runs its own conductor loop |
 | Schema/versioning | Compile-time `ANIMUS_DEFINE_SCHEMA` registration, FNV-1a version hash stamped in-header and checked at `open()`, wire-format string exposed for dynamic NumPy decode | Pre-allocated, reusable Java event objects — no wire-format/version negotiation needed (same JVM, same class) | None built in — caller-defined layout | Framed messages with Aeron's own header, no user-schema versioning primitive |
 | Extra infrastructure required | None — a named segment plus this header; no separate driver/conductor process | JVM + Disruptor runtime | Boost only | A running Aeron media-driver process doing term-buffer rotation, heartbeats, and conductor housekeeping |
-| Where it's smaller by design | No term-buffer rotation (flat power-of-two slot array + mask, not a rotating log), no stream framing beyond the fixed-record schema, no MPMC | — | — | No general pub/sub bus, no multi-transport (UDP/IPC) unification — this is IPC-only |
+| Where it's smaller by design | No term-buffer rotation (flat power-of-two slot array + mask, not a rotating log), no stream framing beyond the fixed-record schema, and its MPMC ring (`ShmRingMpmc<T>`) is bounded and lossless only, with no pluggable wait strategy | — | — | No general pub/sub bus, no multi-transport (UDP/IPC) unification — this is IPC-only |
 
 The practical read: Animus's ring is intentionally narrower in scope than
 Aeron (the closest production analogue) in exchange for zero extra

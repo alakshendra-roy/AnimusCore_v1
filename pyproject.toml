@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "animus-engine-sdk"
-version = "1.2.0"
+version = "1.4.0"
 description = "High-Performance Low-Latency C++/Python Event Ingestion, SOAR & Distributed Clustering Engine"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -41,6 +41,12 @@ dependencies = []
 Homepage = "https://github.com/alakshendra-roy/AnimusCore_v1"
 Documentation = "https://github.com/alakshendra-roy/AnimusCore_v1/blob/master/AnimusCore_v1/QUICKSTART.md"
 Issues = "https://github.com/alakshendra-roy/AnimusCore_v1/issues"
+
+[tool.pytest.ini_options]
+# The suite lives in tests/. Collecting from the repository root also imports the sandbox and
+# eval-kit bridge tests, which load a second nanobind extension into the same interpreter and
+# abort it ("Fatal Python error: Aborted") -- so bare `pytest` is pinned to tests/.
+testpaths = ["tests"]
 
 [tool.setuptools]
 packages = ["animus"]

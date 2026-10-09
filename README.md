@@ -3,8 +3,10 @@
 [![Build](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml/badge.svg)](https://github.com/alakshendra-roy/AnimusCore_v1/actions/workflows/build.yml)
 ![C++: 17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 ![GCC: 13+](https://img.shields.io/badge/GCC-13%2B-blue.svg)
-![Clang: 17+](https://img.shields.io/badge/Clang-17%2B-blue.svg)
+![Clang: 19+](https://img.shields.io/badge/Clang-19%2B-blue.svg)
+![MSVC: 19.5+](https://img.shields.io/badge/MSVC-19.5%2B-blue.svg)
 ![Architecture: x86_64](https://img.shields.io/badge/arch-x86__64-lightgrey.svg)
+![Verification: 34/34 gates](https://img.shields.io/badge/verification-34%2F34%20gates-brightgreen.svg)
 ![License: Evaluation](https://img.shields.io/badge/license-evaluation--only-orange.svg)
 
 A single-producer/single-consumer (SPSC) ring buffer for moving fixed-layout
@@ -26,11 +28,46 @@ for a 128-byte AOCS-style state-vector frame plugged directly into it.
 > represented as fit for use on board a flight vehicle, in a
 > safety-critical control loop, or in any certified system. Production,
 > revenue-generating, or flight/mission deployment requires a separate,
-> executed Enterprise license — see [`COMMERCIAL.md`](COMMERCIAL.md) and
-> [`LEGAL_EULA.md`](LEGAL_EULA.md). This software is provided "as is," with
-> no warranty of fitness for any particular purpose — see `LICENSE` and
-> `LEGAL_EULA.md` §6 in full before relying on it for anything beyond
+> executed commercial license (contact animusinfra.com). This software is provided "as is," with
+> no warranty of fitness for any particular purpose — see `LICENSE` in full before relying on it for anything beyond
 > evaluation.
+
+---
+
+## Architectural Philosophy
+
+1. **One owner per word, one cache line per owner.** Every word on the hot path is written by exactly one party, and each owner's words sit on their own 64-byte line (`alignas(64)`, with `static_assert`s on the field offsets), so a steady stream moves a peer's cache line once per batch, not once per record.
+2. **Ownership passes by release store and acquire load, and by nothing else.** A producer publishes with one release store; a consumer observes with one acquire load. There is no mutex, no futex and no blocking call anywhere on the hot path. A full ring returns `false` and the caller decides what to do.
+3. **Allocate once, at setup; never on the hot path.** Rings live in caller-supplied or pre-mapped memory and `push` / `pop` perform a fixed number of atomic operations plus one element copy. That is asserted at runtime, audited statically, and re-proved by negative controls that must fail when an allocation is planted.
+4. **Time with the hardware, and print what the timer costs.** Reads are serialized invariant-TSC reads (`lfence; rdtsc; lfence`), calibrated at start-up; the timer's own floor (about 12 ns) is reported beside every latency figure and is not subtracted.
+5. **Every claim has a gate.** A figure is published only if a recorded evidence file reproduces it, tied by SHA-256 to the exact source tree; the verification report turns red if any evidence is missing or stale. What the evidence does *not* show is written down alongside it (see [Verification](#verification)).
+
+## System Architecture
+
+```
+ PRODUCERS             SHARED MEMORY                                   CONSUMERS
+                       (/dev/shm segment, or a Windows file mapping)
+
+ telemetry / tick      +--------------------------------------------+
+ writer           ---->| BroadcastRing<T>   1 writer -> N readers   |---->  N independent
+                       |   lossy; the writer never waits            |       readers (C++, or
+                       +--------------------------------------------+       Python via nanobind)
+
+ order / execution     +--------------------------------------------+
+ producer         ---->| SpscQueue<T>       1 -> 1                  |---->  execution
+                       |   lossless; strict backpressure            |       consumer
+                       +--------------------------------------------+
+
+ N producers           +--------------------------------------------+
+ (threads or      ---->| ShmRingMpmc<T>     N -> M                  |---->  M consumers
+  processes)           |   lossless; lock-free, one CAS per claim   |       (threads or
+                       +--------------------------------------------+        processes)
+
+ timestamps : lfence; rdtsc; lfence   (invariant TSC, rate calibrated at start-up)
+ mapping    : shm_open + posix_fallocate + mmap(MAP_SHARED | MAP_POPULATE)
+              (Windows: a named file mapping). A full /dev/shm makes create()
+              fail cleanly instead of faulting later with SIGBUS.
+```
 
 ---
 
@@ -66,6 +103,39 @@ hardware than the one running the build. On Windows, build inside WSL2 or
 with clang/MinGW-w64 on PATH; MSVC's `cl.exe` is not supported by these two
 example binaries (the header itself, `animus.hpp`, builds fine under MSVC —
 see `AnimusCore_v1/AnimusCore_v1.vcxproj`).
+
+### Compiler flags and verified toolchains
+
+The strict flag set used by CI, the `Makefile` and the trial sandbox is:
+
+```
+g++ / clang++ :  -std=c++17 -O3 -march=native -DNDEBUG -pthread
+                 -Wall -Wextra -Wpedantic -Werror            (+ -lrt on Linux)
+MSVC          :  /std:c++17 /O2 /W4 /WX /EHsc /DNDEBUG
+CMake         :  -DANIMUS_STRICT_WARNINGS=ON -DANIMUS_NATIVE_ARCH=ON
+sanitizers    :  -DANIMUS_SANITIZE="address;undefined"   or   -DANIMUS_SANITIZE=thread
+                 (thread = the MPMC targets only)
+```
+
+| Toolchain | Versions built clean (0 warnings under warnings-as-errors) and passing every test suite |
+|---|---|
+| GCC | 13.4, 14.3, 15.2, 16.0.1 (pre-release snapshot); 12.5 builds the core, minus the C++23-only `telemetry_benchmark` |
+| Clang | 19.1.7, 22.1.2 |
+| MSVC | 19.51 (Visual Studio 2026), x64, including AddressSanitizer |
+| MinGW-w64 | g++ 15.2 (MSYS2 UCRT64) |
+| AArch64 | cross-compiled and run under `qemu-user` only (functional; no ARM silicon was measured) |
+
+Last re-verified 2026-10-04 on the frozen tree. Versions older than those listed were not tested.
+
+### Hardware and platform requirements (bare metal)
+
+| Requirement | Detail |
+|---|---|
+| CPU | x86-64 with an **invariant TSC** (`CPUID.80000007H:EDX[8]`); the library checks it and calibrates the tick rate at start-up. 64-byte cache lines (the AArch64 layout uses 128-byte lines and is `static_assert`ed separately). |
+| Cores | Two physical cores for the SPSC and broadcast rings; the reference soak runs 8 producer and 8 consumer threads. Pin producer and consumer threads to **distinct physical cores**; on a hybrid CPU (P + E cores) pin to the Performance cores. Measured on one hybrid laptop: unpinned P99 up to about 100 ns, about 22 ns when pinned. Core isolation (`isolcpus`, `nohz_full`, IRQ affinity) is the usual further step for tail latency and was **not** exercised in the verification campaign. |
+| Memory | The ring size plus mapping overhead. On Linux the shared-memory filesystem (`/dev/shm`) must be at least that large; if it is not, `create()` fails with a clean error instead of a `SIGBUS` on first touch (verified). |
+| Operating system | Linux x86-64 (glibc, POSIX shared memory) and Windows 10/11 x64. macOS, the BSDs, musl libc and 32-bit targets are not built. |
+| Virtualization | A hypervisor guest (for example WSL2) validates correctness and the toolchain; it is **not** a bare-metal latency measurement. |
 
 ---
 
@@ -156,8 +226,10 @@ overrun, either — capacity is fixed at construction.
 
 ## Dual-Primitive Shared-Memory Transport
 
-Across processes, the engine uses two single-header primitives, one per delivery
-contract, rather than one ring stretched to cover both:
+Across processes, the engine uses single-header primitives, one per delivery
+contract, rather than one ring stretched to cover all of them. The two production
+primitives for telemetry and the order path are compared here; the third, the
+lossless N-to-M ring, follows below:
 
 | | `BroadcastRing<T>` ([`include/animus/broadcast_ring.hpp`](include/animus/broadcast_ring.hpp)) | `SpscQueue<T>` ([`include/animus/spsc_queue.hpp`](include/animus/spsc_queue.hpp)) |
 |---|---|---|
@@ -195,6 +267,63 @@ events/sec, p50 14.9 ns**; `SpscQueue` delivers **10,000,000 / 10,000,000 with 0
 drops and 0 sequence gaps** at 1.35 M events/sec, a rate bounded by the pure-Python
 reference consumer rather than by the queue. Full tables, the Linux CI cross-check
 and caveats: [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md).
+
+### Third primitive: `ShmRingMpmc<T>` and its memory ordering
+
+`ShmRingMpmc<T>` ([`include/animus/shm_ipc.hpp`](include/animus/shm_ipc.hpp)) is the lossless N-producer / M-consumer ring: a bounded queue with a 64-bit sequence word per cell, usable across threads and processes. Ownership of a cell passes only through that word:
+
+```
+ producer: try_push(v)
+   pos = enqueue_pos.load(relaxed)
+   seq = cell[pos & mask].sequence.load(ACQUIRE)
+     seq == pos      claim the position: CAS enqueue_pos  pos -> pos+1 (relaxed)
+     seq <  pos      the cell still holds an unconsumed record: ring full, return false
+     seq >  pos      another producer won: reload pos and retry
+   write the payload into the cell
+   cell.sequence.store(pos + 1, RELEASE)      <-- publishes the payload
+
+ consumer: try_pop(out)
+   pos = dequeue_pos.load(relaxed)
+   seq = cell[pos & mask].sequence.load(ACQUIRE)
+     seq == pos+1    claim the position: CAS dequeue_pos  pos -> pos+1 (relaxed)
+     seq <  pos+1    nothing published at this position: ring empty, return false
+     seq >  pos+1    another consumer won: reload pos and retry
+   read the payload out of the cell
+   cell.sequence.store(pos + N, RELEASE)      <-- frees the cell for the next lap
+```
+
+It is **lock-free** (one CAS per claim, no lock anywhere, never blocks, never allocates) but not wait-free and not crash-tolerant: a process killed between claiming a cell and publishing it stalls the ring at that position. Cursors and cells each sit on their own cache lines. On x86-64 the release store and acquire load compile to plain `MOV`; on AArch64 to `stlr` / `ldar`.
+
+---
+
+## Verification
+
+The shared-memory transport is gated by **34 automated checks**, computed from recorded evidence (SHA-256 manifest, tied to the source tree) across Windows g++ 15.2, Windows MSVC 19.51 and Linux g++ 15.2 (a WSL2 guest). The report goes red if any record is missing or no longer matches the tree.
+
+| Gate | Result |
+|---|---|
+| Warnings as errors, whole project | 0 warnings on GCC 12–16, Clang 19 and 22, MSVC 19.51; every ctest suite passes |
+| Latency, 10,000,000 timed calls per primitive | median one-call publish **15–24 ns** (the lossless MPMC ring: **19.4–23.6 ns**, typically 53 cycles = 21.9 ns); the timer's own ~12 ns is included. A later re-run of the trial sandbox on six toolchains gave 20.3–22.7 ns on GCC 13–15 and Clang 19 / 22 and ~27 ns on the pre-release GCC 16 snapshot, so quote a range |
+| Zero heap allocations on the hot path | 0 across 1.68 billion armed push calls and 6.51 billion ring operations; the static call-graph audit of 11 compiled hot-path symbols finds no allocator, exception or system-call callee (the complete callee set is `memmove`) |
+| 8-producer / 8-consumer soak | **2.87 billion frames** delivered exactly once across all non-TSan runs (longest 640 million): 0 dropped, duplicated, corrupted or reordered; 6.4–7.3 M frames/s unpinned, 10.2–10.8 M/s pinned |
+| Sanitizers | ASan + UBSan clean (Linux g++; MSVC ASan). ThreadSanitizer: 0 data races over **8,000,000** frames and the 86-check regression test — scoped to the MPMC ring, and *not* claimed for the 2.87 billion |
+
+Reproduce it on your own hardware:
+
+```bash
+# Linux, no CMake needed (about 30 s): regression test, static allocation audit,
+# 10,000,000-iteration latency harness, 64,000,000-frame 8P/8C soak
+make verify
+make sanitize      # ASan + UBSan builds of the same
+make tsan          # ThreadSanitizer on the MPMC protocol
+
+# any platform, whole project
+cmake -S . -B build -DANIMUS_STRICT_WARNINGS=ON -DANIMUS_NATIVE_ARCH=ON
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
+
+**What this does not show.** All figures come from one laptop (Intel i7-14650HX, hybrid P/E cores, AC power); the Linux numbers are from a hypervisor guest, not bare metal; unpinned throughput varied between sessions with scheduler placement, so no single unpinned number is quoted as typical; the median is not the tail; AArch64 was compiled, disassembled and run under emulation only; longest soak is 640 million frames (about 93 s); the MPMC ring is lock-free, not crash-tolerant. The full report, with its raw evidence and the exact commands, ships with the institutional evaluation kit; the written account and the exact commands are in [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) and [`AnimusCore_v1/BENCHMARKS.md`](AnimusCore_v1/BENCHMARKS.md).
 
 ---
 
@@ -255,6 +384,8 @@ Sequence continuity                  : PASS -- exact, in order
 Avg push() cost (timed region)       : 250.1 TSC cycles/frame
 Heap allocations (timed push+pop loop, 500000 frames): PASS -- zero heap allocations
 ```
+
+These two programs time the in-process `SpscRingBuffer<T>` with fences around each push, so their figures are not comparable with the shared-memory primitives' one-call medians in [Verification](#verification), which come from a different harness. Compare numbers only within one harness.
 
 ---
 
@@ -343,9 +474,8 @@ which you choose, as long as `T` stays trivially copyable and fixed-size.
 * [`BENCHMARK_DATASHEET.md`](BENCHMARK_DATASHEET.md) — every latency/
   throughput figure this repository publishes, with the exact reproduction
   command and environment for each one.
-* [`LICENSE`](LICENSE) / [`LEGAL_EULA.md`](LEGAL_EULA.md) /
-  [`COMMERCIAL.md`](COMMERCIAL.md) — evaluation grant, governing license
-  terms, and commercial/production licensing tiers.
+* [`LICENSE`](LICENSE) — the evaluation grant and its terms. Production use
+  needs a separate commercial license (animusinfra.com).
 * [`docs/technical_eval/FINTECH_CHANGELOG.md`](docs/technical_eval/FINTECH_CHANGELOG.md) — this
   project's original, trading-desk-oriented README and full development
   history (market-data feed adapters, CEP rule engine, mTLS multi-tenancy,

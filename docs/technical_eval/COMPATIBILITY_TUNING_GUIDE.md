@@ -2,7 +2,7 @@
 
 **Classification:** Institutional Technical Reference
 **Audience:** Systems engineers, SREs, and co-location architects responsible for building, deploying, and tuning the host an Animus Core engine instance runs on.
-**Companion documents:** [`SECURITY_INFOSEC_MEMO.md`](SECURITY_INFOSEC_MEMO.md) (network/memory/thread-safety posture) · [`PILOT_EVAL_CHECKLIST.md`](PILOT_EVAL_CHECKLIST.md) (the fuller host-qualification checklist this guide's §2 summarizes; use that document's checklist for a formal sign-off, this one as a standing reference) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (ingestion pipeline deep-dive) · [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (measured numbers this tuning is validated against).
+**Companion documents:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (ingestion pipeline deep-dive) · [`../../BENCHMARK_DATASHEET.md`](../../BENCHMARK_DATASHEET.md) (measured numbers this tuning is validated against).
 
 ---
 
@@ -22,7 +22,7 @@ Compiler flags used for performance validation: `-O3 -march=native -std=c++17` (
 
 ## 2. OS & Kernel Tuning
 
-These reduce scheduler-induced jitter on the cores a producer/consumer pair occupies. **None of this is required for correctness** — the ring buffers are correct on an untuned host, as documented in [`SECURITY_INFOSEC_MEMO.md`](SECURITY_INFOSEC_MEMO.md) §3–§4 — but the aggressive tail-latency figures in this project's benchmark documents assume it. See [`PILOT_EVAL_CHECKLIST.md`](PILOT_EVAL_CHECKLIST.md) §2 for the full step-by-step checklist with verification commands; this section is the condensed reference.
+These reduce scheduler-induced jitter on the cores a producer/consumer pair occupies. **None of this is required for correctness** — the ring buffers are correct on an untuned host — but the aggressive tail-latency figures in this project's benchmark documents assume it.
 
 - **CPU isolation (`isolcpus`)** — remove the target core(s) from the general SMP scheduling domain so the kernel never lands an unrelated task on them: `isolcpus=<core_list>` on the kernel command line.
 - **Tickless operation (`nohz_full`)** — stop the periodic scheduler timer tick on isolated cores so a spinning producer/consumer thread isn't interrupted on a fixed cadence: `nohz_full=<core_list>`.
@@ -71,7 +71,7 @@ Design properties relevant to a systems integrator:
 - **View lifetime is explicit, not GC-managed.** The buffer-protocol view returned by `drain()`/`poll()` aliases scratch memory that is only valid until the *next* `drain()`/`poll()` call on the same object — copy out (`np.array(view, copy=True)`) before calling again if you need to retain it.
 - **GIL discipline.** Producer thread lifecycle management (spawn/join) and the ring's spin-wait-for-data loop run under `nb::call_guard<nb::gil_scoped_release>`, so a native producer thread is never blocked behind Python holding the GIL (e.g. mid-garbage-collection); the GIL is reacquired only for the narrow window of constructing the returned Python object, which is itself a Python-API call and cannot be avoided.
 - **Build floor:** `bindings/CMakeLists.txt` targets C++17 (matching the core engine, §1) for this bridge specifically — distinct from the separate C++20-floor SDK kit under `sdk/python/csrc/` (§1), which binds a different `SpscRingBuffer` (from `animus-eval-kit/include/spsc_ring_buffer.hpp`) for evaluation/benchmark purposes rather than the shipped engine's own telemetry ring.
-- **Python version / NumPy floor:** the packaged SDK's own `pyproject.toml` states its general compatibility floor; [`PILOT_EVAL_CHECKLIST.md`](PILOT_EVAL_CHECKLIST.md) §1 states the narrower range (CPython 3.10–3.14, NumPy ≥ 1.26) that this project's own pilot-acceptance thresholds were validated against — use the narrower range for a production sizing decision.
+- **Python version / NumPy floor:** the packaged SDK's own `pyproject.toml` states its general compatibility floor; the narrower range (CPython 3.10–3.14, NumPy ≥ 1.26) is the one this project's own acceptance thresholds were validated against, so use it for a production sizing decision.
 
 ## 4. Reproducing This Guide's Claims
 
@@ -92,4 +92,4 @@ run_poc_eval.bat 10         # Windows, unpinned
 run_poc_eval.bat 10 4 4     # Windows, pinned to base core 4
 ```
 
-*This guide describes build/runtime configuration as implemented in the code cited above. For which specific latency figures a given order form contractually guarantees under a tuned Reference Topology versus an untuned host, see [`../../COMPLIANCE_AND_RISK_MITIGATION.md`](../../COMPLIANCE_AND_RISK_MITIGATION.md) §1.*
+*This guide describes build/runtime configuration as implemented in the code cited above. No latency figure in this repository is a guarantee: each is a measurement on the stated hardware under the stated conditions.*

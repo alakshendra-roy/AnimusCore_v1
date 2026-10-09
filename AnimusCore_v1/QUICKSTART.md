@@ -11,27 +11,19 @@ Pick the one that matches your integration:
 | [4. Distributed cluster](#4-distributed-raft-lite-cluster) | High-availability, multi-node rule replication | Windows + MSVC |
 | [5. Enterprise licensing](#5-enterprise-edition-offline-rsa-signed-hardware-licensing) | Node-locked commercial deployments (`proprietary-edition` branch only) | Windows |
 | [6. Market data feed adapters](#6-market-data-feed-adapters-l2l3-book--trade-ticks) | Live L2/L3 order book + trade tick ingestion (`proprietary-edition` branch only) | Any (Windows/Linux/macOS) |
-| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes, now also reachable from Python | Windows + MSVC and Linux (both verified; see the Evaluation Kit link below) |
+| [7. Generic shared-memory IPC ring](#7-generic-shared-memory-ipc-shmringt) | Lowest-latency cross-process transport between two native C++ processes, now also reachable from Python | Windows + MSVC and Linux (both verified in CI) |
 
 All seven PoCs below are real, runnable code paths already exercised in this
 repo's own verification demos (see `AnimusCore_v1/BENCHMARKS.md` for the
 measured numbers) -- not illustrative pseudocode.
 
-Running a pilot evaluation rather than integrating from source? See
-[`Pilot_Kit/PILOT_README.md`](../Pilot_Kit/PILOT_README.md) instead -- a
-minimal customer-facing quickstart covering just Guide 1's Python
-interop path, a runnable sub-microsecond ingestion example, and how
-30-day evaluation licenses work.
+Evaluating rather than integrating from source? Guide 1's Python interop
+path is the quickest way to a measured ingestion number on your own
+hardware.
 
-Evaluating Guide 7's shared-memory transport specifically, on Linux, with
-zero build step at all? See
-[`eval_kit/README.md`](../eval_kit/README.md) -- a turnkey tarball
-(`eval_kit/scripts/package_kit.sh` builds it) bundling a prebuilt
-`-march=x86-64-v3` Linux binary, both Python wheels, and a zero-copy
-nanobind consumer script; `./run_demo.sh` runs the whole thing end to
-end, no compiler or `cmake` required on the evaluation machine. This is
-the actual Linux verification Guide 7 references below -- run on a real
-`ubuntu-22.04` CI box, not just compiled and assumed.
+Guide 7's shared-memory transport on Linux is exercised on a real
+`ubuntu-22.04` CI box (`.github/workflows/linux_ci.yml`), not just compiled
+and assumed.
 
 ---
 
@@ -744,7 +736,7 @@ Animus Dual-License Gateway (see `LICENSE`): the Community Grant covers
 evaluation, benchmarking, and non-commercial research with no signed
 agreement required, but a hardware-locked license gate is what stands
 between that and commercial/production use -- see `COMMERCIAL.md` for
-the licensing tiers this gate enforces and `LEGAL_EULA.md` for the
+the production license this gate enforces and `LEGAL_EULA.md` for the
 governing terms.
 
 `animus_verify_license(path)` validates a signed license file entirely
@@ -1242,5 +1234,5 @@ easiest way to exercise this path yourself.
   optional on top? **Guide 7** (a different tradeoff than Guide 1/2's
   `SharedTelemetryChannel`/`SharedTelemetryRing` -- no wire-compatibility
   constraint, so it cache-line-pads the producer/consumer cursors
-  instead). Evaluating just this transport on Linux? Skip straight to the
-  [Evaluation Kit](../eval_kit/README.md) instead of building from source.
+  instead). Evaluating just this transport on Linux? A turnkey Linux evaluation
+  tarball is supplied on request.

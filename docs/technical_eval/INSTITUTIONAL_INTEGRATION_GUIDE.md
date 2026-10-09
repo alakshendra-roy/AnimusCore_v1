@@ -303,7 +303,7 @@ benchmark and `sdk/python/README.md` for installation instructions.
 ## 5. Support
 
 Questions about integrating Animus Core into a specific execution
-architecture, or about the pilot program, should go through the same
+architecture, or about an evaluation, should go through the same
 channel that provided you this repository. See `README.md` at the repo
 root for the project overview and `ARCHITECTURE.md` for a lower-level
 walkthrough of the wider engine (execution client, telemetry, secure

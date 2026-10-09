@@ -23,22 +23,44 @@
 // dependency-free, noexcept design is exactly what a hot spin-poll loop
 // here needs) rather than duplicating them.
 //
+// Three ring kinds live in this header, one per producer/consumer topology:
+//   ShmRing<T>      single producer / single consumer, optional overwrite mode
+//   SpmcRing<T>     single producer / any number of independent broadcast readers
+//   ShmRingMpmc<T>  any number of producers / any number of consumers, lossless
+//                   (bounded Vyukov queue: one sequence word per cell, one CAS
+//                   per claim, no lock anywhere)
+//
 // Platform coverage, same split as animus.hpp's own SharedMemorySegment:
 //   - Windows: CreateFileMappingA/MapViewOfFile/OpenFileMappingA (pagefile-
 //     backed, not a real file on disk) with VirtualQuery for size discovery
 //     on the attach side, since MapViewOfFile has no "how big is this"
 //     return value of its own.
-//   - Linux (and other POSIX): shm_open/ftruncate/mmap, with fstat for size
-//     discovery on the attach side.
+//   - Linux: shm_open + posix_fallocate (ftruncate where the filesystem
+//     cannot reserve space) + mmap(MAP_SHARED | MAP_POPULATE), with fstat for
+//     size discovery on the attach side. posix_fallocate reserves the
+//     backing pages when the segment is created: on tmpfs (/dev/shm)
+//     ftruncate alone makes a sparse file, so a full /dev/shm -- the 64 MiB
+//     default in a stock Docker container -- would otherwise surface as a
+//     SIGBUS on the first touch of some later page, in the middle of a hot
+//     loop, instead of as a clean create() failure. MAP_POPULATE (plus
+//     madvise(MADV_POPULATE_WRITE) where the kernel has it) makes every page
+//     resident and writable in this process before create()/open() returns,
+//     so the first push into each page does not take a minor fault (a
+//     64 MiB segment: 16,384 faults at create() instead of on the hot path).
+//   - Other POSIX (macOS, BSD): shm_open/ftruncate/mmap; no populate flag.
+//     Written to the POSIX specification; not built or run in this release's
+//     verification (Linux and Windows are).
 
 #include "thread_affinity.hpp"
 #include "shm_lifecycle.hpp"
 #include "schema.hpp"
 
 #include <atomic>
+#include <cerrno>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <new>
 #include <type_traits>
@@ -57,6 +79,9 @@
     #include <sys/mman.h>
     #include <sys/stat.h>
     #include <unistd.h>
+    #if defined(__linux__) && !defined(MADV_POPULATE_WRITE)
+        #define MADV_POPULATE_WRITE 23 // Linux 5.14+; older kernels answer EINVAL and we fall back
+    #endif
 #endif
 
 #if defined(_MSC_VER)
@@ -121,8 +146,16 @@ namespace ipc {
         // it into this process. Returns false (out left empty) on any
         // failure -- a name collision with an already-existing segment
         // included, since silently reusing a stale segment of the wrong
-        // size would be worse than failing loudly.
-        static bool create(const char* name, size_t size, SharedMemoryRegion& out) noexcept {
+        // size would be worse than failing loudly. On Linux that includes
+        // "the filesystem cannot back `size` bytes" (ENOSPC from
+        // posix_fallocate), reported here rather than as a later SIGBUS.
+        //
+        // `prefault` (default on): make every page resident and writable in
+        // this process before returning, so the hot path never takes a
+        // first-touch fault -- the whole segment is committed up front,
+        // which is the point of asking for it. Pass false for a segment that
+        // is large and mostly cold, or for a short-lived mapping.
+        static bool create(const char* name, size_t size, SharedMemoryRegion& out, bool prefault = true) noexcept {
             out.close();
             if (!name || size == 0) return false;
 #if defined(_WIN32)
@@ -149,16 +182,17 @@ namespace ipc {
             out.handle_ = h;
             out.data_ = view;
             out.size_ = size;
+            if (prefault) prefault_pages(view, size);
             return true;
 #else
             int fd = shm_open(name, O_CREAT | O_RDWR | O_EXCL, 0600);
             if (fd < 0) return false; // includes EEXIST -- same "don't silently reuse a stale segment" reasoning as Windows above
-            if (ftruncate(fd, static_cast<off_t>(size)) != 0) {
+            if (!reserve_backing(fd, size)) {
                 ::close(fd);
                 shm_unlink(name);
                 return false;
             }
-            void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            void* addr = map_shared(fd, size, prefault);
             ::close(fd); // the mapping keeps the underlying object alive; the fd itself isn't needed after mmap
             if (addr == MAP_FAILED) {
                 shm_unlink(name);
@@ -166,6 +200,7 @@ namespace ipc {
             }
             out.data_ = addr;
             out.size_ = size;
+            if (prefault) prefault_pages(addr, size, /*fresh=*/true);
             return true;
 #endif
         }
@@ -173,7 +208,14 @@ namespace ipc {
         // Maps an existing segment created by another process's create()
         // call. Size is discovered from the OS, not supplied by the
         // caller, so both sides always agree on it.
-        static bool open(const char* name, SharedMemoryRegion& out) noexcept {
+        //
+        // `prefault` (default on) populates this process's page tables for
+        // the whole mapping, writable, without modifying any byte of it --
+        // right for a producer or consumer that will live on the ring. A
+        // short-lived read-only sampler (telemetry.hpp's AnimusGetMetrics
+        // opens and closes a mapping on every call) passes false: populating
+        // a large ring just to read one header would dominate its cost.
+        static bool open(const char* name, SharedMemoryRegion& out, bool prefault = true) noexcept {
             out.close();
             if (!name) return false;
 #if defined(_WIN32)
@@ -197,6 +239,7 @@ namespace ipc {
             out.handle_ = h;
             out.data_ = view;
             out.size_ = mbi.RegionSize;
+            if (prefault) prefault_pages(view, out.size_);
             return true;
 #else
             // Bug fixed here (caught on real Linux CI, never on the Windows
@@ -217,11 +260,12 @@ namespace ipc {
                 return false;
             }
             size_t size = static_cast<size_t>(st.st_size);
-            void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+            void* addr = map_shared(fd, size, prefault);
             ::close(fd);
             if (addr == MAP_FAILED) return false;
             out.data_ = addr;
             out.size_ = size;
+            if (prefault) prefault_pages(addr, size, /*fresh=*/false);
             return true;
 #endif
         }
@@ -266,6 +310,89 @@ namespace ipc {
         }
 
     private:
+#if !defined(_WIN32)
+        // Reserves `size` bytes of real backing for a freshly created POSIX
+        // shm object and sets its length. Linux: posix_fallocate, which on
+        // tmpfs allocates the pages now and reports ENOSPC/ENOMEM on the spot;
+        // a bare ftruncate would hand back a sparse file that SIGBUSes on
+        // first touch once /dev/shm is full. posix_fallocate returns the error
+        // number rather than setting errno, and only the "not enough room"
+        // family is treated as fatal -- a filesystem that cannot fallocate at
+        // all (EOPNOTSUPP/EINVAL/ENODEV...) still gets a working segment via
+        // the ftruncate fallback. Other POSIX: ftruncate (once -- macOS only
+        // permits sizing a shm object a single time).
+        static bool reserve_backing(int fd, size_t size) noexcept {
+#if defined(__linux__)
+            int rc;
+            do {
+                rc = posix_fallocate(fd, 0, static_cast<off_t>(size));
+            } while (rc == EINTR);
+            if (rc == 0) return true;
+            if (rc == ENOSPC || rc == ENOMEM || rc == EFBIG || rc == EDQUOT) return false;
+#endif
+            return ftruncate(fd, static_cast<off_t>(size)) == 0;
+        }
+
+        // mmap(MAP_SHARED), adding MAP_POPULATE when asked and available.
+        // MAP_POPULATE can fail where a lazy mapping would succeed (memory
+        // pressure, RLIMIT_MEMLOCK-style limits), so on failure it retries
+        // without the flag rather than failing the whole create()/open().
+        static void* map_shared(int fd, size_t size, bool populate) noexcept {
+#if defined(MAP_POPULATE)
+            if (populate) {
+                void* addr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_POPULATE, fd, 0);
+                if (addr != MAP_FAILED) return addr;
+            }
+#else
+            (void)populate;
+#endif
+            return mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        }
+#endif // !_WIN32
+
+        // Makes every page of the mapping resident and WRITABLE in this
+        // process's page tables, best-effort, without changing any byte --
+        // the first-touch cost (one minor fault per 4 KiB page) this exists to
+        // keep off the producer's hot path. On tmpfs, which is what /dev/shm
+        // is, MAP_POPULATE alone already installs writable entries (measured:
+        // 16,384 faults at map time and none on the first write of a 64 MiB
+        // segment, Linux 6.18; tests/test_shm_mpmc.cpp keeps that measurement
+        // as a regression test). The explicit step below covers the cases
+        // MAP_POPULATE does not: a shm object on a filesystem that tracks
+        // dirty pages, where a populate read-faults and the first store still
+        // faults, and a map_shared() that had to retry without MAP_POPULATE.
+        // madvise(MADV_POPULATE_WRITE) (Linux 5.14+) takes those faults up
+        // front and never touches the data. Where the kernel lacks it, a
+        // freshly created segment falls back to an atomic fetch_or(0) on one
+        // byte per page: an identity read-modify-write, so it cannot clobber
+        // a concurrent store. That fallback is withheld for attach (fresh ==
+        // false) on POSIX, because an attached segment may be a sparse
+        // file from an older creator and touching one on a full tmpfs would
+        // SIGBUS instead of failing quietly.
+        static void prefault_pages(void* base, size_t size, bool fresh = true) noexcept {
+            static_assert(std::atomic<unsigned char>::is_always_lock_free,
+                "page-touch prefault relies on a lock-free byte RMW");
+            if (!base || size == 0) return;
+#if defined(_WIN32)
+            (void)fresh;
+            SYSTEM_INFO si;
+            GetSystemInfo(&si);
+            const size_t page = si.dwPageSize ? static_cast<size_t>(si.dwPageSize) : 4096u;
+#else
+#if defined(__linux__)
+            if (madvise(base, size, MADV_POPULATE_WRITE) == 0) return;
+            if (errno != EINVAL) return; // populate was attempted and failed: do not force it by touching
+#endif
+            if (!fresh) return;
+            const long ps = sysconf(_SC_PAGESIZE);
+            const size_t page = ps > 0 ? static_cast<size_t>(ps) : 4096u;
+#endif
+            auto* bytes = static_cast<unsigned char*>(base);
+            for (size_t off = 0; off < size; off += page) {
+                reinterpret_cast<std::atomic<unsigned char>*>(bytes + off)->fetch_or(0, std::memory_order_relaxed);
+            }
+        }
+
         void* data_ = nullptr;
         size_t size_ = 0;
 #if defined(_WIN32)
@@ -273,13 +400,14 @@ namespace ipc {
 #endif
     };
 
-    // Discriminates the two structurally different wire-header layouts
-    // this file defines (RingHeader below for ShmRing<T>'s SPSC ring,
-    // SpmcRingHeader further down for SpmcRing<T>'s broadcast ring).
-    // Their leading wire-descriptor fields (capacity through wire_format)
-    // are deliberately laid out identically -- same offsets, same sizes --
-    // so schema validation and inspection code can treat either header's
-    // prefix uniformly; but everything after that prefix differs (RingHeader
+    // Discriminates the structurally different wire-header layouts this
+    // file defines (RingHeader below for ShmRing<T>'s SPSC ring,
+    // SpmcRingHeader further down for SpmcRing<T>'s broadcast ring, and
+    // MpmcRingHeader for ShmRingMpmc<T>). Their leading wire-descriptor
+    // fields (capacity through stride, and wire_format's first byte at
+    // offset 48) are deliberately laid out identically -- same offsets, same
+    // sizes -- so schema validation and inspection code can treat any
+    // header's prefix uniformly; but everything after that prefix differs (RingHeader
     // has a shared tail cursor and per-consumer pid/heartbeat, SpmcRingHeader
     // has neither -- see that struct's own comment), so a segment's actual
     // ring_kind must still be checked before reading anything past
@@ -289,7 +417,7 @@ namespace ipc {
     // SpmcRingHeader are different total sizes), with no other check able
     // to catch it -- payload_size/schema_version_hash alone are identical
     // for the same T regardless of which ring kind created the segment.
-    enum class RingKind : uint64_t { Spsc = 0, SpmcBroadcast = 1 };
+    enum class RingKind : uint64_t { Spsc = 0, SpmcBroadcast = 1, Mpmc = 2 };
 
     // Wire descriptor + SPSC cursor header shared by every ShmRing<T>
     // instantiation (Milestone 1) -- factored out of the class template,
@@ -1491,6 +1619,355 @@ namespace ipc {
         uint64_t local_tail_ = 0;    // THIS consumer's own read cursor -- never written to shared memory
         uint64_t overrun_count_ = 0;
         bool last_poll_overran_ = false;
+    };
+
+    // ======================================================================
+    // ShmRingMpmc<T>: multi-producer / multi-consumer, lossless, bounded.
+    // ======================================================================
+    //
+    // The shared-memory form of the Vyukov bounded MPMC queue that animus.hpp
+    // uses in-process for the engine's telemetry path (LockFreeRingBuffer),
+    // placed in a named OS mapping so any number of producer and consumer
+    // *processes* -- or threads, or a mix -- can share it.
+    //
+    // Protocol. Every cell carries a 64-bit sequence word. Cell i starts at
+    // sequence == i. For a position `pos` the cell is (pos & mask), and:
+    //   producer: free for pos      iff cell.sequence == pos
+    //             claim:            CAS enqueue_pos pos -> pos+1      (relaxed)
+    //             publish:          write value; cell.sequence = pos+1 (release)
+    //   consumer: ready for pos     iff cell.sequence == pos+1        (acquire)
+    //             claim:            CAS dequeue_pos pos -> pos+1      (relaxed)
+    //             retire:           read value;  cell.sequence = pos+capacity (release)
+    // A producer that sees cell.sequence < pos finds the ring full; a consumer
+    // that sees cell.sequence < pos+1 finds it empty; a sequence ahead of pos
+    // means another thread already claimed that position, so reload and retry.
+    // The release store of the sequence word is what hands the payload from one
+    // side to the other, so the payload itself is an ordinary (non-atomic)
+    // copy and the whole structure is data-race-free by the C++ memory model --
+    // ThreadSanitizer-clean, unlike the seqlock rings above.
+    //
+    // Progress guarantee: lock-free (some thread always completes), NOT
+    // wait-free, and NOT crash-tolerant. A producer killed between winning the
+    // CAS and publishing leaves that one cell claimed-but-unpublished, and
+    // every consumer then reports "empty" from that position on, because
+    // consumption is strictly in position order. The mirror case stalls
+    // producers once the ring wraps to a cell whose consumer died mid-pop. Use
+    // SpscQueue / BroadcastRing where a peer's death must not stall the ring.
+    //
+    // Cache-line isolation (the reason this header exists in this form):
+    //   - the read-only descriptor owns its own line(s);
+    //   - enqueue_pos, which every producer CASes, owns a line by itself;
+    //   - dequeue_pos, which every consumer CASes, owns a line by itself;
+    //   - each cell is padded and aligned to a whole number of cache lines, so
+    //     two threads working on adjacent positions never share a line.
+    // Producers therefore never invalidate a consumer's cursor line and vice
+    // versa; the only cross-side traffic is the cell the two sides actually hand
+    // over. All of it is enforced by static_assert, below.
+    //
+    // Threading: a ShmRingMpmc object holds no mutable state after
+    // create()/open(), so one instance may be shared by any number of threads,
+    // and each process (or thread, if it prefers its own mapping) can equally
+    // open() its own. T must be trivially copyable, as for the other rings.
+    //
+    // Wire layout (64-byte-line target):
+    //     0  capacity            u64   }
+    //     8  mask                u64   }  same offsets as RingHeader /
+    //    16  ring_kind           u64   }  SpmcRingHeader (== 2, Mpmc)
+    //    24  schema_version_hash u64   }
+    //    32  payload_size        u64   }  sizeof(T)
+    //    40  stride              u64   }  bytes from one cell to the next
+    //    48  wire_format[72]           NUL-terminated
+    //   120  ready               u64   written LAST, release: create() has finished
+    //   128  enqueue_pos         u64   producers' line, alone
+    //   192  dequeue_pos         u64   consumers' line, alone
+    //   256  cells[capacity]           each stride bytes, 64-byte aligned
+    // A segment whose `ready` word is not the expected magic is still being
+    // initialised (or is foreign), and open() declines it.
+#if defined(_MSC_VER)
+    #pragma warning(push)
+    #pragma warning(disable: 4324) // intentional cache-line padding -- see RingHeader's identical pragma above
+#endif
+    struct alignas(ANIMUS_CACHE_LINE_SIZE) MpmcRingHeader {
+        // 72 rather than the 80 of the other headers: the last 8 bytes of the
+        // 128-byte descriptor hold `ready` below. A struct.calcsize format
+        // string for any realistic record is far shorter than either.
+        static constexpr size_t kWireFormatBufSize = 72;
+        static constexpr uint64_t kReadyMagic = 0x4D504D4352494E47ull; // "MPMCRING"
+
+        uint64_t capacity = 0;
+        uint64_t mask = 0;
+        uint64_t ring_kind = static_cast<uint64_t>(RingKind::Mpmc);
+        uint64_t schema_version_hash = 0;
+        uint64_t payload_size = 0;
+        uint64_t stride = 0;
+        char wire_format[kWireFormatBufSize] = {};
+        std::atomic<uint64_t> ready{ 0 };
+
+        alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> enqueue_pos{ 0 };
+        alignas(ANIMUS_CACHE_LINE_SIZE) std::atomic<uint64_t> dequeue_pos{ 0 };
+    };
+    // One cell: the sequence word plus the payload, padded to whole cache lines.
+    template <typename T>
+    struct alignas(ANIMUS_CACHE_LINE_SIZE) MpmcCell {
+        std::atomic<uint64_t> sequence;
+        T value;
+    };
+#if defined(_MSC_VER)
+    #pragma warning(pop)
+#endif
+    static_assert(std::is_standard_layout<MpmcRingHeader>::value, "offsetof below requires standard layout");
+    static_assert(std::atomic<uint64_t>::is_always_lock_free,
+        "MpmcRingHeader and its cells live in memory shared across process boundaries -- a non-lock-free "
+        "std::atomic<uint64_t> could fall back to a mutex/futex that isn't valid there");
+    static_assert(ANIMUS_CACHE_LINE_SIZE >= 64 && ANIMUS_CACHE_LINE_SIZE % 64 == 0,
+        "cache-line isolation is specified in multiples of 64 bytes");
+    static_assert(alignof(MpmcRingHeader) >= 64,
+        "MpmcRingHeader must be at least 64-byte aligned");
+    static_assert(offsetof(MpmcRingHeader, enqueue_pos) % 64 == 0 && offsetof(MpmcRingHeader, dequeue_pos) % 64 == 0,
+        "enqueue_pos and dequeue_pos must each start on a 64-byte boundary");
+    static_assert(offsetof(MpmcRingHeader, dequeue_pos) - offsetof(MpmcRingHeader, enqueue_pos) >= ANIMUS_CACHE_LINE_SIZE,
+        "the producers' cursor and the consumers' cursor must not share a cache line");
+    static_assert(offsetof(MpmcRingHeader, ready) + sizeof(std::atomic<uint64_t>) <= offsetof(MpmcRingHeader, enqueue_pos),
+        "the read-only descriptor must not share a cache line with the producers' cursor");
+    static_assert(sizeof(MpmcRingHeader) % ANIMUS_CACHE_LINE_SIZE == 0,
+        "MpmcRingHeader must be a whole number of cache lines so cell 0 starts on one");
+    static_assert(offsetof(MpmcRingHeader, wire_format) == 48,
+        "the wire-descriptor prefix must match RingHeader's offsets (telemetry.hpp reads it uniformly)");
+#if ANIMUS_CACHE_LINE_SIZE == 64
+    static_assert(offsetof(MpmcRingHeader, capacity) == 0 && offsetof(MpmcRingHeader, mask) == 8 &&
+                  offsetof(MpmcRingHeader, ring_kind) == 16 && offsetof(MpmcRingHeader, schema_version_hash) == 24 &&
+                  offsetof(MpmcRingHeader, payload_size) == 32 && offsetof(MpmcRingHeader, stride) == 40 &&
+                  offsetof(MpmcRingHeader, ready) == 120 && offsetof(MpmcRingHeader, enqueue_pos) == 128 &&
+                  offsetof(MpmcRingHeader, dequeue_pos) == 192 && sizeof(MpmcRingHeader) == 256,
+        "MpmcRingHeader's wire layout changed -- the documented offsets are part of the ABI; bump the wire version first");
+#endif
+
+    template <typename T>
+    class ShmRingMpmc {
+    public:
+        static_assert(std::is_trivially_copyable<T>::value,
+            "T must be trivially copyable -- ShmRingMpmc<T> places T directly in shared memory "
+            "with no serialization step, so a naive byte-copy across the process boundary "
+            "must be a valid, complete copy of T");
+        static_assert(alignof(T) <= 64,
+            "T's alignment must not exceed 64 bytes -- cells are cache-line aligned, and an "
+            "over-aligned T could not be guaranteed a validly aligned slot in every cell");
+
+        using Cell = MpmcCell<T>;
+        static_assert(alignof(Cell) >= 64 && sizeof(Cell) % 64 == 0 && sizeof(Cell) % alignof(Cell) == 0,
+            "every cell must occupy whole 64-byte cache lines");
+
+        // Hot-path contract, checked at compile time in create() below: the
+        // operations are noexcept and the payload is a trivially copyable value,
+        // so a push or pop is a bounded sequence of atomic operations and a
+        // fixed-size copy. That is a structural guarantee only; what proves no
+        // allocator call is actually reachable is the counting allocator in
+        // tests/eval_harness.cpp and the disassembly check in
+        // scripts/audit_hotpath_symbols.py.
+
+        ShmRingMpmc(const ShmRingMpmc&) = delete;
+        ShmRingMpmc& operator=(const ShmRingMpmc&) = delete;
+
+        // Allocates a new named ring of at least `requested_capacity` cells
+        // (rounded up to a power of two, minimum 2) and initialises every
+        // cell's sequence word. Returns nullptr on failure: a name collision,
+        // an OS refusal (including /dev/shm too small on Linux), or a
+        // capacity whose byte size would overflow. The cell-initialising loop
+        // touches every cell, so the segment is fully resident on return.
+        static std::unique_ptr<ShmRingMpmc> create(const char* name, size_t requested_capacity) noexcept {
+            static_assert(noexcept(std::declval<ShmRingMpmc&>().try_push(std::declval<const T&>())) &&
+                          noexcept(std::declval<ShmRingMpmc&>().try_pop(std::declval<T&>())) &&
+                          noexcept(std::declval<ShmRingMpmc&>().push_spin(std::declval<const T&>())) &&
+                          noexcept(std::declval<ShmRingMpmc&>().pop_spin(std::declval<T&>())),
+                "the ShmRingMpmc hot-path operations must be noexcept");
+            const size_t floor_capacity = requested_capacity < 2 ? 2 : requested_capacity;
+            const size_t max_capacity = (std::numeric_limits<size_t>::max() / 2 - sizeof(MpmcRingHeader)) / sizeof(Cell);
+            if (floor_capacity > max_capacity) return nullptr;
+            const uint64_t capacity = round_up_pow2(floor_capacity);
+            if (capacity > max_capacity) return nullptr;
+            const size_t total_size = sizeof(MpmcRingHeader) + static_cast<size_t>(capacity) * sizeof(Cell);
+
+            SharedMemoryRegion region;
+            if (!SharedMemoryRegion::create(name, total_size, region)) {
+                return nullptr;
+            }
+            // The OS hands back zeroed pages; placement-new makes the header's
+            // atomics live objects, and leaves `ready` == 0 until the very end.
+            auto* header = new (region.data()) MpmcRingHeader();
+            auto* cells = reinterpret_cast<Cell*>(header + 1);
+            for (uint64_t i = 0; i < capacity; ++i) {
+                Cell* cell = new (&cells[i]) Cell;
+                cell->sequence.store(i, std::memory_order_relaxed);
+            }
+            header->capacity = capacity;
+            header->mask = capacity - 1;
+            header->ring_kind = static_cast<uint64_t>(RingKind::Mpmc);
+            header->schema_version_hash = schema::Traits<T>::kVersionHash;
+            header->payload_size = static_cast<uint64_t>(sizeof(T));
+            header->stride = static_cast<uint64_t>(sizeof(Cell));
+            set_wire_format(*header, schema::Traits<T>::kWireFormat);
+            // Everything above happens-before any open() that observes this.
+            header->ready.store(MpmcRingHeader::kReadyMagic, std::memory_order_release);
+
+            std::unique_ptr<ShmRingMpmc> ring(new ShmRingMpmc());
+            ring->region_ = std::move(region);
+            ring->header_ = header;
+            ring->cells_ = cells;
+            ring->mask_ = capacity - 1;
+            return ring;
+        }
+
+        // Maps an existing ring created by another process's (or thread's)
+        // create(). Returns nullptr if the segment does not exist, is still
+        // being initialised, is too small, is a different ring kind, has a
+        // malformed header, or was created for a different T / schema.
+        static std::unique_ptr<ShmRingMpmc> open(const char* name) noexcept {
+            SharedMemoryRegion region;
+            if (!SharedMemoryRegion::open(name, region)) {
+                return nullptr;
+            }
+            if (!region.valid() || region.size() < sizeof(MpmcRingHeader)) {
+                return nullptr;
+            }
+            auto* header = reinterpret_cast<MpmcRingHeader*>(region.data());
+            if (header->ready.load(std::memory_order_acquire) != MpmcRingHeader::kReadyMagic) {
+                return nullptr; // create() has not finished (or this is not an MPMC ring at all)
+            }
+            if (header->ring_kind != static_cast<uint64_t>(RingKind::Mpmc)) {
+                return nullptr;
+            }
+            const uint64_t capacity = header->capacity;
+            const bool capacity_is_pow2 = capacity >= 2 && (capacity & (capacity - 1)) == 0;
+            if (!capacity_is_pow2 || header->mask != capacity - 1) {
+                return nullptr;
+            }
+            if (header->payload_size != static_cast<uint64_t>(sizeof(T)) ||
+                header->stride != static_cast<uint64_t>(sizeof(Cell))) {
+                return nullptr; // wrong record size -- a different T (or ABI drift) than create() used
+            }
+            if (header->schema_version_hash != schema::Traits<T>::kVersionHash) {
+                return nullptr; // same size, different registered schema -- refuse rather than misread
+            }
+            const size_t max_capacity = (std::numeric_limits<size_t>::max() - sizeof(MpmcRingHeader)) / sizeof(Cell);
+            if (capacity > max_capacity ||
+                region.size() < sizeof(MpmcRingHeader) + static_cast<size_t>(capacity) * sizeof(Cell)) {
+                return nullptr; // header claims a capacity the mapped region does not have room for
+            }
+
+            std::unique_ptr<ShmRingMpmc> ring(new ShmRingMpmc());
+            ring->region_ = std::move(region);
+            ring->header_ = header;
+            ring->cells_ = reinterpret_cast<Cell*>(header + 1);
+            ring->mask_ = capacity - 1;
+            return ring;
+        }
+
+        static bool unlink(const char* name) noexcept { return SharedMemoryRegion::unlink(name); }
+
+        bool valid() const noexcept { return header_ != nullptr; }
+        size_t capacity() const noexcept { return header_ ? static_cast<size_t>(mask_ + 1) : 0; }
+        uint64_t schema_version_hash() const noexcept { return header_ ? header_->schema_version_hash : 0; }
+        size_t payload_size() const noexcept { return header_ ? static_cast<size_t>(header_->payload_size) : 0; }
+        size_t stride() const noexcept { return header_ ? static_cast<size_t>(header_->stride) : 0; }
+        const char* wire_format() const noexcept { return header_ ? header_->wire_format : ""; }
+        static constexpr const char* schema_name() noexcept { return schema::Traits<T>::kName; }
+
+        // Any thread, any process. Never blocks and never allocates. Returns
+        // false when the ring is full -- which, as in every Vyukov queue, also
+        // covers "the consumer of this cell has claimed it but not yet
+        // retired it": backpressure the caller reacts to (retry, spill, count).
+        bool try_push(const T& value) noexcept {
+            Cell* cell;
+            uint64_t pos = header_->enqueue_pos.load(std::memory_order_relaxed);
+            for (;;) {
+                cell = &cells_[pos & mask_];
+                const uint64_t seq = cell->sequence.load(std::memory_order_acquire);
+                const int64_t diff = static_cast<int64_t>(seq - pos);
+                if (diff == 0) {
+                    // The cell is free for `pos`: try to claim the position. A
+                    // failed CAS reloads `pos` with the winner's value.
+                    if (header_->enqueue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break;
+                } else if (diff < 0) {
+                    return false; // the cell still holds a lap-old, unconsumed record: full
+                } else {
+                    pos = header_->enqueue_pos.load(std::memory_order_relaxed); // another producer got here first
+                }
+            }
+            cell->value = value;
+            cell->sequence.store(pos + 1, std::memory_order_release); // publishes the payload to consumers
+            return true;
+        }
+
+        // Any thread, any process. Never blocks and never allocates. Returns
+        // false when no published record is available at the next position
+        // (empty, or the producer that owns that position has not published
+        // yet). `out` is written only on true.
+        bool try_pop(T& out) noexcept {
+            Cell* cell;
+            uint64_t pos = header_->dequeue_pos.load(std::memory_order_relaxed);
+            for (;;) {
+                cell = &cells_[pos & mask_];
+                const uint64_t seq = cell->sequence.load(std::memory_order_acquire);
+                const int64_t diff = static_cast<int64_t>(seq - (pos + 1));
+                if (diff == 0) {
+                    if (header_->dequeue_pos.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break;
+                } else if (diff < 0) {
+                    return false; // not yet published: empty
+                } else {
+                    pos = header_->dequeue_pos.load(std::memory_order_relaxed); // another consumer got here first
+                }
+            }
+            out = cell->value;
+            cell->sequence.store(pos + mask_ + 1, std::memory_order_release); // frees the cell for the next lap
+            return true;
+        }
+
+        // Spin-polling variants, same convention as ShmRing<T>: retry with
+        // cpu_relax() until success or `max_spins` attempts. Still never block
+        // in the OS-scheduler sense.
+        bool push_spin(const T& value, uint64_t max_spins = kDefaultMaxSpins) noexcept {
+            for (uint64_t i = 0; i < max_spins; ++i) {
+                if (try_push(value)) return true;
+                cpu_relax();
+            }
+            return false;
+        }
+
+        bool pop_spin(T& out, uint64_t max_spins = kDefaultMaxSpins) noexcept {
+            for (uint64_t i = 0; i < max_spins; ++i) {
+                if (try_pop(out)) return true;
+                cpu_relax();
+            }
+            return false;
+        }
+
+        // Positions claimed so far by producers / consumers (monotonic, never
+        // reset). A claimed position becomes visible to the other side only once
+        // its cell is published, so enqueued() - dequeued() counts records in
+        // flight including any mid-publish; it is a diagnostic, not a barrier.
+        uint64_t enqueued() const noexcept { return header_->enqueue_pos.load(std::memory_order_relaxed); }
+        uint64_t dequeued() const noexcept { return header_->dequeue_pos.load(std::memory_order_relaxed); }
+        uint64_t size_approx() const noexcept {
+            const uint64_t deq = dequeued();
+            const uint64_t enq = enqueued();
+            return enq >= deq ? enq - deq : 0;
+        }
+
+    private:
+        ShmRingMpmc() noexcept = default;
+
+        static constexpr uint64_t kDefaultMaxSpins = 200'000'000ull;
+
+        static uint64_t round_up_pow2(size_t v) noexcept {
+            uint64_t p = 1;
+            while (p < v) p <<= 1;
+            return p;
+        }
+
+        SharedMemoryRegion region_;
+        MpmcRingHeader* header_ = nullptr;
+        Cell* cells_ = nullptr;
+        uint64_t mask_ = 0; // cached copy of header_->mask: the descriptor is read-only after create()
     };
 
 } // namespace ipc

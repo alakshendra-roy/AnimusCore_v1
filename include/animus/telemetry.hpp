@@ -1,8 +1,9 @@
 #pragma once
 // Milestone 3: Non-Blocking Telemetry & Observability Layer.
 //
-// A read-only diagnostic sampler for ShmRing<T> (SPSC) and SpmcRing<T>
-// (broadcast) segments (shm_ipc.hpp) that never attaches as a consumer --
+// A read-only diagnostic sampler for ShmRing<T> (SPSC), SpmcRing<T>
+// (broadcast) and ShmRingMpmc<T> (multi-producer/multi-consumer) segments
+// (shm_ipc.hpp) that never attaches as a consumer --
 // no cursor registration, no pid/heartbeat writes, not even the same-T
 // schema check ShmRing<T>::open()/SpmcRing<T>::open() enforce, since a
 // monitoring tool has to work for a ring whose exact record type it was
@@ -111,6 +112,8 @@ namespace animus {
         "TelemetrySnapshot::wire_format must be big enough for RingHeader's wire_format buffer plus a NUL");
     static_assert(sizeof(TelemetrySnapshot::wire_format) >= sys::ipc::SpmcRingHeader::kWireFormatBufSize + 1,
         "TelemetrySnapshot::wire_format must be big enough for SpmcRingHeader's wire_format buffer plus a NUL");
+    static_assert(sizeof(TelemetrySnapshot::wire_format) >= sys::ipc::MpmcRingHeader::kWireFormatBufSize + 1,
+        "TelemetrySnapshot::wire_format must be big enough for MpmcRingHeader's wire_format buffer plus a NUL");
 
     namespace detail {
         inline void copy_wire_format_into(char (&dest)[81], const char* src, size_t src_buf_size) noexcept {
@@ -139,8 +142,12 @@ namespace animus {
         *out = TelemetrySnapshot{};
         if (!ring_name) return false;
 
+        // prefault = false: this sampler opens and closes a mapping on every
+        // call just to read a few header words. Populating a multi-hundred-MB
+        // ring's page tables for that would cost orders of magnitude more than
+        // the sample itself, and it must stay invisible to the ring's real users.
         sys::ipc::SharedMemoryRegion region;
-        if (!sys::ipc::SharedMemoryRegion::open(ring_name, region)) {
+        if (!sys::ipc::SharedMemoryRegion::open(ring_name, region, /*prefault=*/false)) {
             return false;
         }
 
@@ -201,6 +208,32 @@ namespace animus {
             // TelemetrySnapshot's own field comments.
             out->producer_pid = header->producer_pid.load(std::memory_order_relaxed);
             out->producer_heartbeat = header->producer_heartbeat.load(std::memory_order_relaxed);
+        } else if (ring_kind_raw == static_cast<uint64_t>(sys::ipc::RingKind::Mpmc)) {
+            if (region.size() < sizeof(sys::ipc::MpmcRingHeader)) return false;
+            const auto* header = reinterpret_cast<const sys::ipc::MpmcRingHeader*>(region.data());
+            // create() stores `ready` last: until it reads as the magic, every
+            // other descriptor field may still be zero.
+            if (header->ready.load(std::memory_order_acquire) != sys::ipc::MpmcRingHeader::kReadyMagic) return false;
+
+            out->ring_kind = sys::ipc::RingKind::Mpmc;
+            out->capacity = header->capacity;
+            out->schema_version_hash = header->schema_version_hash;
+            out->payload_size = header->payload_size;
+            out->stride = header->stride;
+            detail::copy_wire_format_into(out->wire_format, header->wire_format, sys::ipc::MpmcRingHeader::kWireFormatBufSize);
+
+            const uint64_t enqueued = header->enqueue_pos.load(std::memory_order_relaxed);
+            const uint64_t dequeued = header->dequeue_pos.load(std::memory_order_relaxed);
+            out->current_write_head = enqueued;
+            out->total_pushed_events = enqueued;
+            // Lossless: nothing is ever overwritten, so has_dropped_count stays
+            // false. consumer_tail/consumer_lag are the shared dequeue cursor
+            // and the claimed-but-not-yet-claimed-for-dequeue backlog. There is
+            // no single producer (or consumer) identity to publish, so
+            // producer_pid stays 0 and producer_alive stays false.
+            out->has_consumer_lag = true;
+            out->consumer_tail = dequeued;
+            out->consumer_lag = (enqueued >= dequeued) ? (enqueued - dequeued) : 0;
         } else {
             return false; // not a ring_kind this module recognizes -- an unrelated or foreign segment
         }

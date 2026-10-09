@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "benchmark": "animus_telemetry_dispatch",
+  "generated_at_utc": "2026-10-04T18:45:29Z",
+  "methodology": "spsc_lock_free_ring_one_way_dispatch_latency",
+  "parameters": {
+    "warmup_events": 1000000,
+    "latency_phase_events": 1000000,
+    "throughput_phase_events": 9000000,
+    "total_measured_events": 10000000,
+    "latency_phase_in_flight_depth": 1,
+    "ring_capacity_slots": 16384,
+    "event_size_bytes": 64,
+    "cache_line_bytes": 64,
+    "producer_core": 0,
+    "consumer_core": 1,
+    "hot_loop_heap_allocations": 0
+  },
+  "latency_ns": {
+    "min": 38.4425,
+    "p50": 56.6303,
+    "p90": 66.551,
+    "p99": 76.0583,
+    "p99_9": 197.173,
+    "max": 151942
+  },
+  "throughput": {
+    "events_per_sec": 47830565,
+    "million_events_per_sec": 47.8306,
+    "wall_time_seconds": 0.188164
+  },
+  "system": {
+    "os": "Windows",
+    "compiler": "GCC 15.2.0",
+    "cpp_standard": "C++23",
+    "cpu_brand": "Intel(R) Core(TM) i7-14650HX",
+    "logical_cores": 24,
+    "clock_source": "RDTSC (lfence-serialized, calibrated)",
+    "calibration_units_per_ns": 2.4192
+  }
+}

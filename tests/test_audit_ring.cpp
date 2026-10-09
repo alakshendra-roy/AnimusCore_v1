@@ -57,10 +57,21 @@ namespace {
 
 AccessToken token_for(uint64_t principal) { return AccessToken{ 1, principal, Role::Operator }; }
 
+// Optimization barrier. [expr.new] lets a compiler drop a new/delete pair whose storage is never
+// observed, and clang does at -O2 -- which would make the check below fail for the wrong reason
+// (the counter is fine; the allocation never happened).
+#if defined(_MSC_VER)
+void* volatile g_escape_sink = nullptr;
+inline void escape(void* p) noexcept { g_escape_sink = p; }
+#else
+inline void escape(void* p) noexcept { asm volatile("" : : "g"(p) : "memory"); }
+#endif
+
 void test_counter_sanity() {
     std::printf("test_counter_sanity\n");
     const uint64_t before = g_allocations.load();
     int* p = new int(7);
+    escape(p);
     check(g_allocations.load() == before + 1, "the allocation counter sees a deliberate new");
     delete p;
 }

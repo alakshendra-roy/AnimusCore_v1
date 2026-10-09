@@ -43,8 +43,11 @@ echo "Using compiler: ${CXX} ($(${CXX} --version | head -1))"
 
 mkdir -p "${BUILD_DIR}"
 
-COMMON_FLAGS=(-std=c++17 -Wall -Wextra -Wpedantic -I"${REPO_ROOT}/include")
+COMMON_FLAGS=(-std=c++17 -Wall -Wextra -Wpedantic -Werror -I"${REPO_ROOT}/include")
 LIBS=(-lpthread) # thread_affinity.hpp/shm_ipc.hpp's POSIX path -- must follow the source on the link line
+if [[ "$(uname -s)" == "Linux" ]]; then
+    LIBS+=(-lrt) # shm_open/shm_unlink live in librt on glibc < 2.34 (a harmless stub on newer glibc)
+fi
 
 echo
 echo "=== Building hardened release target: ${BUILD_DIR}/harness_benchmark ==="

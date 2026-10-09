@@ -1,0 +1,19 @@
+Output of GetLogicalProcessorInformationEx(RelationProcessorCore) on the measurement machine (Intel Core i7-14650HX).
+efficiency-class 1 = Performance core, 0 = Efficiency core; smt=1 means the listed logical processors are hyperthreads of ONE physical core.
+
+physical core  0  efficiency-class 1  smt=1  logical processors: 0 1
+physical core  1  efficiency-class 1  smt=1  logical processors: 2 3
+physical core  2  efficiency-class 1  smt=1  logical processors: 4 5
+physical core  3  efficiency-class 1  smt=1  logical processors: 6 7
+physical core  4  efficiency-class 1  smt=1  logical processors: 8 9
+physical core  5  efficiency-class 1  smt=1  logical processors: 10 11
+physical core  6  efficiency-class 1  smt=1  logical processors: 12 13
+physical core  7  efficiency-class 1  smt=1  logical processors: 14 15
+physical core  8  efficiency-class 0  smt=0  logical processors: 16
+physical core  9  efficiency-class 0  smt=0  logical processors: 17
+physical core 10  efficiency-class 0  smt=0  logical processors: 18
+physical core 11  efficiency-class 0  smt=0  logical processors: 19
+physical core 12  efficiency-class 0  smt=0  logical processors: 20
+physical core 13  efficiency-class 0  smt=0  logical processors: 21
+physical core 14  efficiency-class 0  smt=0  logical processors: 22
+physical core 15  efficiency-class 0  smt=0  logical processors: 23
