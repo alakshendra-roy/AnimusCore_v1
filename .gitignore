@@ -277,3 +277,5 @@ X_POST.txt
 # never meant for the public repo, same never-public-repo category as
 # PERSONAL_FINANCIAL_BLUEPRINT.md above.
 /FOUNDER_LIFESTYLE_DOSSIER_2026.md
+**/soak_runs/
+quickstart/node.env

@@ -71,3 +71,4 @@
 *.js linguist-detectable=false
 docs/* linguist-documentation
 scripts/* linguist-vendored
+quickstart/*.sh text eol=lf
